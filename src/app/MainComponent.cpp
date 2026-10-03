@@ -501,8 +501,9 @@ void PianoStrip::updateRange()
             }
     if (low > high)
         low = 48, high = 83;
-    // Whole octaves, at least four, and one spare below and above.
-    low_ = std::clamp(low / 12 * 12 - 12, 0, 120);
+    // Whole octaves, at least four, and one spare below and above; the spare
+    // below stops at C1 unless a note sounds lower.
+    low_ = std::clamp(std::max(low / 12 * 12 - 12, std::min(24, low / 12 * 12)), 0, 120);
     high_ = std::clamp(high / 12 * 12 + 11 + 12, low_ + 47, 127);
 }
 
