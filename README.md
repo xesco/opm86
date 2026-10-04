@@ -62,6 +62,10 @@ The build writes these files:
 | `build/OPM86_artefacts/Release/VST3/OPM86.vst3` | The VST3 plugin, for most other hosts |
 | `build/OPM86_artefacts/Release/Standalone/OPM86.app` | The plugin as an application, with no host needed |
 
+To build only the command-line program and put it in the repository root as `./opm86`,
+run `make`. It configures the `build` folder the first time, and `make clean` removes
+`./opm86`.
+
 A host finds a plugin only in the plugin folders of your user account, so copy the plugin
 there:
 
