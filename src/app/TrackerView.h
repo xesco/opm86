@@ -143,6 +143,8 @@ private:
     // Meters: each chip channel belongs to the track of the note last started
     // on it, so a release still counts for its track.
     float trackLevel(int track) const; // loudest owned channel, linear, 1 at full scale
+    static constexpr float kMeterFloor = -48.0f, kMeterTop = 6.0f; // dB at the meter's ends
+    static constexpr float kMeterRelease = 36.0f;                  // dB a second
     struct Owner
     {
         int64_t start;
@@ -152,7 +154,7 @@ private:
     std::array<std::vector<Owner>, SongPlayer::kMeterChannels> owners_; // by start
     int ownersRevision_ = -1;
     std::array<float, SongPlayer::kMeterChannels> channelLevel_ {};
-    std::vector<float> level_, hold_; // per track, 0..1 along the meter
+    std::vector<float> level_, hold_; // per track, in dB
     std::vector<double> holdAge_;     // seconds since the hold was set
     bool hoverEdge_ = false;
 };

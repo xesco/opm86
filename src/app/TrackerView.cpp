@@ -357,22 +357,23 @@ void TrackerView::updateMeters(double seconds)
             std::stable_sort(o.begin(), o.end());
     }
 
-    // Channel levels fall back over about a third of a second; a track shows its loudest channel.
+    // Peak-meter ballistics, in dB: a hit shows at once and the level falls
+    // back at kMeterRelease; the peak hold waits a second, then falls too.
     const auto peaks = model_.takePeaks();
-    const float fall = static_cast<float>(std::pow(0.82, seconds * 60.0));
     for (size_t c = 0; c < peaks.size(); ++c)
-        channelLevel_[c] = model_.playing() ? std::max(peaks[c], channelLevel_[c] * fall) : channelLevel_[c] * fall;
-    level_.resize(tracks.size(), 0.0f);
-    hold_.resize(tracks.size(), 0.0f);
+        channelLevel_[c] = model_.playing() ? peaks[c] : 0.0f;
+    level_.resize(tracks.size(), kMeterFloor);
+    hold_.resize(tracks.size(), kMeterFloor);
     holdAge_.resize(tracks.size(), 0.0);
+    const float fall = static_cast<float>(seconds) * kMeterRelease;
     for (size_t t = 0; t < tracks.size(); ++t)
     {
-        // A cube-root scale, so quiet notes still show: a full-scale note fills the meter.
-        level_[t] = std::cbrt(trackLevel(static_cast<int>(t)));
+        const float db = juce::Decibels::gainToDecibels(trackLevel(static_cast<int>(t)), kMeterFloor);
+        level_[t] = std::max(db, level_[t] - fall);
         if (level_[t] >= hold_[t])
             hold_[t] = level_[t], holdAge_[t] = 0.0;
         else if ((holdAge_[t] += seconds) > 1.0)
-            hold_[t] = std::max(level_[t], hold_[t] - static_cast<float>(seconds) * 0.6f);
+            hold_[t] = std::max(level_[t], hold_[t] - fall * 0.5f);
     }
 }
 
@@ -808,29 +809,42 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.drawText(db, juce::Rectangle<int>(meter.getRight() - 80, mute.getY(), 80, mute.getHeight()), juce::Justification::centredRight);
         }
 
-        // The meter: a dark groove of cells, yellow to orange to red, always
-        // showing dimmed and lit up to the level, with a peak hold.
+        // The meter, as DAWs draw a peak meter: a dark groove with a bar
+        // along a dB scale, white for most of it, then yellow, orange and
+        // red over the last few dB, and a peak-hold line.
         {
             const auto groove = meterBounds(ti).toFloat();
-            // A silent track's whole meter goes neutral grey.
-            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
-            g.fillRoundedRectangle(groove, 3.0f);
-            g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
-            g.drawRoundedRectangle(groove, 3.0f, 1.0f);
-            const auto cellsArea = groove.reduced(2.0f, 2.0f);
-            const float level = t < level_.size() ? level_[t] : 0.0f;
-            const float hold = t < hold_.size() ? hold_[t] : 0.0f;
-            const int cells = static_cast<int>(cellsArea.getWidth() / 3.0f);
-            const float cell = cellsArea.getWidth() / static_cast<float>(cells);
-            const int held = static_cast<int>(hold * static_cast<float>(cells));
-            for (int k = 0; k < cells; ++k)
+            g.setColour(juce::Colour(0xff10121a));
+            g.fillRoundedRectangle(groove, 2.0f);
+            g.setColour(silent ? juce::Colour(0xff2c2d33) : theme::grid);
+            g.drawRoundedRectangle(groove, 2.0f, 1.0f);
+            const auto bar = groove.reduced(2.0f, 2.0f);
+            auto xAt = [&](float db) {
+                const float frac = juce::jlimit(0.0f, 1.0f, (db - kMeterFloor) / (kMeterTop - kMeterFloor));
+                return bar.getX() + frac * bar.getWidth();
+            };
+            // -12 and 0 dB marks under the bar.
+            g.setColour(theme::faint.withAlpha(0.6f));
+            for (const float db : { -12.0f, 0.0f })
+                g.fillRect(xAt(db), bar.getY(), 1.0f, bar.getHeight());
+
+            juce::ColourGradient zones(silent ? juce::Colour(0xff7a7b86) : juce::Colour(0xffeceaf4), bar.getX(), 0.0f,
+                                       silent ? juce::Colour(0xff7a7b86) : theme::danger, bar.getRight(), 0.0f, false);
+            if (!silent)
             {
-                const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
-                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > 0.9f ? theme::danger : frac > 0.7f ? theme::orange : theme::yellow;
-                const bool on = frac <= level || (k == held && hold > 0.02f);
-                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f));
-                g.fillRect(cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight());
+                auto stop = [&](float db, juce::Colour c) { zones.addColour((xAt(db) - bar.getX()) / bar.getWidth(), c); };
+                stop(-15.0f, juce::Colour(0xffeceaf4));
+                stop(-9.0f, theme::yellow);
+                stop(-4.0f, theme::orange);
+                stop(0.0f, theme::danger);
             }
+            const float level = t < level_.size() ? level_[t] : kMeterFloor;
+            const float hold = t < hold_.size() ? hold_[t] : kMeterFloor;
+            g.setGradientFill(zones);
+            if (level > kMeterFloor)
+                g.fillRect(bar.withRight(xAt(level)));
+            if (hold > kMeterFloor + 1.0f)
+                g.fillRect(juce::Rectangle<float>(xAt(hold) - 2.0f, bar.getY(), 2.0f, bar.getHeight()));
         }
 
         // The volume knob: a ring from silence to +6 dB lit up to the level,

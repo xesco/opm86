@@ -372,8 +372,9 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
     if (measure)
         for (size_t c = 0; c < peaks.size(); ++c)
         {
-            // FM channels reach 32767; a PCM channel 127 x 127.
-            const float level = static_cast<float>(peaks[c]) * (c < 8 ? kChipScale : 1.0f / 16129.0f);
+            // 1 is one FM carrier at full level (8192) or a PCM channel at
+            // 127 x 127; an FM channel adding up carriers goes past it.
+            const float level = static_cast<float>(peaks[c]) * (c < 8 ? 1.0f / 8192.0f : 1.0f / 16129.0f);
             if (level > peaks_[c].load(std::memory_order_relaxed))
                 peaks_[c].store(level, std::memory_order_relaxed);
         }
