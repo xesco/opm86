@@ -367,7 +367,7 @@ void TrackerView::updateMeters(double seconds)
     holdAge_.resize(tracks.size(), 0.0);
     for (size_t t = 0; t < tracks.size(); ++t)
     {
-        // The meter shares the fader's scale: a full-scale note at 0 dB fills it.
+        // A cube-root scale, so quiet notes still show: a full-scale note fills the meter.
         level_[t] = std::cbrt(trackLevel(static_cast<int>(t)));
         if (level_[t] >= hold_[t])
             hold_[t] = level_[t], holdAge_[t] = 0.0;
@@ -414,12 +414,14 @@ void TrackerView::zoomLanes(double factor, float y)
 }
 
 // Header layout. In a track's first row: the name with mute and solo on its
-// right, and under them the volume fader with its meter. At the right edge, a
-// chord part's voice toggles, one beside each row.
+// right, and under them the level meter; right of both, the volume knob. At
+// the right edge, a chord part's voice toggles, one beside each row.
 namespace
 {
 constexpr int kVoiceColumn = 44; // width of the voice toggles' column
-constexpr int kBlock = 44;       // height of the name and fader block
+constexpr int kKnobColumn = 40;  // width of the volume knob's column
+constexpr int kBlock = 44;       // height of the name and meter block
+constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
 }
 
 juce::Rectangle<int> TrackerView::voicePill(int track, int k) const
@@ -442,27 +444,35 @@ juce::Rectangle<int> TrackerView::pill(int track, int which) const
     return { name.getRight() + 8 + which * 26, name.getY(), 23, 17 };
 }
 
-juce::Rectangle<int> TrackerView::faderBounds(int track) const
+juce::Rectangle<int> TrackerView::knobBounds(int track) const
 {
-    // The full width, less the voice column when a chord part shows its toggles.
+    // Beside the block, before the voice column when a chord part shows its toggles.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
-    return { 14, top + 22, kHeaderWidth - (toggles ? kVoiceColumn : 0) - 18, 22 };
+    const int right = kHeaderWidth - (toggles ? kVoiceColumn : 0) - 4;
+    return { right - kKnobColumn + 4, top + (kBlock - 34) / 2, 34, 34 };
 }
 
-// The fader law: amplitude goes with the cube of the position, so the top is
-// +6 dB, 0 dB sits at four fifths, -12 dB near the middle, and the bottom
+juce::Rectangle<int> TrackerView::meterBounds(int track) const
+{
+    // The width up to the knob.
+    const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
+    return { 14, top + 25, knobBounds(track).getX() - 8 - 14, 16 };
+}
+
+// The knob law: amplitude goes with the cube of the position, so full right
+// is +6 dB, 0 dB sits at four fifths, -12 dB near the middle, and the first
 // twelfth is silence.
-float TrackerView::faderPosition(float volume)
+float TrackerView::knobPosition(float volume)
 {
     if (volume <= TuneTrack::kSilent)
         return 0.0f;
     return std::pow(10.0f, (std::min(volume, TuneTrack::kMaxVolume) - TuneTrack::kMaxVolume) / 60.0f);
 }
 
-float TrackerView::faderVolume(float position)
+float TrackerView::knobVolume(float position)
 {
-    if (position <= faderPosition(TuneTrack::kSilent + 0.01f))
+    if (position <= knobPosition(TuneTrack::kSilent + 0.01f))
         return TuneTrack::kSilent;
     return std::min(TuneTrack::kMaxVolume, TuneTrack::kMaxVolume + 60.0f * std::log10(position));
 }
@@ -754,7 +764,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.drawText(label, r, juce::Justification::centred);
         };
 
-        // Name, with mute and solo on its right, centred over the fader.
+        // Name, with mute and solo on its right, over the meter.
         const bool audible = model_.tune().audible(tr);
         const auto mute = pill(ti, 0);
         g.setColour(audible ? theme::text : theme::faint);
@@ -786,28 +796,27 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         }
 
         // The level in dB, always shown at the end of the name line.
-        const bool dragging = drag_ == Drag::Fader && dragTrack_ == ti;
+        const bool dragging = drag_ == Drag::Knob && dragTrack_ == ti;
+        const bool silent = !audible || tr.volume <= TuneTrack::kSilent;
         {
             const juce::String db = tr.volume <= TuneTrack::kSilent ? juce::String("-inf dB")
                                     : (tr.volume > 0.05f ? "+" : "") + juce::String(tr.volume, 1) + " dB";
-            g.setColour(dragging ? theme::cyan : !audible || tr.volume <= TuneTrack::kSilent ? theme::faint
+            g.setColour(dragging ? theme::cyan : silent ? theme::faint
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
             g.setFont(theme::mono(12.0f, true));
-            const auto fader = faderBounds(ti);
-            g.drawText(db, juce::Rectangle<int>(fader.getRight() - 80, mute.getY(), 80, mute.getHeight()), juce::Justification::centredRight);
+            const auto meter = meterBounds(ti);
+            g.drawText(db, juce::Rectangle<int>(meter.getRight() - 80, mute.getY(), 80, mute.getHeight()), juce::Justification::centredRight);
         }
 
-        // The fader: a dark groove holding the meter, a mark at 0 dB, and a console cap.
+        // The meter: a dark groove of cells, yellow to orange to red, always
+        // showing dimmed and lit up to the level, with a peak hold.
         {
-            const auto fader = faderBounds(ti).toFloat();
-            const bool silent = !audible || tr.volume <= TuneTrack::kSilent;
-            const auto groove = fader.withSizeKeepingCentre(fader.getWidth(), 16.0f);
+            const auto groove = meterBounds(ti).toFloat();
             // A silent track's whole meter goes neutral grey.
-            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff2a2c34));
+            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
             g.fillRoundedRectangle(groove, 3.0f);
             g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
             g.drawRoundedRectangle(groove, 3.0f, 1.0f);
-            // Meter cells: full at the chip's full scale, cyan to orange to red, with a peak hold.
             const auto cellsArea = groove.reduced(2.0f, 2.0f);
             const float level = t < level_.size() ? level_[t] : 0.0f;
             const float hold = t < hold_.size() ? hold_[t] : 0.0f;
@@ -817,38 +826,53 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             for (int k = 0; k < cells; ++k)
             {
                 const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
-                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > 0.93f ? theme::danger : frac > 0.78f ? theme::orange : theme::cyan;
+                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > 0.9f ? theme::danger : frac > 0.7f ? theme::orange : theme::yellow;
                 const bool on = frac <= level || (k == held && hold > 0.02f);
-                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : juce::Colour(0xff3d404b));
+                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f));
                 g.fillRect(cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight());
             }
-            // 0 dB, as the game played it.
-            const float zero = fader.getX() + faderPosition(0.0f) * fader.getWidth();
-            g.setColour(theme::dim);
-            g.fillRect(zero - 0.5f, fader.getY() - 1.0f, 1.0f, 3.0f);
-            g.fillRect(zero - 0.5f, fader.getBottom() - 2.0f, 1.0f, 3.0f);
+        }
 
-            // The cap: a raised block with grip ridges and a centre line.
-            const float x = juce::jlimit(fader.getX() + 6.0f, fader.getRight() - 6.0f,
-                                         fader.getX() + faderPosition(tr.volume) * fader.getWidth());
-            const auto cap = juce::Rectangle<float>(14.0f, 26.0f).withCentre({ x, fader.getCentreY() });
-            g.setColour(juce::Colours::black.withAlpha(0.5f));
-            g.fillRoundedRectangle(cap.translated(0.0f, 1.5f), 2.0f);
-            const juce::Colour light = dragging ? theme::cyan.brighter(0.4f) : silent ? juce::Colour(0xff8a8ca6) : juce::Colour(0xfff2f0ff);
-            const juce::Colour dark = dragging ? theme::cyan.darker(0.3f) : silent ? juce::Colour(0xff4f5270) : juce::Colour(0xff8f93bd);
-            g.setGradientFill(juce::ColourGradient(light, cap.getX(), cap.getY(), dark, cap.getX(), cap.getBottom(), false));
-            g.fillRoundedRectangle(cap, 2.0f);
-            g.setColour(juce::Colours::black.withAlpha(0.3f));
-            g.drawRoundedRectangle(cap.reduced(0.5f), 2.0f, 1.0f);
-            for (float dx : { -3.5f, 3.5f })
+        // The volume knob: a ring from silence to +6 dB lit up to the level,
+        // a tick at 0 dB, and a raised cap with a pointer.
+        {
+            const auto bounds = knobBounds(ti).toFloat();
+            const auto centre = bounds.getCentre();
+            const float radius = bounds.getWidth() * 0.5f - 2.0f;
+            const float angle = -kKnobArc + 2.0f * kKnobArc * knobPosition(tr.volume);
+            const juce::Colour accent = dragging ? theme::cyan.brighter(0.3f) : silent ? juce::Colour(0xff6a6c80) : theme::cyan;
+
+            juce::Path ring;
+            ring.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -kKnobArc, kKnobArc, true);
+            g.setColour(silent ? juce::Colour(0xff2c2d33) : juce::Colour(0xff2a2f4a));
+            g.strokePath(ring, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            if (tr.volume > TuneTrack::kSilent)
             {
-                g.setColour(juce::Colours::black.withAlpha(0.22f));
-                g.fillRect(x + dx - 0.5f, cap.getY() + 4.0f, 1.0f, cap.getHeight() - 8.0f);
-                g.setColour(juce::Colours::white.withAlpha(0.5f));
-                g.fillRect(x + dx + 0.5f, cap.getY() + 4.0f, 1.0f, cap.getHeight() - 8.0f);
+                juce::Path value;
+                value.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -kKnobArc, angle, true);
+                g.setColour(accent);
+                g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
-            g.setColour(theme::background);
-            g.fillRect(x - 1.0f, cap.getY() + 2.0f, 2.0f, cap.getHeight() - 4.0f);
+            // 0 dB, as the game played it.
+            const float zero = -kKnobArc + 2.0f * kKnobArc * knobPosition(0.0f);
+            const auto tickIn = centre.getPointOnCircumference(radius - 2.5f, zero);
+            const auto tickOut = centre.getPointOnCircumference(radius + 2.5f, zero);
+            g.setColour(theme::text.withAlpha(0.8f));
+            g.drawLine({ tickIn, tickOut }, 1.2f);
+
+            const auto cap = juce::Rectangle<float>(0, 0, (radius - 4.0f) * 2.0f, (radius - 4.0f) * 2.0f).withCentre(centre);
+            g.setColour(juce::Colours::black.withAlpha(0.5f));
+            g.fillEllipse(cap.translated(0.0f, 1.5f));
+            const juce::Colour light = silent ? juce::Colour(0xff6a6c84) : juce::Colour(0xffc9cbe8);
+            const juce::Colour dark = silent ? juce::Colour(0xff34364a) : juce::Colour(0xff4f5378);
+            g.setGradientFill(juce::ColourGradient(light, cap.getX(), cap.getY(), dark, cap.getX(), cap.getBottom(), false));
+            g.fillEllipse(cap);
+            g.setColour(juce::Colours::black.withAlpha(0.35f));
+            g.drawEllipse(cap.reduced(0.5f), 1.0f);
+            const auto tip = centre.getPointOnCircumference(cap.getWidth() * 0.5f - 2.5f, angle);
+            const auto base = centre.getPointOnCircumference(cap.getWidth() * 0.12f, angle);
+            g.setColour(dragging ? theme::cyan : theme::background);
+            g.drawLine({ base, tip }, 2.2f);
         }
 
         if (!voices.empty() && expanded(ti))
@@ -908,13 +932,17 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     {
         if (t < 0)
             return;
-        // The fader: Option-click puts it back to 0 dB.
-        if (faderBounds(t).expanded(4, 3).contains(p.toInt()))
+        // The knob turns as the pointer goes up or right; Option-click puts it back to 0 dB.
+        if (knobBounds(t).expanded(3).contains(p.toInt()))
         {
-            drag_ = Drag::Fader;
+            drag_ = Drag::Knob;
             dragTrack_ = t;
             dragStarted_ = false;
-            setVolume(t, e.mods.isAltDown() ? 0.0f : faderVolume((p.x - static_cast<float>(faderBounds(t).getX())) / static_cast<float>(faderBounds(t).getWidth())));
+            dragKnob_ = knobPosition(model_.tune().tracks[static_cast<size_t>(t)].volume);
+            if (e.mods.isAltDown())
+                setVolume(t, 0.0f);
+            else
+                repaint();
             return;
         }
         // Voice mutes, mute or solo.
@@ -972,10 +1000,12 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     if (!model_.hasTune())
         return;
     const auto p = e.position;
-    if (drag_ == Drag::Fader)
+    if (drag_ == Drag::Knob)
     {
-        const auto fader = faderBounds(dragTrack_);
-        setVolume(dragTrack_, faderVolume((p.x - static_cast<float>(fader.getX())) / static_cast<float>(fader.getWidth())));
+        // 200 pixels turn it end to end.
+        const float moved = (p.x - dragFrom_.x) - (p.y - dragFrom_.y);
+        const float position = juce::jlimit(0.0f, 1.0f, dragKnob_ + moved / 200.0f);
+        setVolume(dragTrack_, knobVolume(position));
         return;
     }
     if (drag_ == Drag::Ruler)
@@ -1086,7 +1116,7 @@ void TrackerView::setVolume(int track, float volume)
 void TrackerView::mouseDoubleClick(const juce::MouseEvent& e)
 {
     if (model_.hasTune() && e.position.x < kHeaderWidth)
-        if (const int t = yToTrack(e.position.y); t >= 0 && faderBounds(t).expanded(4, 3).contains(e.position.toInt()))
+        if (const int t = yToTrack(e.position.y); t >= 0 && knobBounds(t).expanded(3).contains(e.position.toInt()))
         {
             dragStarted_ = false;
             setVolume(t, 0.0f);
