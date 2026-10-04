@@ -47,6 +47,7 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify(const juce::MouseEvent&, float scale) override;
@@ -104,6 +105,15 @@ private:
     static float knobVolume(float position);                // and back
     void setVolume(int track, float volume);
 
+    // The buttons after the track count: 0 clears every mute and solo, 1
+    // solos the melody (the FM tracks), 2 the drums. Again, it clears them.
+    enum Corner { kReset, kMelody, kDrums, kCorners };
+    juce::Rectangle<int> cornerButton(int which) const;
+    int cornerAt(juce::Point<float> p) const; // -1 when on none
+    bool cornerOn(int which) const;           // melody or drums alone are soloed; reset: anything to clear
+    void pressCorner(int which);
+    void paintCorner(juce::Graphics&, int which);
+
     void paintRuler(juce::Graphics&);
     void paintLanes(juce::Graphics&);
     void paintHeaders(juce::Graphics&);
@@ -139,6 +149,7 @@ private:
     double dragDelta_ = 0;                 // move or resize amount, in samples, while dragging
     juce::Rectangle<float> box_;
     NoteRef hover_;
+    int hoverCorner_ = -1;
 
     // Meters: each chip channel belongs to the track of the note last started
     // on it, so a release still counts for its track.

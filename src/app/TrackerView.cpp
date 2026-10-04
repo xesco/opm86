@@ -907,6 +907,124 @@ void TrackerView::paintHeaders(juce::Graphics& g)
     g.setFont(theme::pixel(8.0f));
     g.drawText("TRACKS " + juce::String(tracks.size()).paddedLeft('0', 2), juce::Rectangle<int>(14, 0, kHeaderWidth, kRulerHeight),
                juce::Justification::centredLeft);
+    for (int k = 0; k < kCorners; ++k)
+        paintCorner(g, k);
+}
+
+juce::Rectangle<int> TrackerView::cornerButton(int which) const
+{
+    // Small square buttons after the count; reset a little apart from the two solos.
+    const juce::String title = "TRACKS " + juce::String(model_.tune().tracks.size()).paddedLeft('0', 2);
+    const int left = 14 + juce::GlyphArrangement::getStringWidthInt(theme::pixel(8.0f), title) + 14;
+    return { left + which * 25 + (which > kReset ? 5 : 0), (kRulerHeight - 18) / 2, 22, 18 };
+}
+
+int TrackerView::cornerAt(juce::Point<float> p) const
+{
+    if (!model_.hasTune() || p.y >= kRulerHeight || p.x >= kHeaderWidth)
+        return -1;
+    for (int k = 0; k < kCorners; ++k)
+        if (cornerButton(k).expanded(1).contains(p.toInt()))
+            return k;
+    return -1;
+}
+
+bool TrackerView::cornerOn(int which) const
+{
+    const auto& tracks = model_.tune().tracks;
+    if (which == kReset)
+        return std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.mute || t.solo || t.mutedVoices != 0; });
+    const auto kind = which == kMelody ? TuneTrack::Kind::Fm : TuneTrack::Kind::Drum;
+    return std::any_of(tracks.begin(), tracks.end(), [kind](const TuneTrack& t) { return t.kind == kind; })
+           && std::all_of(tracks.begin(), tracks.end(), [kind](const TuneTrack& t) { return t.solo == (t.kind == kind); });
+}
+
+void TrackerView::pressCorner(int which)
+{
+    if (which == kReset || cornerOn(which))
+    {
+        if (cornerOn(kReset))
+            model_.edit("Clear mute and solo", [](Tune& tune) {
+                for (TuneTrack& t : tune.tracks)
+                {
+                    t.mute = t.solo = false;
+                    t.mutedVoices = 0;
+                }
+            });
+        return;
+    }
+    const auto kind = which == kMelody ? TuneTrack::Kind::Fm : TuneTrack::Kind::Drum;
+    model_.edit(which == kMelody ? "Solo melody" : "Solo drums", [kind](Tune& tune) {
+        for (TuneTrack& t : tune.tracks)
+            t.solo = t.kind == kind;
+    });
+}
+
+void TrackerView::paintCorner(juce::Graphics& g, int which)
+{
+    // Lit like a solo when on; reset dims when there is nothing to clear.
+    const auto r = cornerButton(which).toFloat();
+    const bool on = which != kReset && cornerOn(which);
+    const bool idle = which == kReset && !cornerOn(kReset);
+    const bool hover = hoverCorner_ == which && !idle;
+    g.setColour(on ? theme::cyan : hover ? theme::panelLight.brighter(0.15f) : theme::background.withAlpha(0.7f));
+    g.fillRoundedRectangle(r, 4.0f);
+    g.setColour(on ? theme::cyan : hover ? theme::dim : theme::gridBar.brighter(0.3f).withAlpha(idle ? 0.5f : 1.0f));
+    g.drawRoundedRectangle(r.reduced(0.5f), 4.0f, 1.0f);
+    g.setColour(on ? theme::background : idle ? theme::faint : hover ? theme::text : theme::dim);
+
+    const auto b = r.withSizeKeepingCentre(12.0f, 12.0f);
+    const float x = b.getX(), y = b.getY();
+    if (which == kReset)
+    {
+        // A circular arrow, turning back.
+        const auto c = b.getCentre();
+        const float radius = 4.6f, from = 0.9f, to = juce::MathConstants<float>::twoPi - 0.15f;
+        juce::Path arc;
+        arc.addCentredArc(c.x, c.y, radius, radius, 0.0f, from, to, true);
+        g.strokePath(arc, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // The head at the arc's end, pointing on round.
+        const auto tip = c.getPointOnCircumference(radius, to);
+        const juce::Point<float> along { std::cos(to), std::sin(to) }, out { std::sin(to), -std::cos(to) };
+        juce::Path head;
+        head.addTriangle(tip + along * 3.2f, tip + out * 3.0f - along * 0.8f, tip - out * 3.0f - along * 0.8f);
+        g.fillPath(head);
+    }
+    else if (which == kMelody)
+    {
+        // Two beamed eighth notes.
+        juce::Path p;
+        const auto headAt = [&](float cx, float cy) {
+            juce::Path h;
+            h.addEllipse(-2.4f, -1.7f, 4.8f, 3.4f);
+            p.addPath(h, juce::AffineTransform::rotation(-0.4f).translated(cx, cy));
+        };
+        headAt(x + 2.6f, y + 10.0f);
+        headAt(x + 9.4f, y + 9.0f);
+        p.addRectangle(x + 4.3f, y + 2.0f, 1.2f, 8.0f);
+        p.addRectangle(x + 11.1f, y + 1.0f, 1.2f, 8.0f);
+        p.addQuadrilateral(x + 4.3f, y + 1.6f, x + 12.3f, y + 0.4f, x + 12.3f, y + 3.0f, x + 4.3f, y + 4.2f);
+        g.fillPath(p);
+    }
+    else
+    {
+        // A snare with two sticks crossing over it.
+        const juce::PathStrokeType stroke(1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+        juce::Path drum;
+        drum.addEllipse(x + 0.5f, y + 4.5f, 11.0f, 3.4f);
+        drum.startNewSubPath(x + 0.5f, y + 6.2f);
+        drum.lineTo(x + 0.5f, y + 9.6f);
+        drum.addCentredArc(x + 6.0f, y + 9.6f, 5.5f, 1.7f, 0.0f, -juce::MathConstants<float>::halfPi,
+                           -1.5f * juce::MathConstants<float>::pi, false); // the lower rim, left to right
+        drum.lineTo(x + 11.5f, y + 6.2f);
+        g.strokePath(drum, stroke);
+        juce::Path sticks;
+        sticks.startNewSubPath(x + 1.0f, y + 0.2f);
+        sticks.lineTo(x + 7.6f, y + 5.4f);
+        sticks.startNewSubPath(x + 11.0f, y + 0.2f);
+        sticks.lineTo(x + 4.4f, y + 5.4f);
+        g.strokePath(sticks, stroke);
+    }
 }
 
 // Mouse -----------------------------------------------------------------------
@@ -920,6 +1038,11 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     dragFrom_ = p;
     dragDelta_ = 0;
 
+    if (const int corner = cornerAt(p); corner >= 0)
+    {
+        pressCorner(corner);
+        return;
+    }
     if (p.y < kRulerHeight && p.x >= kHeaderWidth)
     {
         drag_ = Drag::Ruler;
@@ -1083,11 +1206,19 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
     bool edge = false;
     hover_ = noteAt(e.position, edge);
     hoverEdge_ = edge;
+    const int corner = cornerAt(e.position);
+    if (corner != hoverCorner_)
+    {
+        hoverCorner_ = corner;
+        repaint(0, 0, kHeaderWidth, kRulerHeight);
+    }
     setMouseCursor(hover_.valid() && edge ? juce::MouseCursor::LeftRightResizeCursor
                    : hover_.valid()       ? juce::MouseCursor::DraggingHandCursor
-                   : e.position.y < kRulerHeight && e.position.x > kHeaderWidth ? juce::MouseCursor::PointingHandCursor
-                                                                                 : juce::MouseCursor::NormalCursor);
-    if (hover_.valid())
+                   : corner >= 0 || (e.position.y < kRulerHeight && e.position.x > kHeaderWidth) ? juce::MouseCursor::PointingHandCursor
+                                                                                                 : juce::MouseCursor::NormalCursor);
+    if (corner >= 0)
+        setTooltip(corner == kReset ? "Clear every mute and solo" : corner == kMelody ? "Solo the melody; again to clear" : "Solo the drums; again to clear");
+    else if (hover_.valid())
     {
         const int i = indexOf(hover_);
         const auto& tr = model_.tune().tracks[static_cast<size_t>(hover_.track)];
@@ -1098,6 +1229,15 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
     }
     else
         setTooltip({});
+}
+
+void TrackerView::mouseExit(const juce::MouseEvent&)
+{
+    if (hoverCorner_ >= 0)
+    {
+        hoverCorner_ = -1;
+        repaint(0, 0, kHeaderWidth, kRulerHeight);
+    }
 }
 
 void TrackerView::setVolume(int track, float volume)
