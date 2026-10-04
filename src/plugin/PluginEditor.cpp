@@ -392,6 +392,7 @@ OpmEditor::OpmEditor(OpmProcessor& p)
 
     keyboard_.setAvailableRange(24, 108);
     keyboard_.setLowestVisibleKey(24);
+    keyboard_.setOctaveForMiddleC(4); // MIDI 60 is C4, so the keys run C1 to C8
     keyboard_.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, kPink);
     keyboard_.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, kOrange.withAlpha(0.4f));
 
