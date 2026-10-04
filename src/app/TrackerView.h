@@ -28,9 +28,16 @@ public:
     double visibleSamples() const;
     void setViewStart(double songTime);
     void zoomAround(double factor, float x);
-    float middle() const { return static_cast<float>(kHeaderWidth + getWidth()) * 0.5f; } // centre of the lanes
+    float middle() const { return static_cast<float>(headerWidth() + getWidth()) * 0.5f; } // centre of the lanes
+    int headerWidth() const { return layout().headerWidth; } // as wide as the tracks' names, knobs and voice toggles need
+    float lanesX() const { return static_cast<float>(headerWidth()); }      // where the lanes begin
     void followPlayhead(); // keeps the playhead in view while playing
+    void reveal(double songTime); // the view follows a playhead there as it does while playing: up to the middle, then scrolling
+    void fitTime();   // the whole song across, as far as the zoom goes
+    void fitTracks(); // every track's rows down, as far as the lane height goes
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
+    void wake(); // a mouse or key event anywhere: shows the playhead, which hides after a second without one
+    void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
@@ -52,10 +59,15 @@ public:
     void mouseMagnify(const juce::MouseEvent&, float scale) override;
     bool keyPressed(const juce::KeyPress&) override;
 
-    static constexpr int kHeaderWidth = 300;
     static constexpr int kRulerHeight = 30;
-    static constexpr int kMinLaneHeight = 46;
-    static constexpr int kMaxLaneHeight = 220;
+    // Lanes under kCompactHeight drop the meter and knob for one row with the
+    // name, mute, solo and instrument; under kMinimalHeight, only the name
+    // and small mute and solo.
+    static constexpr int kMinLaneHeight = 20;
+    static constexpr int kMinimalHeight = 28;
+    static constexpr int kCompactHeight = 46;
+    static constexpr int kMaxLaneHeight = 80;
+    static constexpr double kMinSamplesPerPixel = 50, kMaxSamplesPerPixel = 10000; // time zoom, in and out
 
 private:
     // A note by its track and its id, which edits keep.
@@ -78,6 +90,9 @@ private:
         std::vector<int> shown;                // per track: rows high, 1 for a collapsed chord part
         std::vector<int> firstRow;             // per track: rows above it; each row is one lane high
         int totalRows = 0;
+        int nameEnd = 0;        // the names' shared column ends here
+        int knobX = 0;          // the knobs' column, right after the widest name line
+        int headerWidth = 200;  // up to the knobs' column, and the voice toggles' when a chord part shows them
     };
 
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
@@ -100,6 +115,9 @@ private:
     juce::Rectangle<int> knobBounds(int track) const;       // the volume knob, right of the meter
     juce::Rectangle<int> disclosure(int track) const;       // a chord part's expand and collapse arrow
     bool expanded(int track) const;                          // a chord part showing a row per voice
+    bool compact() const { return laneHeight_ < kCompactHeight; }
+    bool minimal() const { return laneHeight_ < kMinimalHeight; }
+    int pillWidth() const { return minimal() ? 18 : 23; } // mute and solo
     static float knobPosition(float volume);                // dB to 0..1 round the knob
     static float knobVolume(float position);                // and back
     void setVolume(int track, float volume);
@@ -127,6 +145,8 @@ private:
     int laneHeight_ = 54;
     double laneHeightExact_ = 54; // the zoom, unrounded, so small pinch steps add up
     double snap_ = 0;
+    double lastActivity_ = 0; // milliseconds, when wake() was last called
+    bool keepPlayhead_ = false;
 
     std::set<NoteRef> selection_;
     std::set<int> collapsed_; // chord parts drawn in one lane
@@ -143,8 +163,7 @@ private:
     // Meters: each chip channel belongs to the track of the note last started
     // on it, so a release still counts for its track.
     float trackLevel(int track) const; // loudest owned channel, linear, 1 at full scale
-    static constexpr float kMeterFloor = -48.0f, kMeterTop = 6.0f; // dB at the meter's ends
-    static constexpr float kMeterRelease = 36.0f;                  // dB a second
+    static constexpr float kMeterFloor = -36.0f; // dB at the meter's left end; its right end is full scale
     struct Owner
     {
         int64_t start;
@@ -154,7 +173,7 @@ private:
     std::array<std::vector<Owner>, SongPlayer::kMeterChannels> owners_; // by start
     int ownersRevision_ = -1;
     std::array<float, SongPlayer::kMeterChannels> channelLevel_ {};
-    std::vector<float> level_, hold_; // per track, in dB
+    std::vector<float> level_, hold_; // per track, 0..1 along the meter
     std::vector<double> holdAge_;     // seconds since the hold was set
     bool hoverEdge_ = false;
 };

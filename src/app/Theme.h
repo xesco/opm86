@@ -10,6 +10,8 @@ namespace opm86::theme
 inline const juce::Colour background { 0xff0b0e1a };
 inline const juce::Colour panel { 0xff141a30 };
 inline const juce::Colour panelLight { 0xff1b2340 };
+inline const juce::Colour lane { 0xff171d33 };    // the tracks' ground, a step above the background
+inline const juce::Colour laneAlt { 0xff1b223a }; // every other track
 inline const juce::Colour grid { 0xff232b4d };
 inline const juce::Colour gridBar { 0xff39436f };
 inline const juce::Colour yellow { 0xffffd23d };

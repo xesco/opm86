@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, Play, Stop };
+    enum class Icon { Rewind, Play, Stop, Playhead, Reset, Instruments, Drums, FitTracks, FitTime, FitBoth, Home };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -20,15 +20,23 @@ private:
     Icon icon_;
 };
 
+// A slider with a home value, marked on its groove: a drag near it snaps
+// to it, and a double-click goes back to it.
+class SnapSlider : public juce::Slider
+{
+public:
+    void setHome(double home);
+    double snapValue(double attempted, DragMode) override;
+};
+
 // The transport and song display along the top: title, rewind, play and
-// stop, LED counters, tempo, snap, zoom and Open.
+// stop, LED counters, the file and Open.
 class TopBar : public juce::Component, public juce::TooltipClient
 {
 public:
     TopBar(AppModel& model, TrackerView& view);
 
-    void rewind();   // back to the song start, playing on if it was
-    void syncZoom(); // the zoom sliders follow the view, however it was zoomed
+    void rewind(); // back to the song start, playing on if it was
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -41,30 +49,144 @@ private:
     TrackerView& view_;
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     juce::TextButton open_ { "OPEN" };
-    juce::Slider timeZoom_, heightZoom_;
-    juce::Rectangle<int> timeCaption_, heightCaption_; // labels over the zoom sliders
-    juce::ComboBox snap_;
     juce::Rectangle<int> counters_, fileArea_;
+};
+
+// A jog wheel: turning it, by dragging round or with the scroll wheel,
+// reports how far in turns, clockwise forward; with Shift, a quarter as far.
+class JogWheel : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    std::function<void(double turns)> onTurn;
+
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    void turn(double turns, bool fine);
+    float angleAt(juce::Point<float> p) const;
+    float angle_ = 0, lastAngle_ = 0; // radians: the wheel's, and the pointer's at the last drag
+};
+
+// Choices in rows of a few, one lit: the snap grid's values.
+class GridPicker : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    GridPicker(juce::StringArray labels, int columns) : labels_(std::move(labels)), columns_(columns) {}
+    int selected() const { return selected_; }
+    void setSelected(int index) { selected_ = index, repaint(); }
+    std::function<void()> onChange;
+
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override { repaint(); }
+    void mouseExit(const juce::MouseEvent&) override { repaint(); }
+
+private:
+    juce::Rectangle<float> segment(int index) const;
+    juce::StringArray labels_;
+    int columns_;
+    int selected_ = 0;
+};
+
+// The tool bar under the top bar: snap, the playhead toggle, the tracks'
+// M/S shortcuts, speed and the jog wheel, the fit buttons and the zoom sliders.
+class ToolBar : public juce::Component
+{
+public:
+    ToolBar(AppModel& model, TrackerView& view);
+
+    void songOpened(); // a new song: its snap grid, and its first time zoom as the zoom's home
+    void syncZoom();   // the zoom sliders follow the view, however it was zoomed
+    void refresh();    // the M/S shortcuts light up as the tracks' solos stand
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+
+private:
+    enum class Only { None, Instruments, Drums };
+    Only soloed() const; // every instrument soloed and no drum, or the other way round
+    void soloOnly(Only only);
+
+    AppModel& model_;
+    TrackerView& view_;
+    GridPicker snap_ { { "OFF", "1", "1/2", "1/4", "1/8", "1/16" }, 3 };
+    IconButton keepPlayhead_ { IconButton::Icon::Playhead }; // on, the playhead never fades
+    IconButton reset_ { IconButton::Icon::Reset }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
+    IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
+    IconButton zoomHome_ { IconButton::Icon::Home }; // both zoom sliders back to their homes
+    SnapSlider speed_, heightZoom_, timeZoom_;
+    JogWheel jog_;
+    juce::Rectangle<int> speedCaption_, heightCaption_, timeCaption_; // labels over the sliders
+};
+
+// A strip under the tracks with a chevron that slides it down to a thin bar
+// and back up, and a grip in its top edge that drags it taller. Its content
+// keeps the open height while it slides, so it moves down with the strip's
+// top edge instead of squashing.
+class SlidingStrip : public juce::Component
+{
+public:
+    explicit SlidingStrip(const juce::String& name);
+
+    static constexpr int kClosedHeight = 20; // also the band at the top with the name and chevron
+    static constexpr int kEdge = 6;          // pixels at the top edge that drag the height
+    bool isOpen() const { return open_; }
+    void setOpen(bool open);
+    void setHeaderWidth(int width); // the tracks' header column, which the name and chevron sit in
+    int headerWidth() const { return headerWidth_; }
+    int openHeight = kClosedHeight;
+
+    std::function<void()> onSlide;    // the chevron was clicked
+    std::function<void(int)> onHeight; // the top edge was dragged: the height asked for
+    void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+
+protected:
+    juce::Rectangle<int> content() const { return { 0, 0, getWidth(), openHeight }; }
+    float contentAlpha() const; // 1 open, falling to 0 as the strip closes
+    void paintBar(juce::Graphics&, juce::Colour labelColour); // ground, top line, name and grip
+
+    // Mouse events below the top edge, while open.
+    virtual void contentDown(const juce::MouseEvent&) {}
+    virtual void contentDrag(const juce::MouseEvent&) {}
+    virtual juce::MouseCursor contentCursor() const { return juce::MouseCursor::NormalCursor; }
+
+private:
+    class Chevron : public juce::Button
+    {
+    public:
+        Chevron() : juce::Button("slide") {}
+        bool up = false;
+        void paintButton(juce::Graphics&, bool over, bool down) override;
+    };
+
+    juce::String name_;
+    Chevron chevron_;
+    bool open_ = true;
+    int headerWidth_ = 200;
+    bool resizing_ = false;
+    int resizeFromY_ = 0, resizeFromHeight_ = 0; // screen y and height where the edge drag began
 };
 
 // The whole song at a glance: note density per track and the visible window,
 // which can be dragged.
-class OverviewStrip : public juce::Component, private juce::ChangeListener
+class OverviewStrip : public SlidingStrip, private juce::ChangeListener
 {
 public:
     OverviewStrip(AppModel& model, TrackerView& view);
     ~OverviewStrip() override;
 
     void paint(juce::Graphics&) override;
-    void mouseDown(const juce::MouseEvent&) override;
-    void mouseDrag(const juce::MouseEvent&) override;
-    void mouseMove(const juce::MouseEvent&) override;
-
-    // Dragging the top edge asks for a new height.
-    std::function<void(int)> onHeight;
-    static constexpr int kEdge = 6;
 
 private:
+    void contentDown(const juce::MouseEvent&) override;
+    void contentDrag(const juce::MouseEvent&) override;
+    juce::MouseCursor contentCursor() const override { return juce::MouseCursor::DraggingHandCursor; }
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
     double songLength() const;
     juce::Rectangle<float> lanes() const;
@@ -74,16 +196,14 @@ private:
     juce::Image density_; // drawn once per edit
     int densityRevision_ = -1;
     double grabOffset_ = 0;
-    bool resizing_ = false;
-    int resizeFromY_ = 0, resizeFromHeight_ = 0; // screen y and height where the edge drag began
 };
 
 // A keyboard over the song's range, lighting the keys of the notes sounding
 // at the playhead in their pitch colours.
-class PianoStrip : public juce::Component
+class PianoStrip : public SlidingStrip
 {
 public:
-    explicit PianoStrip(AppModel& model) : model_(model) {}
+    explicit PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model) {}
     void paint(juce::Graphics&) override;
 
 private:
@@ -119,17 +239,32 @@ private:
     void updateTitle();           // the window's title: the app and the file open
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
 
+    // Any mouse event in the window wakes the tracks' playhead.
+    struct Activity : juce::MouseListener
+    {
+        explicit Activity(TrackerView& v) : view(v) {}
+        void mouseMove(const juce::MouseEvent&) override { view.wake(); }
+        void mouseDown(const juce::MouseEvent&) override { view.wake(); }
+        void mouseDrag(const juce::MouseEvent&) override { view.wake(); }
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override { view.wake(); }
+        void mouseMagnify(const juce::MouseEvent&, float) override { view.wake(); }
+        TrackerView& view;
+    };
+
     std::unique_ptr<juce::LookAndFeel> look_;
     AppModel model_;
     TrackerView view_ { model_ };
     TopBar top_ { model_, view_ };
+    ToolBar tools_ { model_, view_ };
     OverviewStrip overview_ { model_, view_ };
     PianoStrip piano_ { model_ };
     juce::TooltipWindow tooltips_ { this, 400 };
     std::unique_ptr<juce::FileChooser> chooser_;
     juce::String status_;
     bool dragOver_ = false;
-    int overviewHeight_ = 54; // dragged between its first size and twice that
+    int pianoHeight_ = 66, overviewHeight_ = 54; // dragged from their first size up to twice the keys' first size
+    double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
+    Activity activity_ { view_ };
     double lastFrame_ = 0;
     juce::VBlankAttachment vblank_ { this, [this](double timestamp) { frame(timestamp); } };
 };

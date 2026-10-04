@@ -11,6 +11,7 @@ namespace
 {
 
 constexpr int kTopHeight = 64;
+constexpr int kToolHeight = 44;
 constexpr int kOverviewHeight = 54;
 constexpr int kPianoHeight = 66;
 constexpr int kStatusHeight = 30;
@@ -67,6 +68,13 @@ public:
         g.fillRoundedRectangle(groove.withRight(pos), 3.0f);
         g.setColour(theme::gridBar);
         g.drawRoundedRectangle(groove, 3.0f, 1.0f);
+        // The home mark: a tick across the groove.
+        if (const juce::var& home = slider.getProperties()["home"]; !home.isVoid())
+        {
+            const auto hx = static_cast<float>(slider.getPositionOfValue(home));
+            g.setColour(theme::text.withAlpha(0.75f));
+            g.fillRoundedRectangle(hx - 1.0f, box.getCentreY() - 8.0f, 2.0f, 16.0f, 1.0f);
+        }
         const auto cap = juce::Rectangle<float>(10.0f, std::min(20.0f, box.getHeight())).withCentre({ pos, box.getCentreY() });
         g.setColour(juce::Colours::black.withAlpha(0.5f));
         g.fillRoundedRectangle(cap.translated(0.0f, 1.0f), 2.0f);
@@ -178,9 +186,104 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
         case Icon::Stop:
             p.addRectangle(box.reduced(1.0f));
             break;
+        case Icon::Playhead: // the playhead: a line under a small triangle
+            p.addTriangle(box.getCentreX() - 5.0f, box.getY(), box.getCentreX() + 5.0f, box.getY(), box.getCentreX(), box.getY() + 6.0f);
+            p.addRectangle(box.getCentreX() - 1.0f, box.getY(), 2.0f, box.getHeight());
+            break;
+        case Icon::Reset: // an arrow going back round a circle
+        {
+            const auto c = box.getCentre();
+            juce::Path arc;
+            arc.addCentredArc(c.x, c.y, 5.5f, 5.5f, 0.0f, 0.6f, 5.6f, true);
+            juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, arc);
+            const auto tip = c.getPointOnCircumference(5.5f, 0.6f);
+            p.addTriangle(tip.x - 3.5f, tip.y - 3.0f, tip.x + 3.0f, tip.y - 3.5f, tip.x + 0.5f, tip.y + 3.0f);
+            break;
+        }
+        case Icon::Instruments: // a quaver
+        {
+            const auto c = box.getCentre();
+            p.addEllipse(c.x - 5.5f, c.y + 1.5f, 6.0f, 5.0f);
+            p.addRectangle(c.x - 0.2f, c.y - 6.5f, 1.5f, 10.0f);
+            p.addTriangle(c.x + 1.3f, c.y - 6.5f, c.x + 5.5f, c.y - 3.0f, c.x + 1.3f, c.y - 2.0f);
+            break;
+        }
+        case Icon::Drums: // a drum, its skin on top
+        {
+            const auto c = box.getCentre();
+            juce::Path outline;
+            outline.addEllipse(c.x - 6.5f, c.y - 5.5f, 13.0f, 5.0f);
+            outline.startNewSubPath(c.x - 6.5f, c.y - 3.0f);
+            outline.lineTo(c.x - 6.5f, c.y + 3.5f);
+            outline.addCentredArc(c.x, c.y + 3.5f, 6.5f, 2.5f, 0.0f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, false);
+            outline.lineTo(c.x + 6.5f, c.y - 3.0f);
+            juce::PathStrokeType(1.5f).createStrokedPath(p, outline);
+            break;
+        }
+        case Icon::Home: // a house
+        {
+            const auto c = box.getCentre();
+            p.addTriangle(c.x - 7.0f, c.y - 0.5f, c.x + 7.0f, c.y - 0.5f, c.x, c.y - 7.0f);
+            p.addRectangle(c.x - 5.0f, c.y - 0.5f, 10.0f, 7.0f);
+            p.setUsingNonZeroWinding(false);
+            p.addRectangle(c.x - 1.5f, c.y + 2.5f, 3.0f, 4.0f); // the door, cut out
+            break;
+        }
+        case Icon::FitTracks: // arrows to the top and bottom edges
+        case Icon::FitTime:   // arrows to the left and right edges
+        case Icon::FitBoth:   // arrows to all four corners
+        {
+            const auto c = box.getCentre();
+            auto arrow = [&](float angle) {
+                // A line from near the centre with a head at the edge.
+                const auto tip = c.getPointOnCircumference(7.0f, angle);
+                const auto from = c.getPointOnCircumference(1.5f, angle);
+                juce::Path line;
+                line.startNewSubPath(from);
+                line.lineTo(tip);
+                juce::Path stroked;
+                juce::PathStrokeType(1.5f).createStrokedPath(stroked, line);
+                p.addPath(stroked);
+                const auto l = tip.getPointOnCircumference(4.0f, angle + juce::MathConstants<float>::pi * 0.8f);
+                const auto rr = tip.getPointOnCircumference(4.0f, angle - juce::MathConstants<float>::pi * 0.8f);
+                p.addTriangle(tip, l, rr);
+            };
+            const float pi = juce::MathConstants<float>::pi;
+            if (icon_ == Icon::FitTracks)
+                arrow(0.0f), arrow(pi);
+            else if (icon_ == Icon::FitTime)
+                arrow(pi * 0.5f), arrow(pi * 1.5f);
+            else
+                for (int k = 0; k < 4; ++k)
+                    arrow(pi * 0.25f + static_cast<float>(k) * pi * 0.5f);
+            // The edges the arrows reach.
+            if (icon_ == Icon::FitTracks)
+                p.addRectangle(box.getX(), box.getY() - 1.0f, box.getWidth(), 1.5f), p.addRectangle(box.getX(), box.getBottom() - 0.5f, box.getWidth(), 1.5f);
+            else if (icon_ == Icon::FitTime)
+                p.addRectangle(box.getX() - 1.0f, box.getY(), 1.5f, box.getHeight()), p.addRectangle(box.getRight() - 0.5f, box.getY(), 1.5f, box.getHeight());
+            break;
+        }
     }
     g.setColour(getToggleState() ? theme::background : over ? theme::text : theme::dim);
     g.fillPath(p);
+}
+
+// SnapSlider ------------------------------------------------------------------
+
+void SnapSlider::setHome(double home)
+{
+    getProperties().set("home", home); // the look draws the mark from it
+    setDoubleClickReturnValue(true, home);
+    repaint();
+}
+
+double SnapSlider::snapValue(double attempted, DragMode)
+{
+    // Within a twenty-fifth of the range of home, the value is home.
+    const juce::var& home = getProperties()["home"];
+    if (!home.isVoid() && std::abs(attempted - static_cast<double>(home)) < (getMaximum() - getMinimum()) / 25.0)
+        return home;
+    return attempted;
 }
 
 // TopBar ----------------------------------------------------------------------
@@ -191,10 +294,10 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     open_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
-    rewind_.setTooltip("Back to the start (Return)");
-    play_.setTooltip("Play from the playhead (Space)");
-    stop_.setTooltip("Stop; again to go back to the start (Space)");
-    open_.setTooltip("Open a VGM rip (Cmd+O)");
+    rewind_.setTooltip("Rewind (Return)");
+    play_.setTooltip("Play (Space)");
+    stop_.setTooltip("Stop (Space)");
+    open_.setTooltip("Open (Cmd+O)");
     rewind_.onClick = [this] { rewind(); };
     play_.onClick = [this] { model_.play(); };
     stop_.onClick = [this] {
@@ -207,59 +310,16 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (onOpen)
             onOpen();
     };
-    // Zoom sliders. Time goes on a log scale, right zooming in.
-    for (auto* slider : { &timeZoom_, &heightZoom_ })
-    {
-        slider->setSliderStyle(juce::Slider::LinearHorizontal);
-        slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        slider->setWantsKeyboardFocus(false);
-        addAndMakeVisible(slider);
-    }
-    timeZoom_.setRange(-std::log2(20000.0), -std::log2(4.0));
-    timeZoom_.setTooltip("Time zoom (pinch, Cmd+scroll, Cmd+= and Cmd+-)");
-    timeZoom_.onValueChange = [this] {
-        view_.zoomAround(view_.samplesPerPixel() / std::exp2(-timeZoom_.getValue()), view_.middle());
-    };
-    heightZoom_.setRange(TrackerView::kMinLaneHeight, TrackerView::kMaxLaneHeight, 1.0);
-    heightZoom_.setTooltip("Track height (Shift+pinch, Option+scroll, Option+Cmd+= and -)");
-    heightZoom_.onValueChange = [this] {
-        view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
-    };
     for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &open_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
     }
-
-    snap_.addItem("Snap off", 1);
-    snap_.addItem("Snap 1 bar", 2);
-    snap_.addItem("Snap 1/2", 3);
-    snap_.addItem("Snap 1/4", 4);
-    snap_.addItem("Snap 1/8", 5);
-    snap_.addItem("Snap 1/16", 6);
-    snap_.setSelectedId(6, juce::dontSendNotification);
-    snap_.setWantsKeyboardFocus(false);
-    snap_.setTooltip("Grid for moving and resizing notes");
-    snap_.onChange = [this] {
-        static constexpr int kDivision[] = { 0, 0, 1, 2, 4, 8, 16 };
-        const int division = kDivision[snap_.getSelectedId()];
-        const double bar = model_.hasTune() ? model_.tune().source().beatLength * 4 : 0;
-        view_.setSnap(division > 0 ? bar / division : 0);
-    };
-    addAndMakeVisible(snap_);
 }
 
 juce::String TopBar::getTooltip()
 {
     return model_.hasTune() && fileArea_.contains(getMouseXYRelative()) ? model_.file().getFullPathName() : juce::String();
-}
-
-void TopBar::syncZoom()
-{
-    if (!timeZoom_.isMouseButtonDown())
-        timeZoom_.setValue(-std::log2(view_.samplesPerPixel()), juce::dontSendNotification);
-    if (!heightZoom_.isMouseButtonDown())
-        heightZoom_.setValue(view_.laneHeight(), juce::dontSendNotification);
 }
 
 void TopBar::rewind()
@@ -279,32 +339,15 @@ void TopBar::resized()
     r.removeFromLeft(6);
     stop_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(14);
-    counters_ = r.removeFromLeft(std::max(360, r.getWidth() - 500));
     open_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
-    // Two zoom sliders, each under its caption.
-    auto group = [&](juce::Slider& slider, juce::Rectangle<int>& caption) {
-        auto g = r.removeFromRight(130);
-        caption = g.removeFromTop(12);
-        slider.setBounds(g);
-        r.removeFromRight(14);
-    };
-    group(timeZoom_, timeCaption_);
-    group(heightZoom_, heightCaption_);
-    syncZoom();
-    snap_.setBounds(r.removeFromRight(120));
-    snap_.onChange();
+    counters_ = r;
 }
 
 void TopBar::paint(juce::Graphics& g)
 {
     g.setGradientFill(juce::ColourGradient(theme::panelLight, 0, 0, theme::panel, 0, static_cast<float>(getHeight()), false));
     g.fillAll();
-    // The sunset stripe along the bottom edge.
-    juce::ColourGradient stripe(theme::orange, 0, 0, theme::cyan, static_cast<float>(getWidth()), 0, false);
-    stripe.addColour(0.5, theme::magenta);
-    g.setGradientFill(stripe);
-    g.fillRect(0, getHeight() - 2, getWidth(), 2);
 
     // Title.
     auto title = juce::Rectangle<int>(16, 12, 190, getHeight() - 24);
@@ -329,7 +372,7 @@ void TopBar::paint(juce::Graphics& g)
         c.removeFromLeft(6);
         drawLed(g, c.removeFromLeft(120), "TIME", clock(p), theme::cyan);
         c.removeFromLeft(6);
-        drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo(), 1), theme::magenta);
+        drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
         c.removeFromLeft(10);
         g.setFont(theme::mono(13.0f, true));
         g.setColour(theme::text);
@@ -341,20 +384,444 @@ void TopBar::paint(juce::Graphics& g)
     }
     else
         drawLed(g, c.removeFromLeft(130), "BAR.BEAT", "---.-.-", theme::faint);
+}
+
+// JogWheel --------------------------------------------------------------------
+
+float JogWheel::angleAt(juce::Point<float> p) const
+{
+    const auto c = getLocalBounds().toFloat().getCentre();
+    return std::atan2(p.y - c.y, p.x - c.x);
+}
+
+void JogWheel::turn(double turns, bool fine)
+{
+    turns *= fine ? 0.25 : 1.0;
+    angle_ += static_cast<float>(turns * juce::MathConstants<double>::twoPi);
+    repaint();
+    if (onTurn)
+        onTurn(turns);
+}
+
+void JogWheel::mouseDown(const juce::MouseEvent& e)
+{
+    lastAngle_ = angleAt(e.position);
+}
+
+void JogWheel::mouseDrag(const juce::MouseEvent& e)
+{
+    // Round the centre, by the change in the pointer's angle.
+    const float a = angleAt(e.position);
+    float d = a - lastAngle_;
+    if (d > juce::MathConstants<float>::pi)
+        d -= juce::MathConstants<float>::twoPi;
+    else if (d < -juce::MathConstants<float>::pi)
+        d += juce::MathConstants<float>::twoPi;
+    lastAngle_ = a;
+    turn(d / juce::MathConstants<float>::twoPi, e.mods.isShiftDown());
+}
+
+void JogWheel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    // Scrolling down or right goes forward, a quarter turn for a full flick.
+    const float delta = std::abs(w.deltaX) > std::abs(w.deltaY) ? w.deltaX : -w.deltaY;
+    turn(delta * 0.25, e.mods.isShiftDown());
+}
+
+void JogWheel::paint(juce::Graphics& g)
+{
+    // A round, lit-from-above wheel with finger dimples and a cyan mark.
+    const auto box = getLocalBounds().toFloat().reduced(1.0f);
+    const float size = std::min(box.getWidth(), box.getHeight());
+    const auto face = juce::Rectangle<float>(size, size).withCentre(box.getCentre());
+    const auto c = face.getCentre();
+    const bool over = isMouseOverOrDragging();
+    g.setColour(juce::Colours::black.withAlpha(0.5f));
+    g.fillEllipse(face.translated(0.0f, 1.5f));
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff4f5378), face.getX(), face.getY(), juce::Colour(0xff23263a), face.getX(),
+                                           face.getBottom(), false));
+    g.fillEllipse(face);
+    g.setColour(over ? theme::cyan : theme::gridBar.brighter(0.3f));
+    g.drawEllipse(face.reduced(0.5f), 1.0f);
+    for (int k = 0; k < 8; ++k)
+    {
+        const auto dimple = c.getPointOnCircumference(size * 0.32f, angle_ + static_cast<float>(k) * juce::MathConstants<float>::pi / 4.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.fillEllipse(juce::Rectangle<float>(3.0f, 3.0f).withCentre(dimple));
+    }
+    g.setColour(theme::cyan);
+    g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(c.getPointOnCircumference(size * 0.32f, angle_)));
+}
+
+// GridPicker ------------------------------------------------------------------
+
+juce::Rectangle<float> GridPicker::segment(int index) const
+{
+    const int rows = (labels_.size() + columns_ - 1) / columns_;
+    const float w = static_cast<float>(getWidth()) / static_cast<float>(columns_);
+    const float h = static_cast<float>(getHeight()) / static_cast<float>(rows);
+    return { w * static_cast<float>(index % columns_), h * static_cast<float>(index / columns_), w, h };
+}
+
+void GridPicker::paint(juce::Graphics& g)
+{
+    // One rounded groove split into cells; the chosen one lit cyan.
+    const auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(theme::background);
+    g.fillRoundedRectangle(r, 4.0f);
+    const auto mouse = getMouseXYRelative().toFloat();
+    g.setFont(theme::mono(11.0f, true));
+    for (int k = 0; k < labels_.size(); ++k)
+    {
+        const auto s = segment(k).reduced(1.5f);
+        const bool on = k == selected_, over = isMouseOver() && segment(k).contains(mouse);
+        if (on || over)
+        {
+            g.setColour(on ? theme::cyan : theme::panelLight);
+            g.fillRoundedRectangle(s, 3.0f);
+        }
+        g.setColour(on ? theme::background : over ? theme::text : theme::dim);
+        g.drawText(labels_[k], s, juce::Justification::centred);
+        // A faint line before each cell in a row, but not beside the lit one.
+        if (k % columns_ > 0 && !on && k - 1 != selected_)
+        {
+            const auto cell = segment(k);
+            g.setColour(theme::grid);
+            g.fillRect(cell.getX(), cell.getY() + 3.0f, 1.0f, cell.getHeight() - 6.0f);
+        }
+    }
+    g.setColour(theme::gridBar);
+    g.drawRoundedRectangle(r, 4.0f, 1.0f);
+}
+
+void GridPicker::mouseDown(const juce::MouseEvent& e)
+{
+    for (int k = 0; k < labels_.size(); ++k)
+        if (segment(k).contains(e.position) && k != selected_)
+        {
+            setSelected(k);
+            if (onChange)
+                onChange();
+        }
+}
+
+// ToolBar ---------------------------------------------------------------------
+
+ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
+{
+    snap_.setSelected(5); // 1/16
+    snap_.setTooltip("Snap grid");
+    snap_.onChange = [this] {
+        static constexpr int kDivision[] = { 0, 1, 2, 4, 8, 16 }; // bars split this many ways; 0 is off
+        const int division = kDivision[snap_.selected()];
+        const double bar = model_.hasTune() ? model_.tune().source().beatLength * 4 : 0;
+        view_.setSnap(division > 0 ? bar / division : 0);
+    };
+    addAndMakeVisible(snap_);
+
+    keepPlayhead_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    keepPlayhead_.setClickingTogglesState(true);
+    keepPlayhead_.setTooltip("Keep playhead");
+    keepPlayhead_.onClick = [this] { view_.setKeepPlayhead(keepPlayhead_.getToggleState()); };
+    reset_.setTooltip("Reset mix");
+    reset_.onClick = [this] {
+        if (model_.hasTune())
+            model_.edit("Reset mix", [](Tune& tune) {
+                // Every track as the game played it: heard, at 0 dB.
+                for (auto& tr : tune.tracks)
+                    tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
+            });
+    };
+    instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    instruments_.setTooltip("Only instruments");
+    instruments_.onClick = [this] { soloOnly(Only::Instruments); };
+    drums_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
+    drums_.setTooltip("Only drums");
+    drums_.onClick = [this] { soloOnly(Only::Drums); };
+    fitTracks_.setTooltip("Fit tracks");
+    fitTracks_.onClick = [this] { view_.fitTracks(); };
+    fitTime_.setTooltip("Fit time");
+    fitTime_.onClick = [this] { view_.fitTime(); };
+    fitBoth_.setTooltip("Fit both");
+    fitBoth_.onClick = [this] { view_.fitTracks(), view_.fitTime(); };
+    zoomHome_.setTooltip("Default zoom");
+    zoomHome_.onClick = [this] {
+        for (auto* slider : { &heightZoom_, &timeZoom_ })
+            if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
+                slider->setValue(home, juce::sendNotificationSync);
+    };
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &reset_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    {
+        b->setWantsKeyboardFocus(false);
+        addAndMakeVisible(b);
+    }
+
+    // Speed on a log scale, 25% to 200%, home at 100%.
+    for (auto* slider : { &speed_, &heightZoom_, &timeZoom_ })
+    {
+        slider->setSliderStyle(juce::Slider::LinearHorizontal);
+        slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        slider->setWantsKeyboardFocus(false);
+        addAndMakeVisible(slider);
+    }
+    speed_.setRange(-2.0, 1.0);
+    speed_.setValue(0.0, juce::dontSendNotification);
+    speed_.setHome(0.0);
+    speed_.setTooltip("Speed");
+    speed_.onValueChange = [this] {
+        model_.setSpeed(std::exp2(speed_.getValue()));
+        repaint();
+    };
+    jog_.setTooltip("Jog");
+    jog_.onTurn = [this](double turns) {
+        // A turn is a bar. The wheel takes over from playback, which waits
+        // for Play, and lets each place it reaches sound; the view follows.
+        if (!model_.hasTune())
+            return;
+        double from = model_.position();
+        if (model_.playing())
+        {
+            from = model_.displayPosition();
+            model_.stop();
+        }
+        model_.scrub(std::max(0.0, from + turns * model_.tune().source().beatLength * 4));
+        view_.reveal(model_.position());
+    };
+    addAndMakeVisible(jog_);
+
+    // Zoom. Time goes on a log scale, right zooming in.
+    timeZoom_.setRange(-std::log2(TrackerView::kMaxSamplesPerPixel), -std::log2(TrackerView::kMinSamplesPerPixel));
+    timeZoom_.setTooltip("Time zoom");
+    timeZoom_.onValueChange = [this] {
+        view_.zoomAround(view_.samplesPerPixel() / std::exp2(-timeZoom_.getValue()), view_.middle());
+    };
+    heightZoom_.setRange(TrackerView::kMinLaneHeight, TrackerView::kMaxLaneHeight, 1.0);
+    heightZoom_.setHome(view_.laneHeight()); // the lanes' first height
+    heightZoom_.setTooltip("Track height");
+    heightZoom_.onValueChange = [this] {
+        view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
+    };
+}
+
+void ToolBar::songOpened()
+{
+    snap_.onChange();
+    timeZoom_.setHome(-std::log2(view_.samplesPerPixel()));
+    syncZoom();
+    refresh();
+}
+
+void ToolBar::syncZoom()
+{
+    if (!timeZoom_.isMouseButtonDown())
+        timeZoom_.setValue(-std::log2(view_.samplesPerPixel()), juce::dontSendNotification);
+    if (!heightZoom_.isMouseButtonDown())
+        heightZoom_.setValue(view_.laneHeight(), juce::dontSendNotification);
+}
+
+ToolBar::Only ToolBar::soloed() const
+{
+    if (!model_.hasTune())
+        return Only::None;
+    bool fm = false, fmAll = true, drums = false, drumsAll = true;
+    for (const auto& tr : model_.tune().tracks)
+    {
+        const bool drum = tr.kind == TuneTrack::Kind::Drum;
+        (drum ? drums : fm) = (drum ? drums : fm) || tr.solo;
+        (drum ? drumsAll : fmAll) = (drum ? drumsAll : fmAll) && tr.solo;
+    }
+    return fmAll && fm && !drums ? Only::Instruments : drumsAll && drums && !fm ? Only::Drums : Only::None;
+}
+
+void ToolBar::soloOnly(Only chosen)
+{
+    // Solo every track of one kind and none of the other, so one "only"
+    // turns the other off; again, and no track is soloed.
+    if (!model_.hasTune())
+        return;
+    const bool off = soloed() == chosen;
+    model_.edit(off ? "Solo none" : chosen == Only::Instruments ? "Solo instruments" : "Solo drums", [off, chosen](Tune& tune) {
+        for (auto& tr : tune.tracks)
+            tr.solo = !off && (tr.kind == TuneTrack::Kind::Drum) == (chosen == Only::Drums);
+    });
+}
+
+void ToolBar::refresh()
+{
+    const Only only = soloed();
+    instruments_.setToggleState(only == Only::Instruments, juce::dontSendNotification);
+    drums_.setToggleState(only == Only::Drums, juce::dontSendNotification);
+}
+
+void ToolBar::resized()
+{
+    // Groups left to right, a wider gap between them; the zoom at the right.
+    auto r = getLocalBounds().reduced(14, 0).withTrimmedBottom(2);
+    auto button = [&](juce::Component& c, int width = 34) {
+        c.setBounds(r.removeFromLeft(width).withSizeKeepingCentre(width, 28));
+        r.removeFromLeft(6);
+    };
+    auto group = [&](juce::Slider& slider, juce::Rectangle<int>& caption, juce::Rectangle<int> g) {
+        g = g.withSizeKeepingCentre(g.getWidth(), 34);
+        caption = g.removeFromTop(12);
+        slider.setBounds(g);
+    };
+    button(keepPlayhead_);
+    r.removeFromLeft(10);
+    button(reset_);
+    button(instruments_);
+    button(drums_);
+    r.removeFromLeft(10);
+    group(speed_, speedCaption_, r.removeFromLeft(140));
+    r.removeFromLeft(8);
+    jog_.setBounds(r.removeFromLeft(34).withSizeKeepingCentre(34, 34));
+
+    group(timeZoom_, timeCaption_, r.removeFromRight(130));
+    r.removeFromRight(14);
+    group(heightZoom_, heightCaption_, r.removeFromRight(130));
+    r.removeFromRight(14);
+    zoomHome_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
+    r.removeFromRight(6);
+    fitBoth_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
+    r.removeFromRight(6);
+    fitTime_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
+    r.removeFromRight(6);
+    fitTracks_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
+    r.removeFromRight(14);
+    snap_.setBounds(r.removeFromRight(114).withSizeKeepingCentre(114, 36));
+    syncZoom();
+}
+
+void ToolBar::paint(juce::Graphics& g)
+{
+    g.fillAll(theme::panel);
+    g.setColour(theme::grid);
+    g.fillRect(0, 0, getWidth(), 1);
+    // The sunset stripe along the bottom edge.
+    juce::ColourGradient stripe(theme::orange, 0, 0, theme::cyan, static_cast<float>(getWidth()), 0, false);
+    stripe.addColour(0.5, theme::magenta);
+    g.setGradientFill(stripe);
+    g.fillRect(0, getHeight() - 2, getWidth(), 2);
 
     g.setFont(theme::mono(11.0f, true));
     g.setColour(theme::dim);
-    g.drawText("TIME", timeCaption_, juce::Justification::centred);
+    g.drawText("SPEED " + juce::String(juce::roundToInt(model_.speed() * 100.0)) + "%", speedCaption_, juce::Justification::centred);
     g.drawText("HEIGHT", heightCaption_, juce::Justification::centred);
+    g.drawText("TIME", timeCaption_, juce::Justification::centred);
+}
+
+// SlidingStrip ----------------------------------------------------------------
+
+SlidingStrip::SlidingStrip(const juce::String& name) : name_(name)
+{
+    chevron_.setWantsKeyboardFocus(false);
+    chevron_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    chevron_.setTooltip("Hide " + name.toLowerCase());
+    chevron_.onClick = [this] {
+        if (onSlide)
+            onSlide();
+    };
+    addAndMakeVisible(chevron_);
+}
+
+void SlidingStrip::setOpen(bool open)
+{
+    open_ = open;
+    chevron_.up = !open;
+    chevron_.setTooltip((open ? "Hide " : "Show ") + name_.toLowerCase());
+    chevron_.repaint();
+}
+
+void SlidingStrip::setHeaderWidth(int width)
+{
+    if (width == headerWidth_)
+        return;
+    headerWidth_ = width;
+    resized();
+    repaint();
+}
+
+void SlidingStrip::resized()
+{
+    // At the right of the header column, level with the name.
+    chevron_.setBounds(headerWidth_ - 36, (kClosedHeight - 16) / 2 + 1, 24, 16);
+}
+
+void SlidingStrip::mouseMove(const juce::MouseEvent& e)
+{
+    setMouseCursor(!open_ ? juce::MouseCursor::NormalCursor : e.y < kEdge ? juce::MouseCursor::UpDownResizeCursor : contentCursor());
+}
+
+void SlidingStrip::mouseDown(const juce::MouseEvent& e)
+{
+    resizing_ = open_ && e.y < kEdge;
+    if (resizing_)
+    {
+        resizeFromY_ = e.getScreenY();
+        resizeFromHeight_ = getHeight();
+    }
+    else if (open_)
+        contentDown(e);
+}
+
+void SlidingStrip::mouseDrag(const juce::MouseEvent& e)
+{
+    if (resizing_)
+    {
+        // By screen position: the strip moves as it grows.
+        if (onHeight)
+            onHeight(resizeFromHeight_ + resizeFromY_ - e.getScreenY());
+    }
+    else if (open_)
+        contentDrag(e);
+}
+
+float SlidingStrip::contentAlpha() const
+{
+    return juce::jlimit(0.0f, 1.0f, static_cast<float>(getHeight() - kClosedHeight) / static_cast<float>(std::max(1, openHeight - kClosedHeight)));
+}
+
+void SlidingStrip::paintBar(juce::Graphics& g, juce::Colour labelColour)
+{
+    g.fillAll(theme::panel);
+    g.setColour(theme::gridBar);
+    g.fillRect(0, 0, getWidth(), 1);
+    g.setFont(theme::pixel(8.0f));
+    g.setColour(labelColour);
+    g.drawText(name_, juce::Rectangle<int>(14, 1, headerWidth_, kClosedHeight), juce::Justification::centredLeft);
+    // The grip in the top edge, over the middle of the keys.
+    if (const float alpha = contentAlpha(); alpha > 0.0f)
+    {
+        g.setColour(juce::Colour(0xffc4c6e4).withAlpha(alpha));
+        const float middle = static_cast<float>(headerWidth_ + getWidth()) * 0.5f;
+        g.fillRoundedRectangle(middle - 18.0f, 2.0f, 36.0f, 2.0f, 1.0f);
+    }
+}
+
+void SlidingStrip::Chevron::paintButton(juce::Graphics& g, bool over, bool)
+{
+    const auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(over ? theme::panelLight : theme::background);
+    g.fillRoundedRectangle(r, 4.0f);
+    g.setColour(over ? theme::dim : theme::gridBar);
+    g.drawRoundedRectangle(r, 4.0f, 1.0f);
+    // Down to slide the strip away, up to bring it back.
+    const auto c = r.getCentre();
+    juce::Path p;
+    if (up)
+        p.addTriangle(c.x - 4.0f, c.y + 2.0f, c.x + 4.0f, c.y + 2.0f, c.x, c.y - 2.5f);
+    else
+        p.addTriangle(c.x - 4.0f, c.y - 2.0f, c.x + 4.0f, c.y - 2.0f, c.x, c.y + 2.5f);
+    g.setColour(over ? theme::text : theme::dim);
+    g.fillPath(p);
 }
 
 // OverviewStrip ---------------------------------------------------------------
 
-OverviewStrip::OverviewStrip(AppModel& model, TrackerView& view) : model_(model), view_(view)
+OverviewStrip::OverviewStrip(AppModel& model, TrackerView& view) : SlidingStrip("OVERVIEW"), model_(model), view_(view)
 {
     model_.addChangeListener(this);
     view_.addChangeListener(this);
-    setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
 OverviewStrip::~OverviewStrip()
@@ -376,23 +843,17 @@ double OverviewStrip::songLength() const
 
 juce::Rectangle<float> OverviewStrip::lanes() const
 {
-    return getLocalBounds().toFloat().withTrimmedLeft(TrackerView::kHeaderWidth).reduced(8.0f, 7.0f);
+    return content().toFloat().withTrimmedLeft(static_cast<float>(headerWidth())).reduced(8.0f, 7.0f);
 }
 
 void OverviewStrip::paint(juce::Graphics& g)
 {
-    g.fillAll(theme::panel);
-    g.setColour(theme::gridBar);
-    g.fillRect(0, 0, getWidth(), 1);
-    // A grip in the top edge, which drags the strip taller.
-    g.setColour(theme::dim);
-    for (int line = 0; line < 2; ++line)
-        g.fillRoundedRectangle(static_cast<float>(getWidth()) * 0.5f - 16.0f, 2.0f + static_cast<float>(line) * 3.0f, 32.0f, 1.5f, 0.75f);
-    g.setFont(theme::pixel(8.0f));
-    g.setColour(theme::cyan);
-    g.drawText("OVERVIEW", juce::Rectangle<int>(14, 0, TrackerView::kHeaderWidth, getHeight()), juce::Justification::centredLeft);
-    if (!model_.hasTune())
+    paintBar(g, theme::cyan);
+    const float alpha = contentAlpha();
+    if (!model_.hasTune() || alpha <= 0.0f)
         return;
+    if (alpha < 1.0f)
+        g.beginTransparencyLayer(alpha);
 
     const auto area = lanes();
     const double length = songLength();
@@ -437,22 +898,12 @@ void OverviewStrip::paint(juce::Graphics& g)
     const float px = area.getX() + static_cast<float>(model_.displayPosition() / length) * area.getWidth();
     g.setColour(theme::orange);
     g.fillRect(px - 0.5f, area.getY() - 4, 1.5f, area.getHeight() + 8);
+    if (alpha < 1.0f)
+        g.endTransparencyLayer();
 }
 
-void OverviewStrip::mouseMove(const juce::MouseEvent& e)
+void OverviewStrip::contentDown(const juce::MouseEvent& e)
 {
-    setMouseCursor(e.y < kEdge ? juce::MouseCursor::UpDownResizeCursor : juce::MouseCursor::DraggingHandCursor);
-}
-
-void OverviewStrip::mouseDown(const juce::MouseEvent& e)
-{
-    resizing_ = e.y < kEdge;
-    if (resizing_)
-    {
-        resizeFromY_ = e.getScreenY();
-        resizeFromHeight_ = getHeight();
-        return;
-    }
     if (!model_.hasTune())
         return;
     const auto area = lanes();
@@ -467,15 +918,8 @@ void OverviewStrip::mouseDown(const juce::MouseEvent& e)
     }
 }
 
-void OverviewStrip::mouseDrag(const juce::MouseEvent& e)
+void OverviewStrip::contentDrag(const juce::MouseEvent& e)
 {
-    if (resizing_)
-    {
-        // By screen position: the strip moves as it grows.
-        if (onHeight)
-            onHeight(resizeFromHeight_ + resizeFromY_ - e.getScreenY());
-        return;
-    }
     if (!model_.hasTune())
         return;
     const auto area = lanes();
@@ -509,15 +953,13 @@ void PianoStrip::updateRange()
 
 void PianoStrip::paint(juce::Graphics& g)
 {
-    g.fillAll(theme::panel);
-    g.setColour(theme::gridBar);
-    g.fillRect(0, 0, getWidth(), 1);
-    g.setFont(theme::pixel(8.0f));
-    g.setColour(theme::magenta);
-    g.drawText("KEYS", juce::Rectangle<int>(14, 0, TrackerView::kHeaderWidth, getHeight()), juce::Justification::centredLeft);
-    if (!model_.hasTune())
+    paintBar(g, theme::magenta);
+    const float alpha = contentAlpha();
+    if (!model_.hasTune() || alpha <= 0.0f)
         return;
     updateRange();
+    if (alpha < 1.0f)
+        g.beginTransparencyLayer(alpha);
 
     // The colour of each key under the playhead, playing or stopped, from the
     // tracks that can be heard.
@@ -547,7 +989,7 @@ void PianoStrip::paint(juce::Graphics& g)
     int whites = 0;
     for (int k = low_; k <= high_; ++k)
         whites += isBlack(k) ? 0 : 1;
-    const auto area = getLocalBounds().withTrimmedLeft(TrackerView::kHeaderWidth).reduced(8, 6).toFloat();
+    const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
 
     // White keys, then black keys over them.
@@ -562,7 +1004,7 @@ void PianoStrip::paint(juce::Graphics& g)
         g.fillRoundedRectangle(key, 2.5f);
         if (down)
         {
-            g.setColour(juce::Colour(0xff3a3a44));
+            g.setColour(juce::Colour(0xffbcbcc6));
             g.drawRoundedRectangle(key.reduced(0.5f), 2.5f, 1.5f);
         }
         // C keys carry their octave.
@@ -586,7 +1028,7 @@ void PianoStrip::paint(juce::Graphics& g)
         const bool down = on[static_cast<size_t>(k)];
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xff1b1e30));
         g.fillRoundedRectangle(key, 2.0f);
-        g.setColour(down ? juce::Colour(0xff3a3a44) : juce::Colours::black.withAlpha(0.5f));
+        g.setColour(down ? juce::Colour(0xffbcbcc6) : juce::Colours::black.withAlpha(0.5f));
         g.drawRoundedRectangle(key.reduced(0.5f), 2.0f, 1.0f);
     }
 
@@ -613,6 +1055,8 @@ void PianoStrip::paint(juce::Graphics& g)
         g.setColour(juce::Colours::white);
         g.fillPath(text);
     }
+    if (alpha < 1.0f)
+        g.endTransparencyLayer();
 }
 
 // MainComponent ---------------------------------------------------------------
@@ -621,14 +1065,31 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
 {
     setLookAndFeel(look_.get());
     addAndMakeVisible(top_);
+    addAndMakeVisible(tools_);
     addAndMakeVisible(view_);
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
     overview_.onHeight = [this](int height) {
-        overviewHeight_ = std::clamp(height, kOverviewHeight, 2 * kOverviewHeight);
+        overviewHeight_ = std::clamp(height, kOverviewHeight, 2 * kPianoHeight); // as tall as the keys can go
+        overview_.openHeight = overviewHeight_;
+        overviewShown_ = overviewHeight_;
         resized();
     };
+    piano_.onHeight = [this](int height) {
+        pianoHeight_ = std::clamp(height, kPianoHeight, 2 * kPianoHeight);
+        piano_.openHeight = pianoHeight_;
+        pianoShown_ = pianoHeight_;
+        resized();
+    };
+    // The chevrons slide a strip down or up; frame() eases it there.
+    piano_.openHeight = pianoHeight_;
+    overview_.openHeight = overviewHeight_;
+    pianoShown_ = pianoHeight_;
+    overviewShown_ = overviewHeight_;
+    piano_.onSlide = [this] { piano_.setOpen(!piano_.isOpen()); };
+    overview_.onSlide = [this] { overview_.setOpen(!overview_.isOpen()); };
+    juce::Desktop::getInstance().addGlobalMouseListener(&activity_);
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
     setSize(1400, 820);
@@ -636,6 +1097,7 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
 
 MainComponent::~MainComponent()
 {
+    juce::Desktop::getInstance().removeGlobalMouseListener(&activity_);
     model_.removeChangeListener(this);
     setLookAndFeel(nullptr);
 }
@@ -651,10 +1113,10 @@ bool MainComponent::open(const juce::File& file)
     }
     // Start on the first bar, eight bars across.
     const double bar = model_.tune().source().beatLength * 4;
-    const double width = std::max(200, view_.getWidth() - TrackerView::kHeaderWidth);
-    view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), TrackerView::kHeaderWidth);
+    const double width = std::max(200, view_.getWidth() - view_.headerWidth());
+    view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
     view_.setViewStart(model_.tune().source().firstBeat - bar * 0.25);
-    top_.resized();
+    tools_.songOpened();
     view_.grabKeyboardFocus();
     updateTitle();
     return true;
@@ -675,9 +1137,10 @@ void MainComponent::resized()
 {
     auto r = getLocalBounds();
     top_.setBounds(r.removeFromTop(kTopHeight));
+    tools_.setBounds(r.removeFromTop(kToolHeight));
     r.removeFromBottom(kStatusHeight);
-    overview_.setBounds(r.removeFromBottom(overviewHeight_));
-    piano_.setBounds(r.removeFromBottom(kPianoHeight));
+    overview_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(overviewShown_))));
+    piano_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(pianoShown_))));
     view_.setBounds(r);
 }
 
@@ -705,8 +1168,27 @@ void MainComponent::paint(juce::Graphics& g)
     {
         const size_t conflicts = model_.report().conflicts;
         g.setColour(conflicts ? theme::danger : theme::text.withAlpha(0.7f));
-        g.drawText(conflicts ? juce::String(conflicts) + " notes have no free voice (red)" : "8 FM voices" + theme::dot() + "16 PCM voices",
-                   r, juce::Justification::centredRight, true);
+        const juce::String right = conflicts ? juce::String(conflicts) + " notes have no free voice (red)" : "8 FM voices" + theme::dot() + "16 PCM voices";
+        g.drawText(right, r, juce::Justification::centredRight, true);
+
+        // The pitch colours' legend in the middle, C to B, when it fits
+        // between the two texts.
+        constexpr int kSwatch = 26, kGap = 3, kWidth = 12 * kSwatch + 11 * kGap;
+        const int leftEnd = r.getX() + juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), left) + 16;
+        const int rightStart = r.getRight() - juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), right) - 16;
+        const int x0 = std::clamp(r.getCentreX() - kWidth / 2, leftEnd, std::max(leftEnd, rightStart - kWidth));
+        if (x0 + kWidth <= rightStart)
+        {
+            g.setFont(theme::mono(11.0f, true));
+            for (int pc = 0; pc < 12; ++pc)
+            {
+                const auto swatch = juce::Rectangle<int>(x0 + pc * (kSwatch + kGap), r.getCentreY() - 8, kSwatch, 16).toFloat();
+                g.setColour(theme::pitchColour(pc));
+                g.fillRoundedRectangle(swatch, 3.0f);
+                g.setColour(theme::background);
+                g.drawText(theme::noteName(60 + pc).removeCharacters("-").dropLastCharacters(1), swatch, juce::Justification::centred);
+            }
+        }
     }
 }
 
@@ -724,6 +1206,7 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
 {
+    view_.wake();
     if (key == juce::KeyPress::spaceKey)
     {
         if (model_.playing())
@@ -783,9 +1266,26 @@ void MainComponent::frame(double timestamp)
 {
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
     lastFrame_ = timestamp;
+    // Strips sliding open or closed ease to their height.
+    bool sliding = false;
+    using Slide = std::pair<SlidingStrip*, double*>;
+    for (auto [strip, shown] : { Slide { &piano_, &pianoShown_ }, Slide { &overview_, &overviewShown_ } })
+    {
+        const double target = strip->isOpen() ? strip->openHeight : SlidingStrip::kClosedHeight;
+        if (std::abs(*shown - target) < 0.01)
+            continue;
+        *shown += (target - *shown) * std::min(1.0, seconds * 16.0);
+        if (std::abs(target - *shown) < 0.5)
+            *shown = target;
+        sliding = true;
+    }
+    if (sliding)
+        resized();
     view_.followPlayhead();
     view_.updateMeters(seconds);
-    top_.syncZoom();
+    piano_.setHeaderWidth(view_.headerWidth());
+    overview_.setHeaderWidth(view_.headerWidth());
+    tools_.syncZoom();
     if (model_.playing() || model_.hasTune())
     {
         view_.repaint();
@@ -797,6 +1297,7 @@ void MainComponent::frame(double timestamp)
 
 void MainComponent::changeListenerCallback(juce::ChangeBroadcaster*)
 {
+    tools_.refresh();
     status_.clear();
     repaint();
 }

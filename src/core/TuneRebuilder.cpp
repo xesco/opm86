@@ -1,6 +1,7 @@
 #include "TuneRebuilder.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace opm86
 {
@@ -18,6 +19,32 @@ size_t firstDifferent(const std::vector<VgmWrite>& a, const std::vector<VgmWrite
 }
 
 } // namespace
+
+std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report)
+{
+    auto mix = std::make_shared<ChannelMix>();
+    for (size_t t = 0; t < tune.tracks.size(); ++t)
+    {
+        const TuneTrack& track = tune.tracks[t];
+        const bool drum = track.kind == TuneTrack::Kind::Drum;
+        // The volume, as the build would set it, up to the boost's limit.
+        const float volume = track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxVolume) / 20.0f);
+        for (size_t n = 0; n < track.notes.size(); ++n)
+        {
+            const TuneNote& note = track.notes[n];
+            // A note with no free channel keeps the one it had in the game, as the build does.
+            int ch = t < report.channels.size() && n < report.channels[t].size() ? report.channels[t][n] : -1;
+            if (ch < 0)
+                ch = tune.originalChannel(track, note);
+            const size_t slot = static_cast<size_t>(ch + (drum ? 8 : 0));
+            if (slot < mix->changes.size())
+                mix->changes[slot].push_back({ static_cast<double>(note.start), tune.audible(track, note) ? volume : 0.0f });
+        }
+    }
+    for (auto& v : mix->changes)
+        std::stable_sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+    return mix;
+}
 
 void firstDifference(const VgmSong& a, const VgmSong& b, size_t& ym, size_t& pcm)
 {
@@ -82,7 +109,7 @@ void TuneRebuilder::run()
 
         TuneVersion v;
         v.version = version;
-        auto song = tune->build(&v.report);
+        auto song = tune->build(&v.report, !mixInPlayer_.load());
         std::shared_ptr<SongSnapshots> snapshots;
         if (lastSong_ && lastSnapshots_)
         {

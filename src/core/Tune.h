@@ -93,8 +93,10 @@ public:
     // An id no note in the tune uses yet, for a copy or a new note.
     int newNoteId() const;
 
-    // The song with every edit applied, ready for the exact player.
-    std::shared_ptr<VgmSong> build(BuildReport* report = nullptr) const;
+    // The song with every edit applied, ready for the exact player. With mix
+    // false, mute, solo and volume are left out, for the player to apply
+    // with a ChannelMix (see mixOf).
+    std::shared_ptr<VgmSong> build(BuildReport* report = nullptr, bool mix = true) const;
 
 private:
     void splitParts(); // one track per FM patch and chip voice, in voice order

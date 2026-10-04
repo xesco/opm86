@@ -51,7 +51,12 @@ public:
     // The position now, between audio blocks, for a playhead that moves smoothly.
     double displayPosition() const;
     void setPosition(double songTime);
+    // Stopped, move to a song time and let a moment of it sound, as a jog
+    // wheel does; a run of these sounds on while they come.
+    void scrub(double songTime);
     void setMonitor(bool on) { monitor_.store(on); } // off: plays and meters, but outputs silence
+    void setSpeed(double speed) { speed_.store(speed); } // tempo, 1 as made; the pitch stays
+    double speed() const { return speed_.load(); }
 
 private:
     class TracksChange;
@@ -59,6 +64,7 @@ private:
 
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
+    void sendMix(); // sends the tracks' mute, solo and volume to the player
     void timerCallback() override;
 
     // AudioIODeviceCallback (audio thread)
@@ -76,6 +82,7 @@ private:
     int reportRevision_ = 0;
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
     std::deque<TuneVersion> keep_;          // recent versions, freed here, never on the audio thread
+    std::deque<std::shared_ptr<const ChannelMix>> mixes_; // and recent mixes
 
     juce::AudioDeviceManager devices_;
     SongPlayer player_; // audio thread
@@ -85,17 +92,21 @@ private:
     {
         std::shared_ptr<const VgmSong> song;
         std::shared_ptr<const SongSnapshots> snapshots;
+        std::shared_ptr<const ChannelMix> mix;
         size_t ymUnchanged = 0, pcmUnchanged = 0;
         bool newSong = false, sameSong = false, fresh = false;
         bool play = false, stop = false;
+        bool scrub = false; // the play is a scrub's moment
         double playAt = 0;
     };
     juce::SpinLock commandLock_;
     Commands commands_;
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
+    int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
 
     std::atomic<bool> playing_ { false };
     std::atomic<bool> monitor_ { true };
+    std::atomic<double> speed_ { 1.0 };
     std::atomic<double> position_ { 0.0 };
     std::atomic<double> positionStamp_ { 0.0 }; // when position_ was set, in ms
     double sampleRate_ = 48000.0;

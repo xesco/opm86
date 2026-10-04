@@ -3,6 +3,7 @@
 #include "SongPlayer.h"
 #include "Tune.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -12,6 +13,12 @@
 
 namespace opm86
 {
+
+// The gains a tune's mute, solo and volume give the chip channels, over
+// time, for a song built without them: each note's channel, as the report
+// has the build put it, from the note's start at its track's volume, or
+// silent when the note is not heard.
+std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report);
 
 // A built version of a tune, ready for the player.
 struct TuneVersion
@@ -41,6 +48,8 @@ public:
 
     // Message thread. position is the song time playback is at, in VGM samples.
     void request(const Tune& tune, double position);
+    // Build without mute, solo and volume, which the player then applies (see mixOf).
+    void setMixInPlayer(bool inPlayer) { mixInPlayer_.store(inPlayer); }
 
     // The newest version published since the last call, if any.
     std::optional<TuneVersion> take();
@@ -56,6 +65,7 @@ private:
     uint64_t requested_ = 0;
     std::optional<TuneVersion> ready_;
     bool quit_ = false;
+    std::atomic<bool> mixInPlayer_ { false };
 
     // Worker thread only: the last build, whose snapshots the next one reuses.
     std::shared_ptr<const VgmSong> lastSong_;

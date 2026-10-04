@@ -14,7 +14,23 @@ namespace
 {
 
 constexpr float kEdge = 6.0f;      // pixels at a note's right end that resize it
+
+// The width an FM part's instrument takes after solo, gap included; 0 for drums.
+int instrumentWidth(const TuneTrack& t)
+{
+    return t.kind == TuneTrack::Kind::Fm
+               ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), "FM " + juce::String(t.instrument + 1))
+               : 0;
+}
 constexpr double kMinLength = 441; // 10 ms, the shortest note
+
+// Header layout; see the comment before voicePill.
+constexpr int kVoiceColumn = 44; // width of the voice toggles' column
+constexpr int kKnobColumn = 48;  // width of the dB under the knob
+constexpr int kKnob = 26;        // the knob's size
+constexpr int kBlock = 44;       // height of the name and meter block
+constexpr int kMinHeaderWidth = 150; // room for TRACKS and the strips' names and chevrons
+constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
 
 // A small editor for a note's pitch, shown in a callout.
 class PitchEditor : public juce::Component
@@ -124,6 +140,7 @@ const TrackerView::Layout& TrackerView::layout() const
     if (!model_.hasTune())
         return layout_;
     const auto& tracks = model_.tune().tracks;
+    int instrument = 0; // the widest instrument label
     for (const TuneTrack& t : tracks)
     {
         // Notes that sound together take a row each: the lowest row free at
@@ -179,7 +196,21 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.totalRows += layout_.shown.back();
         layout_.longest.push_back(longest);
         layout_.index.push_back(std::move(index));
+
+        // The names share a column as wide as the widest, so mute, solo
+        // and the instrument line up; the knobs go after the widest of those.
+        const int left = layout_.rows.back() > 1 ? 28 : 14;
+        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), juce::String(t.name).toUpperCase()) + 2, 96);
+        layout_.nameEnd = std::max(layout_.nameEnd, left + name);
+        instrument = std::max(instrument, instrumentWidth(t));
     }
+    layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + instrument + 8;
+    // The header ends past the knobs' column and the dB under them, with
+    // room for the voice toggles when a chord part shows them.
+    bool toggles = false;
+    for (size_t t = 0; t < tracks.size(); ++t)
+        toggles = toggles || (!layout_.voices[t].empty() && layout_.shown[t] > 1);
+    layout_.headerWidth = std::max(kMinHeaderWidth, layout_.knobX + (kKnob + kKnobColumn) / 2 + 6 + (toggles ? kVoiceColumn : 0));
     return layout_;
 }
 
@@ -194,7 +225,7 @@ int TrackerView::indexOf(NoteRef ref) const
 
 double TrackerView::visibleSamples() const
 {
-    return (getWidth() - kHeaderWidth) * samplesPerPixel_;
+    return (getWidth() - headerWidth()) * samplesPerPixel_;
 }
 
 void TrackerView::setViewStart(double songTime)
@@ -208,30 +239,57 @@ void TrackerView::setViewStart(double songTime)
 void TrackerView::zoomAround(double factor, float x)
 {
     const double anchor = xToTime(x);
-    samplesPerPixel_ = std::clamp(samplesPerPixel_ / factor, 4.0, 20000.0);
-    setViewStart(anchor - (x - kHeaderWidth) * samplesPerPixel_);
+    samplesPerPixel_ = std::clamp(samplesPerPixel_ / factor, kMinSamplesPerPixel, kMaxSamplesPerPixel);
+    setViewStart(anchor - (x - lanesX()) * samplesPerPixel_);
 }
 
 void TrackerView::followPlayhead()
 {
-    if (!model_.playing())
+    if (model_.playing())
+        reveal(model_.displayPosition());
+}
+
+void TrackerView::reveal(double p)
+{
+    // With the whole song in view, the view stays still.
+    if (!model_.hasTune() || (viewStart_ <= 0 && viewStart_ + visibleSamples() >= static_cast<double>(model_.tune().source().length)))
         return;
     // The playhead runs to the middle, then the song moves under it.
-    const double p = model_.displayPosition();
     if (p > viewStart_ + visibleSamples() * 0.5)
         setViewStart(p - visibleSamples() * 0.5);
     else if (p < viewStart_)
         setViewStart(p - visibleSamples() * 0.1);
 }
 
+void TrackerView::fitTime()
+{
+    // The whole rip across, from its start to its end, with a little room either side.
+    if (!model_.hasTune())
+        return;
+    const double length = static_cast<double>(model_.tune().source().length);
+    const double width = std::max(1.0, static_cast<double>(getWidth() - headerWidth()));
+    samplesPerPixel_ = std::clamp(length * 1.04 / width, kMinSamplesPerPixel, kMaxSamplesPerPixel);
+    setViewStart(-length * 0.02);
+}
+
+void TrackerView::fitTracks()
+{
+    if (!model_.hasTune() || layout().totalRows == 0)
+        return;
+    const double room = getHeight() - kRulerHeight;
+    laneHeightExact_ = std::clamp(std::floor(room / layout().totalRows), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
+    laneHeight_ = static_cast<int>(laneHeightExact_);
+    setScrollY(0);
+}
+
 double TrackerView::xToTime(float x) const
 {
-    return viewStart_ + (x - kHeaderWidth) * samplesPerPixel_;
+    return viewStart_ + (x - lanesX()) * samplesPerPixel_;
 }
 
 float TrackerView::timeToX(double t) const
 {
-    return static_cast<float>(kHeaderWidth + (t - viewStart_) / samplesPerPixel_);
+    return static_cast<float>(headerWidth() + (t - viewStart_) / samplesPerPixel_);
 }
 
 int TrackerView::yToTrack(float y) const
@@ -305,7 +363,7 @@ TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge
 {
     onRightEdge = false;
     const int t = yToTrack(p.y);
-    if (t < 0 || p.x < kHeaderWidth)
+    if (t < 0 || p.x < lanesX())
         return {};
     const auto& notes = model_.tune().tracks[static_cast<size_t>(t)].notes;
     const double time = xToTime(p.x);
@@ -357,23 +415,24 @@ void TrackerView::updateMeters(double seconds)
             std::stable_sort(o.begin(), o.end());
     }
 
-    // Peak-meter ballistics, in dB: a hit shows at once and the level falls
-    // back at kMeterRelease; the peak hold waits a second, then falls too.
+    // Channel levels fall back over about a third of a second; a track shows its loudest channel.
     const auto peaks = model_.takePeaks();
+    const float fall = static_cast<float>(std::pow(0.82, seconds * 60.0));
     for (size_t c = 0; c < peaks.size(); ++c)
-        channelLevel_[c] = model_.playing() ? peaks[c] : 0.0f;
-    level_.resize(tracks.size(), kMeterFloor);
-    hold_.resize(tracks.size(), kMeterFloor);
+        channelLevel_[c] = model_.playing() ? std::max(peaks[c], channelLevel_[c] * fall) : channelLevel_[c] * fall;
+    level_.resize(tracks.size(), 0.0f);
+    hold_.resize(tracks.size(), 0.0f);
     holdAge_.resize(tracks.size(), 0.0);
-    const float fall = static_cast<float>(seconds) * kMeterRelease;
     for (size_t t = 0; t < tracks.size(); ++t)
     {
+        // A dB scale from kMeterFloor to full scale, so a volume change moves
+        // the meter by as much as it changes the sound.
         const float db = juce::Decibels::gainToDecibels(trackLevel(static_cast<int>(t)), kMeterFloor);
-        level_[t] = std::max(db, level_[t] - fall);
+        level_[t] = (db - kMeterFloor) / -kMeterFloor;
         if (level_[t] >= hold_[t])
             hold_[t] = level_[t], holdAge_[t] = 0.0;
         else if ((holdAge_[t] += seconds) > 1.0)
-            hold_[t] = std::max(level_[t], hold_[t] - fall * 0.5f);
+            hold_[t] = std::max(level_[t], hold_[t] - static_cast<float>(seconds) * 0.6f);
     }
 }
 
@@ -389,6 +448,12 @@ float TrackerView::trackLevel(int track) const
             loudest = std::max(loudest, channelLevel_[c]);
     }
     return loudest;
+}
+
+void TrackerView::wake()
+{
+    lastActivity_ = juce::Time::getMillisecondCounterHiRes();
+    repaint();
 }
 
 void TrackerView::resized()
@@ -415,67 +480,74 @@ void TrackerView::zoomLanes(double factor, float y)
 }
 
 // Header layout. In a track's first row: the name with mute and solo on its
-// right, and under them the level meter; right of both, the volume knob. At
+// right, and under them the level meter; right next to both, the volume knob
+// with the level in dB under it. Compact lanes keep only the name line. At
 // the right edge, a chord part's voice toggles, one beside each row.
-namespace
-{
-constexpr int kVoiceColumn = 44; // width of the voice toggles' column
-constexpr int kKnobColumn = 40;  // width of the volume knob's column
-constexpr int kBlock = 44;       // height of the name and meter block
-constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
-}
 
 juce::Rectangle<int> TrackerView::voicePill(int track, int k) const
 {
-    return { kHeaderWidth - kVoiceColumn + 4, trackTop(track) + k * laneHeight_ + (laneHeight_ - 18) / 2, 30, 18 };
+    const int h = std::min(18, laneHeight_ - 4);
+    return { headerWidth() - kVoiceColumn + 4, trackTop(track) + k * laneHeight_ + (laneHeight_ - h) / 2, 30, h };
 }
 
 juce::Rectangle<int> TrackerView::nameBounds(int track) const
 {
-    // After the arrow of a chord part; as wide as the name, up to a limit.
+    // After the arrow of a chord part, up to the names' shared column, but
+    // leaving mute, solo and the instrument room before the knob, or before
+    // the voice toggles in a compact lane. Centred in a compact lane.
     const int left = layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14;
-    const juce::String name = juce::String(model_.tune().tracks[static_cast<size_t>(track)].name).toUpperCase();
-    const int width = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), name) + 2, 96);
-    return { left, trackTop(track) + (laneHeight_ - kBlock) / 2, width, 17 };
+    const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
+    const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
+    const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
+    const int room = right - left - 2 * (pillWidth() + 3) - 5 - (minimal() ? 0 : instrumentWidth(tr));
+    const int width = std::min(layout().nameEnd - left, std::max(24, room));
+    const int height = minimal() ? laneHeight_ - 6 : 17;
+    return { left, trackTop(track) + (laneHeight_ - (compact() ? height : kBlock)) / 2, width, height };
 }
 
 juce::Rectangle<int> TrackerView::pill(int track, int which) const
 {
     const auto name = nameBounds(track);
-    return { name.getRight() + 8 + which * 26, name.getY(), 23, 17 };
+    return { name.getRight() + 8 + which * (pillWidth() + 3), name.getY(), pillWidth(), name.getHeight() };
 }
 
 juce::Rectangle<int> TrackerView::knobBounds(int track) const
 {
-    // Beside the block, before the voice column when a chord part shows its toggles.
+    // In one column for all tracks, right after the widest name line, but
+    // never into the voice column when a chord part shows its toggles.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
-    const int right = kHeaderWidth - (toggles ? kVoiceColumn : 0) - 4;
-    return { right - kKnobColumn + 4, top + (kBlock - 34) / 2, 34, 34 };
+    const int right = headerWidth() - (toggles ? kVoiceColumn : 0) - 4 - (kKnobColumn + kKnob) / 2;
+    return { std::min(layout().knobX, right), top, kKnob, kKnob };
 }
 
 juce::Rectangle<int> TrackerView::meterBounds(int track) const
 {
-    // The width up to the knob.
+    // The width up to the knob and the level in dB under it.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
-    return { 14, top + 25, knobBounds(track).getX() - 8 - 14, 16 };
+    return { 14, top + 25, knobBounds(track).getCentreX() - kKnobColumn / 2 - 4 - 14, 16 };
 }
 
-// The knob law: amplitude goes with the cube of the position, so full right
-// is +6 dB, 0 dB sits at four fifths, -12 dB near the middle, and the first
-// twelfth is silence.
+// The knob law: 0 dB, as the game played it, sits at the middle, so the
+// right half boosts, evenly in dB up to +6 at full right. In the left half
+// amplitude goes with the cube of the position: -18 dB at a quarter, and the
+// first twentieth is silence.
 float TrackerView::knobPosition(float volume)
 {
     if (volume <= TuneTrack::kSilent)
         return 0.0f;
-    return std::pow(10.0f, (std::min(volume, TuneTrack::kMaxVolume) - TuneTrack::kMaxVolume) / 60.0f);
+    if (volume <= 0.0f)
+        return 0.5f * std::pow(10.0f, volume / 60.0f);
+    return 0.5f + 0.5f * std::min(volume, TuneTrack::kMaxVolume) / TuneTrack::kMaxVolume;
 }
 
 float TrackerView::knobVolume(float position)
 {
     if (position <= knobPosition(TuneTrack::kSilent + 0.01f))
         return TuneTrack::kSilent;
-    return std::min(TuneTrack::kMaxVolume, TuneTrack::kMaxVolume + 60.0f * std::log10(position));
+    if (position <= 0.5f)
+        return 60.0f * std::log10(position * 2.0f);
+    return std::min(TuneTrack::kMaxVolume, (position - 0.5f) * 2.0f * TuneTrack::kMaxVolume);
 }
 
 // Painting --------------------------------------------------------------------
@@ -496,26 +568,34 @@ void TrackerView::paint(juce::Graphics& g)
     paintRuler(g);
     paintHeaders(g);
 
-    // The playhead, over lanes and ruler, with a soft glow.
+    // The playhead, over lanes and ruler, with a soft glow. A second after
+    // the last mouse or key event its line fades out, and comes back with
+    // the next; the head on the ruler always shows.
+    const double idle = (juce::Time::getMillisecondCounterHiRes() - lastActivity_) / 1000.0;
+    const float shown = keepPlayhead_ ? 1.0f : juce::jlimit(0.0f, 1.0f, 1.0f - static_cast<float>(idle - 1.0) / 0.3f);
     const float x = timeToX(model_.displayPosition());
-    if (x >= kHeaderWidth && x <= static_cast<float>(getWidth()))
+    if (x >= lanesX() && x <= static_cast<float>(getWidth()))
     {
-        for (int w = 6; w >= 2; w -= 2)
+        if (shown > 0.0f)
         {
-            g.setColour(theme::cyan.withAlpha(0.07f));
-            g.fillRect(x - static_cast<float>(w) / 2.0f, 0.0f, static_cast<float>(w), static_cast<float>(getHeight()));
+            for (int w = 6; w >= 2; w -= 2)
+            {
+                g.setColour(theme::cyan.withAlpha(0.07f * shown));
+                g.fillRect(x - static_cast<float>(w) / 2.0f, 0.0f, static_cast<float>(w), static_cast<float>(getHeight()));
+            }
+            g.setColour(theme::cyan.withAlpha(shown));
+            g.fillRect(x - 0.75f, 0.0f, 1.5f, static_cast<float>(getHeight()));
         }
-        g.setColour(theme::cyan);
-        g.fillRect(x - 0.75f, 0.0f, 1.5f, static_cast<float>(getHeight()));
         juce::Path head;
         head.addTriangle(x - 6, 0, x + 6, 0, x, 9);
+        g.setColour(theme::cyan);
         g.fillPath(head);
     }
 }
 
 void TrackerView::paintRuler(juce::Graphics& g)
 {
-    const auto area = juce::Rectangle<int>(kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerHeight);
+    const auto area = juce::Rectangle<int>(headerWidth(), 0, getWidth() - headerWidth(), kRulerHeight);
     g.setColour(theme::panel);
     g.fillRect(area);
     g.setColour(theme::gridBar);
@@ -534,7 +614,7 @@ void TrackerView::paintRuler(juce::Graphics& g)
     for (long k = first; k <= last; ++k)
     {
         const float x = timeToX(song.firstBeat + static_cast<double>(k) * beat);
-        if (x < kHeaderWidth)
+        if (x < lanesX())
             continue;
         const bool bar = ((k % 4) + 4) % 4 == 0;
         const long barNumber = (k >= 0 ? k / 4 : (k - 3) / 4) + 1;
@@ -560,23 +640,25 @@ void TrackerView::paintLanes(juce::Graphics& g)
     const VgmSong& song = model_.tune().source();
     const double beat = song.beatLength;
     const double beatPixels = beat / samplesPerPixel_;
-    const auto lanes = juce::Rectangle<int>(kHeaderWidth, kRulerHeight, getWidth() - kHeaderWidth, getHeight() - kRulerHeight);
+    const auto lanes = juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight);
     g.saveState();
     g.reduceClipRegion(lanes);
+    g.setColour(theme::lane);
+    g.fillRect(lanes);
 
     for (size_t t = 0; t < tracks.size(); ++t)
     {
         const int y = trackTop(static_cast<int>(t)), h = trackHeight(static_cast<int>(t));
         if (y > getHeight() || y + h < kRulerHeight)
             continue;
-        g.setColour(t % 2 ? theme::background : theme::background.brighter(0.04f));
-        g.fillRect(kHeaderWidth, y, getWidth() - kHeaderWidth, h);
+        g.setColour(t % 2 ? theme::lane : theme::laneAlt);
+        g.fillRect(headerWidth(), y, getWidth() - headerWidth(), h);
         // Faint lines between a chord part's voices.
         g.setColour(theme::grid.withAlpha(0.3f));
         for (size_t k = 1; expanded(static_cast<int>(t)) && k < layout().voices[t].size(); ++k)
-            g.fillRect(kHeaderWidth, y + static_cast<int>(k) * laneHeight_, getWidth() - kHeaderWidth, 1);
+            g.fillRect(headerWidth(), y + static_cast<int>(k) * laneHeight_, getWidth() - headerWidth(), 1);
         g.setColour(theme::grid.withAlpha(0.6f));
-        g.fillRect(kHeaderWidth, y + h - 1, getWidth() - kHeaderWidth, 1);
+        g.fillRect(headerWidth(), y + h - 1, getWidth() - headerWidth(), 1);
     }
 
     // Grid: bars bright, beats dim, sixteenths when there is room.
@@ -735,19 +817,19 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 {
     const auto& tracks = model_.tune().tracks;
     g.setColour(theme::panel);
-    g.fillRect(0, 0, kHeaderWidth, getHeight());
+    g.fillRect(0, 0, headerWidth(), getHeight());
     g.setColour(theme::gridBar);
-    g.fillRect(kHeaderWidth - 1, 0, 1, getHeight());
+    g.fillRect(headerWidth() - 1, 0, 1, getHeight());
 
     g.saveState();
-    g.reduceClipRegion(0, kRulerHeight, kHeaderWidth, getHeight() - kRulerHeight);
+    g.reduceClipRegion(0, kRulerHeight, headerWidth(), getHeight() - kRulerHeight);
     for (size_t t = 0; t < tracks.size(); ++t)
     {
         const TuneTrack& tr = tracks[t];
         const int y = trackTop(static_cast<int>(t));
         if (y > getHeight() || y + trackHeight(static_cast<int>(t)) < kRulerHeight)
             continue;
-        const auto row = juce::Rectangle<int>(0, y, kHeaderWidth - 1, trackHeight(static_cast<int>(t)));
+        const auto row = juce::Rectangle<int>(0, y, headerWidth() - 1, trackHeight(static_cast<int>(t)));
         g.setColour(t % 2 ? theme::panel : theme::panelLight);
         g.fillRect(row);
         g.setColour(theme::instrumentColour(static_cast<int>(t)));
@@ -761,7 +843,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.setColour(on ? colour : theme::gridBar.brighter(0.3f));
             g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 4.0f, 1.0f);
             g.setColour(on ? theme::background : theme::text.withAlpha(0.85f));
-            g.setFont(theme::mono(12.0f, true));
+            g.setFont(theme::mono(r.getHeight() < 17 ? 10.0f : 12.0f, true));
             g.drawText(label, r, juce::Justification::centred);
         };
 
@@ -783,11 +865,12 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.fillPath(p);
         }
         g.setColour(audible ? theme::text : theme::faint);
+        g.setFont(theme::mono(minimal() ? 11.0f : 13.0f, true));
         g.drawText(juce::String(tr.name).toUpperCase(), nameBounds(ti),
                    juce::Justification::centredLeft, true);
         drawToggle(mute, "M", tr.mute, theme::orange);
         drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
-        if (tr.kind == TuneTrack::Kind::Fm)
+        if (tr.kind == TuneTrack::Kind::Fm && !minimal())
         {
             // Which instrument the voice plays.
             g.setColour(audible ? theme::dim : theme::faint);
@@ -796,59 +879,52 @@ void TrackerView::paintHeaders(juce::Graphics& g)
                        juce::Justification::centredLeft, false);
         }
 
-        // The level in dB, always shown at the end of the name line.
+        // The level in dB, under the knob; compact lanes go without both and the meter.
         const bool dragging = drag_ == Drag::Knob && dragTrack_ == ti;
         const bool silent = !audible || tr.volume <= TuneTrack::kSilent;
+        if (!compact())
         {
             const juce::String db = tr.volume <= TuneTrack::kSilent ? juce::String("-inf dB")
                                     : (tr.volume > 0.05f ? "+" : "") + juce::String(tr.volume, 1) + " dB";
             g.setColour(dragging ? theme::cyan : silent ? theme::faint
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
-            g.setFont(theme::mono(12.0f, true));
-            const auto meter = meterBounds(ti);
-            g.drawText(db, juce::Rectangle<int>(meter.getRight() - 80, mute.getY(), 80, mute.getHeight()), juce::Justification::centredRight);
+            g.setFont(theme::mono(10.0f, true));
+            const auto knob = knobBounds(ti);
+            g.drawText(db, juce::Rectangle<int>(knob.getCentreX() - kKnobColumn / 2, knob.getBottom(), kKnobColumn, 13), juce::Justification::centred);
         }
 
-        // The meter, as DAWs draw a peak meter: a dark groove with a bar
-        // along a dB scale, white for most of it, then yellow, orange and
-        // red over the last few dB, and a peak-hold line.
+        // The meter: a dark groove of cells, always showing dimmed and lit up
+        // to the level, with a peak hold. As on a DAW's meter, cells are white
+        // up to -12 dB, yellow to -6, orange to -3 and red above.
+        if (!compact())
         {
             const auto groove = meterBounds(ti).toFloat();
-            g.setColour(juce::Colour(0xff10121a));
-            g.fillRoundedRectangle(groove, 2.0f);
-            g.setColour(silent ? juce::Colour(0xff2c2d33) : theme::grid);
-            g.drawRoundedRectangle(groove, 2.0f, 1.0f);
-            const auto bar = groove.reduced(2.0f, 2.0f);
-            auto xAt = [&](float db) {
-                const float frac = juce::jlimit(0.0f, 1.0f, (db - kMeterFloor) / (kMeterTop - kMeterFloor));
-                return bar.getX() + frac * bar.getWidth();
-            };
-            // -12 and 0 dB marks under the bar.
-            g.setColour(theme::faint.withAlpha(0.6f));
-            for (const float db : { -12.0f, 0.0f })
-                g.fillRect(xAt(db), bar.getY(), 1.0f, bar.getHeight());
-
-            juce::ColourGradient zones(silent ? juce::Colour(0xff7a7b86) : juce::Colour(0xffeceaf4), bar.getX(), 0.0f,
-                                       silent ? juce::Colour(0xff7a7b86) : theme::danger, bar.getRight(), 0.0f, false);
-            if (!silent)
+            // A silent track's whole meter goes neutral grey.
+            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
+            g.fillRoundedRectangle(groove, 3.0f);
+            g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
+            g.drawRoundedRectangle(groove, 3.0f, 1.0f);
+            const auto cellsArea = groove.reduced(2.0f, 2.0f);
+            const float level = t < level_.size() ? level_[t] : 0.0f;
+            const float hold = t < hold_.size() ? hold_[t] : 0.0f;
+            const int cells = static_cast<int>(cellsArea.getWidth() / 3.0f);
+            const float cell = cellsArea.getWidth() / static_cast<float>(cells);
+            const int held = static_cast<int>(hold * static_cast<float>(cells));
+            auto zone = [](float db) { return (db - kMeterFloor) / -kMeterFloor; }; // where a level in dB sits along the meter
+            for (int k = 0; k < cells; ++k)
             {
-                auto stop = [&](float db, juce::Colour c) { zones.addColour((xAt(db) - bar.getX()) / bar.getWidth(), c); };
-                stop(-15.0f, juce::Colour(0xffeceaf4));
-                stop(-9.0f, theme::yellow);
-                stop(-4.0f, theme::orange);
-                stop(0.0f, theme::danger);
+                const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
+                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > zone(-3.0f) ? theme::danger : frac > zone(-6.0f) ? theme::orange
+                                       : frac > zone(-12.0f) ? theme::yellow : juce::Colour(0xffeceaf4);
+                const bool on = frac <= level || (k == held && hold > 0.02f);
+                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f));
+                g.fillRect(cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight());
             }
-            const float level = t < level_.size() ? level_[t] : kMeterFloor;
-            const float hold = t < hold_.size() ? hold_[t] : kMeterFloor;
-            g.setGradientFill(zones);
-            if (level > kMeterFloor)
-                g.fillRect(bar.withRight(xAt(level)));
-            if (hold > kMeterFloor + 1.0f)
-                g.fillRect(juce::Rectangle<float>(xAt(hold) - 2.0f, bar.getY(), 2.0f, bar.getHeight()));
         }
 
         // The volume knob: a ring from silence to +6 dB lit up to the level,
         // a tick at 0 dB, and a raised cap with a pointer.
+        if (!compact())
         {
             const auto bounds = knobBounds(ti).toFloat();
             const auto centre = bounds.getCentre();
@@ -892,12 +968,12 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         if (!voices.empty() && expanded(ti))
         {
             // The voice column: a bracket joining one toggle per row, with row lines.
-            const int x = kHeaderWidth - kVoiceColumn;
+            const int x = headerWidth() - kVoiceColumn;
             g.setColour(theme::background.withAlpha(0.35f));
-            g.fillRect(x, row.getY(), kHeaderWidth - 1 - x, row.getHeight());
+            g.fillRect(x, row.getY(), headerWidth() - 1 - x, row.getHeight());
             g.setColour(theme::grid.withAlpha(0.5f));
             for (size_t k = 1; k < voices.size(); ++k)
-                g.fillRect(x, row.getY() + static_cast<int>(k) * laneHeight_, kHeaderWidth - 1 - x, 1);
+                g.fillRect(x, row.getY() + static_cast<int>(k) * laneHeight_, headerWidth() - 1 - x, 1);
             const auto top = voicePill(ti, 0), bottom = voicePill(ti, static_cast<int>(voices.size()) - 1);
             g.setColour(theme::instrumentColour(ti).withAlpha(0.45f));
             g.fillRect(x + 1, top.getCentreY(), 1, bottom.getCentreY() - top.getCentreY());
@@ -914,12 +990,12 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
     // Corner over the headers.
     g.setColour(theme::panel);
-    g.fillRect(0, 0, kHeaderWidth, kRulerHeight);
+    g.fillRect(0, 0, headerWidth(), kRulerHeight);
     g.setColour(theme::gridBar);
-    g.fillRect(0, kRulerHeight - 1, kHeaderWidth, 1);
+    g.fillRect(0, kRulerHeight - 1, headerWidth(), 1);
     g.setColour(theme::magenta);
     g.setFont(theme::pixel(8.0f));
-    g.drawText("TRACKS " + juce::String(tracks.size()).paddedLeft('0', 2), juce::Rectangle<int>(14, 0, kHeaderWidth, kRulerHeight),
+    g.drawText("TRACKS " + juce::String(tracks.size()).paddedLeft('0', 2), juce::Rectangle<int>(14, 0, headerWidth(), kRulerHeight),
                juce::Justification::centredLeft);
 }
 
@@ -934,7 +1010,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     dragFrom_ = p;
     dragDelta_ = 0;
 
-    if (p.y < kRulerHeight && p.x >= kHeaderWidth)
+    if (p.y < kRulerHeight && p.x >= lanesX())
     {
         drag_ = Drag::Ruler;
         model_.setPosition(std::max(0.0, xToTime(p.x)));
@@ -942,12 +1018,12 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     }
 
     const int t = yToTrack(p.y);
-    if (p.x < kHeaderWidth)
+    if (p.x < lanesX())
     {
         if (t < 0)
             return;
         // The knob turns as the pointer goes up or right; Option-click puts it back to 0 dB.
-        if (knobBounds(t).expanded(3).contains(p.toInt()))
+        if (!compact() && knobBounds(t).expanded(3).contains(p.toInt()))
         {
             drag_ = Drag::Knob;
             dragTrack_ = t;
@@ -1061,10 +1137,13 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     }
 }
 
-void TrackerView::mouseUp(const juce::MouseEvent&)
+void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
+    // A click on empty lanes, not a box drag, puts the stopped playhead there.
+    if (finished == Drag::Box && e.mouseWasClicked() && !model_.playing())
+        model_.setPosition(std::max(0.0, xToTime(e.position.x)));
     if ((finished == Drag::Move || finished == Drag::Resize) && std::abs(dragDelta_) >= 1.0)
     {
         const auto chosen = selection_;
@@ -1099,7 +1178,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
     hoverEdge_ = edge;
     setMouseCursor(hover_.valid() && edge ? juce::MouseCursor::LeftRightResizeCursor
                    : hover_.valid()       ? juce::MouseCursor::DraggingHandCursor
-                   : e.position.y < kRulerHeight && e.position.x > kHeaderWidth ? juce::MouseCursor::PointingHandCursor
+                   : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
                                                                                  : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
     {
@@ -1129,14 +1208,14 @@ void TrackerView::setVolume(int track, float volume)
 
 void TrackerView::mouseDoubleClick(const juce::MouseEvent& e)
 {
-    if (model_.hasTune() && e.position.x < kHeaderWidth)
-        if (const int t = yToTrack(e.position.y); t >= 0 && knobBounds(t).expanded(3).contains(e.position.toInt()))
+    if (model_.hasTune() && e.position.x < lanesX())
+        if (const int t = yToTrack(e.position.y); t >= 0 && !compact() && knobBounds(t).expanded(3).contains(e.position.toInt()))
         {
             dragStarted_ = false;
             setVolume(t, 0.0f);
             return;
         }
-    if (!model_.hasTune() || e.position.x < kHeaderWidth || e.position.y < kRulerHeight)
+    if (!model_.hasTune() || e.position.x < lanesX() || e.position.y < kRulerHeight)
         return;
     bool edge = false;
     const NoteRef hit = noteAt(e.position, edge);
@@ -1196,6 +1275,7 @@ void TrackerView::mouseMagnify(const juce::MouseEvent& e, float scale)
 
 bool TrackerView::keyPressed(const juce::KeyPress& key)
 {
+    wake();
     if (!model_.hasTune())
         return false;
     const auto mods = key.getModifiers();

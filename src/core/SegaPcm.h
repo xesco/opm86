@@ -34,7 +34,8 @@ public:
     // Advance by one sample at kSampleRate. Channels outside the mask
     // still play on, but are left out of the output. With peaks (one per
     // channel), each output channel's louder side raises its peak.
-    void generate(int32_t& left, int32_t& right, uint16_t channelMask = 0xFFFF, int32_t* peaks = nullptr);
+    // With gains (one per channel), each channel's output is scaled by its gain.
+    void generate(int32_t& left, int32_t& right, uint16_t channelMask = 0xFFFF, int32_t* peaks = nullptr, const float* gains = nullptr);
 
 private:
     std::array<uint8_t, 0x100> ram_ {};

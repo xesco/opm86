@@ -408,8 +408,57 @@ void testTrackVolume()
     check(std::abs(pcmBoost - 1.5) < 0.3, "a drum track at +1.5 dB plays 1.5 dB louder");
 }
 
+// Speed changes how fast the song's writes come, not the chips: at half
+// speed, two seconds of output cover one second of the song.
+void testSpeed()
+{
+    std::string error;
+    auto tune = Tune::load(test::makeSong(), "Song", error);
+    const auto song = tune->build();
+    SongPlayer player;
+    player.prepare(48000.0);
+    player.setSong(song, makeStartSnapshot(*song));
+    player.play(0.0);
+    player.setSpeed(0.5);
+    renderSong(player, 96000);
+    check(std::abs(player.position() - kVgmRate) < 2.0, "at half speed, two seconds play one second of the song");
+    player.setSpeed(2.0);
+    renderSong(player, 48000);
+    check(std::abs(player.position() - 3.0 * kVgmRate) < 2.0, "at double speed, one second plays two");
+}
+
+// Mute, solo and volume left to the player sound as they do built into the song.
+void testPlayerMix()
+{
+    for (const int solo : { 0, 2 })
+    {
+        std::string error;
+        auto tune = Tune::load(test::makeSong(), "Song", error);
+        tune->tracks[static_cast<size_t>(solo)].solo = true;
+        tune->tracks[static_cast<size_t>(solo)].volume = -12.0f;
+        auto render = [&](bool mixInBuild) {
+            BuildReport report;
+            const auto song = tune->build(&report, mixInBuild);
+            const auto mix = mixOf(*tune, report);
+            SongPlayer player;
+            player.prepare(48000.0);
+            player.setSong(song, makeStartSnapshot(*song));
+            if (!mixInBuild)
+                player.setMix(mix);
+            player.play(0.0);
+            return renderSong(player, 144000);
+        };
+        const auto built = render(true), mixed = render(false);
+        check(differenceDb(mixed.data(), built.data(), built.size()) < -40.0,
+              solo == 0 ? "an FM track soloed at -12 dB sounds the same applied by the player"
+                        : "a drum track soloed at -12 dB sounds the same applied by the player");
+    }
+}
+
 int main()
 {
+    testPlayerMix();
+    testSpeed();
     testTrackVolume();
     testEditPlayback();
     testTune();

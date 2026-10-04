@@ -39,6 +39,8 @@ private:
 
 AppModel::AppModel()
 {
+    // Mute, solo and volume act at once in the player, with no new song to build.
+    rebuilder_.setMixInPlayer(true);
     devices_.initialiseWithDefaultDevices(0, 2);
     devices_.addAudioCallback(this);
     startTimerHz(30);
@@ -74,6 +76,7 @@ bool AppModel::open(const juce::File& file, juce::String& error)
     report_ = {};
     position_.store(0.0);
     rebuild();
+    sendMix();
     sendChangeMessage();
     return true;
 }
@@ -90,12 +93,53 @@ void AppModel::edit(const juce::String& name, const std::function<void(Tune&)>& 
     undo_.perform(new TracksChange(*this, std::move(before), changed.tracks));
 }
 
+namespace
+{
+// Whether two sets of tracks build the same song: they differ at most in
+// mute, solo, voice mutes and volume, which the player applies.
+bool sameBuild(const std::vector<TuneTrack>& a, const std::vector<TuneTrack>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (size_t t = 0; t < a.size(); ++t)
+    {
+        const TuneTrack &x = a[t], &y = b[t];
+        if (x.kind != y.kind || x.instrument != y.instrument || x.name != y.name || x.notes.size() != y.notes.size())
+            return false;
+        for (size_t n = 0; n < x.notes.size(); ++n)
+        {
+            const TuneNote &p = x.notes[n], &q = y.notes[n];
+            if (p.id != q.id || p.source != q.source || p.start != q.start || p.length != q.length || p.transpose != q.transpose)
+                return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
 void AppModel::setTracks(const std::vector<TuneTrack>& tracks)
 {
+    // Mute, solo and volume alone change only the mix: no new song to build.
+    const bool build = !sameBuild(tune_->tracks, tracks);
     tune_->tracks = tracks;
     ++revision_;
-    rebuild();
+    if (build)
+        rebuild();
+    sendMix();
     sendChangeMessage();
+}
+
+void AppModel::sendMix()
+{
+    auto mix = mixOf(*tune_, report_);
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.mix = mix;
+    }
+    // Kept here, so the audio thread never frees one.
+    mixes_.push_back(std::move(mix));
+    while (mixes_.size() > 8)
+        mixes_.pop_front();
 }
 
 void AppModel::rebuild()
@@ -109,12 +153,14 @@ void AppModel::play()
         return;
     const juce::SpinLock::ScopedLockType lock(commandLock_);
     commands_.play = true;
-    commands_.stop = false;
+    commands_.stop = commands_.scrub = false;
     commands_.playAt = position_.load();
 }
 
 void AppModel::stop()
 {
+    // Stopped from now on for everyone here, while the audio thread fades out.
+    playing_.store(false);
     const juce::SpinLock::ScopedLockType lock(commandLock_);
     commands_.stop = true;
     commands_.play = false;
@@ -127,7 +173,7 @@ double AppModel::displayPosition() const
         return p;
     // Up to 50 ms ahead of the last audio block.
     const double elapsed = std::clamp(juce::Time::getMillisecondCounterHiRes() - positionStamp_.load(), 0.0, 50.0);
-    return p + elapsed * kVgmRate / 1000.0;
+    return p + elapsed * speed_.load() * kVgmRate / 1000.0;
 }
 
 void AppModel::setPosition(double songTime)
@@ -137,6 +183,17 @@ void AppModel::setPosition(double songTime)
     {
         const juce::SpinLock::ScopedLockType lock(commandLock_);
         commands_.play = true;
+        commands_.playAt = position_.load();
+    }
+    sendChangeMessage();
+}
+
+void AppModel::scrub(double songTime)
+{
+    position_.store(std::max(0.0, songTime));
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.play = commands_.scrub = true;
         commands_.playAt = position_.load();
     }
     sendChangeMessage();
@@ -167,6 +224,7 @@ void AppModel::timerCallback()
     }
     built_ = version->song;
     keep_.push_back(std::move(*version));
+    sendMix(); // the build may have moved notes to other channels
     while (keep_.size() > 8)
         keep_.pop_front();
     sendChangeMessage();
@@ -186,6 +244,11 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         if (lock.isLocked())
         {
             Commands& c = commands_;
+            if (c.mix)
+            {
+                player_.setMix(c.mix);
+                c.mix.reset();
+            }
             if (c.newSong || c.sameSong)
             {
                 if (c.fresh || !player_.playing())
@@ -209,8 +272,18 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
                 playing_.store(false);
                 c.stop = false;
             }
-            if (c.play)
+            if (c.play && c.scrub)
             {
+                // 90 ms of sound from the scrub's time. Close to what sounds
+                // already, the sound runs on rather than jump back and stutter.
+                const bool near = player_.playing() && scrubLeft_ > 0 && std::abs(player_.position() - c.playAt) < 0.04 * kVgmRate;
+                if (near || player_.play(c.playAt))
+                    scrubLeft_ = static_cast<int>(0.09 * sampleRate_);
+                c.play = c.scrub = false;
+            }
+            else if (c.play)
+            {
+                scrubLeft_ = 0;
                 if (player_.play(c.playAt))
                     playing_.store(true);
                 c.play = false;
@@ -218,11 +291,15 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         }
     }
 
+    player_.setSpeed(speed_.load());
+
     float scratch[2][1024];
     float* left = numOutputs > 0 && outputs[0] ? outputs[0] : scratch[0];
     float* right = numOutputs > 1 && outputs[1] ? outputs[1] : scratch[1];
     numSamples = std::min(numSamples, 1024);
     player_.render(left, right, numSamples);
+    if (scrubLeft_ > 0 && (scrubLeft_ -= numSamples) <= 0 && !playing_.load())
+        player_.stop();
     if (!monitor_.load())
     {
         juce::FloatVectorOperations::clear(left, numSamples);
@@ -234,8 +311,13 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
 
     if (player_.playing())
     {
-        position_.store(player_.position());
-        positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
+        // While a stop fades out, the position is the one it stopped at, or
+        // where it has been moved since.
+        if (playing_.load())
+        {
+            position_.store(player_.position());
+            positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
+        }
         // Stop after the song's end and its releases.
         if (const VgmSong* song = player_.song(); song && player_.position() > songEnd(*song))
         {

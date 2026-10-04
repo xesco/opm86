@@ -190,6 +190,58 @@ double SongPlayer::position() const
     return d.on ? d.songTime : 0.0;
 }
 
+double SongPlayer::fmNow(const Deck& d) const
+{
+    const double rate = d.song->fmRate;
+    return d.stretched ? d.fmAnchorTime + static_cast<double>(d.fmSample - d.fmAnchor) * speed_ * kVgmRate / rate
+                       : static_cast<double>(d.fmSample) * kVgmRate / rate;
+}
+
+double SongPlayer::pcmNow(const Deck& d) const
+{
+    const double rate = d.song->pcmRate;
+    return d.stretched ? d.pcmAnchorTime + static_cast<double>(d.pcmSample - d.pcmAnchor) * speed_ * kVgmRate / rate
+                       : static_cast<double>(d.pcmSample) * kVgmRate / rate;
+}
+
+void SongPlayer::seekMix(Deck& d, bool glide)
+{
+    d.mix = mix_;
+    const double fm = fmNow(d), pcm = pcmNow(d);
+    if (glide)
+    {
+        d.fromGain = d.lastGain;
+        d.fadeFrom[0] = fm, d.fadeFrom[1] = pcm;
+    }
+    else
+        d.fadeFrom[0] = d.fadeFrom[1] = -1e18;
+    if (!d.mix)
+        return;
+    for (size_t c = 0; c < d.mixAt.size(); ++c)
+    {
+        const auto& v = d.mix->changes[c];
+        const double now = c < 8 ? fm : pcm;
+        d.mixAt[c] = static_cast<size_t>(std::upper_bound(v.begin(), v.end(), now, [](double t, const ChannelMix::Change& x) {
+                                             return t < x.time;
+                                         }) - v.begin());
+    }
+}
+
+void SongPlayer::setSpeed(double speed)
+{
+    if (speed == speed_)
+        return;
+    // Each deck carries on from where it is, at the new speed.
+    for (Deck& d : decks_)
+        if (d.on && d.song)
+        {
+            d.fmAnchorTime = fmNow(d), d.fmAnchor = d.fmSample;
+            d.pcmAnchorTime = pcmNow(d), d.pcmAnchor = d.pcmSample;
+            d.stretched = true;
+        }
+    speed_ = speed;
+}
+
 bool SongPlayer::seek(Deck& deck, double songTime)
 {
     const VgmSong& song = *song_;
@@ -264,6 +316,11 @@ bool SongPlayer::seek(Deck& deck, double songTime)
     deck.pcmFilter.setup(14000.0, hostRate_);
     deck.songTime = songTime;
     deck.silence = silence;
+    deck.stretched = speed_ != 1.0;
+    deck.fmAnchor = deck.fmSample, deck.fmAnchorTime = static_cast<double>(deck.fmSample) * kVgmRate / song.fmRate;
+    deck.pcmAnchor = deck.pcmSample, deck.pcmAnchorTime = static_cast<double>(deck.pcmSample) * kVgmRate / song.pcmRate;
+    deck.lastGain.fill(1.0f);
+    seekMix(deck, false);
     return true;
 }
 
@@ -314,6 +371,38 @@ void SongPlayer::stop()
 void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
 {
     const VgmSong& song = *deck.song;
+    if (deck.mix != mix_)
+        seekMix(deck, true);
+    // The mix's gains at a song time, each cursor moving on past the changes
+    // due: the channels heard, and whether all of them are at gain 1, so the
+    // chip can mix them itself, exactly.
+    auto mixed = [&deck](double now, size_t first, size_t count, float* gains, bool& plain) {
+        uint32_t mask = (1u << count) - 1;
+        plain = true;
+        constexpr double kGlide = 0.02 * kVgmRate; // 20 ms
+        const double since = now - deck.fadeFrom[first == 0 ? 0 : 1];
+        const float along = since < kGlide ? static_cast<float>(std::max(0.0, since) / kGlide) : 1.0f;
+        for (size_t c = 0; c < count; ++c)
+        {
+            float target = 1.0f;
+            if (deck.mix)
+            {
+                const auto& v = deck.mix->changes[first + c];
+                size_t& i = deck.mixAt[first + c];
+                while (i < v.size() && v[i].time <= now)
+                    ++i;
+                target = i > 0 ? v[i - 1].gain : 1.0f;
+            }
+            const float from = deck.fromGain[first + c];
+            gains[c] = along < 1.0f ? from + (target - from) * along : target;
+            deck.lastGain[first + c] = gains[c];
+            if (gains[c] <= 0.0f)
+                mask &= ~(1u << c);
+            else if (std::abs(gains[c] - 1.0f) > 1e-6f)
+                plain = false;
+        }
+        return mask;
+    };
     constexpr int kChunk = 256;
     float fmL[kChunk], fmR[kChunk], pcmL[kChunk], pcmR[kChunk];
     // Only the deck being heard is measured.
@@ -326,31 +415,42 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
     {
         ++pos;
         --deck.silence;
-        deck.songTime += kVgmRate / hostRate_;
+        deck.songTime += speed_ * kVgmRate / hostRate_;
     }
 
     while (pos < count)
     {
         const int n = std::min(count - pos, kChunk);
         deck.fmResampler.process(fmL, fmR, n, [&](float& l, float& r) {
-            const double now = static_cast<double>(deck.fmSample++) * kVgmRate / song.fmRate;
+            const double now = fmNow(deck);
+            ++deck.fmSample;
             for (; deck.ymWrite < song.ym.size() && song.ym[deck.ymWrite].time <= now; ++deck.ymWrite)
             {
                 deck.fm.write(0, static_cast<uint8_t>(song.ym[deck.ymWrite].address));
                 deck.fm.write(1, song.ym[deck.ymWrite].value);
             }
             ymfm::ym2151::output_data data;
-            deck.fm.generate(&data, fmMask_, measure ? peaks.data() : nullptr);
+            float gains[8];
+            bool plain = true;
+            const uint32_t mask = fmMask_ & mixed(now, 0, 8, gains, plain);
+            if (plain)
+                deck.fm.generate(&data, mask, measure ? peaks.data() : nullptr);
+            else
+                deck.fm.generate(&data, mask, gains, measure ? peaks.data() : nullptr);
             l = static_cast<float>(data.data[0]) * kChipScale;
             r = static_cast<float>(data.data[1]) * kChipScale;
             deck.fmFilter.process(l, r);
         });
         deck.pcmResampler.process(pcmL, pcmR, n, [&](float& l, float& r) {
-            const double now = static_cast<double>(deck.pcmSample++) * kVgmRate / song.pcmRate;
+            const double now = pcmNow(deck);
+            ++deck.pcmSample;
             for (; deck.pcmWrite < song.pcm.size() && song.pcm[deck.pcmWrite].time <= now; ++deck.pcmWrite)
                 writePcm(deck.pcm, song.pcm[deck.pcmWrite]);
             int32_t a = 0, b = 0;
-            deck.pcm.generate(a, b, pcmMask_, measure ? peaks.data() + 8 : nullptr);
+            float gains[16];
+            bool plain = true;
+            const auto mask = static_cast<uint16_t>(pcmMask_ & mixed(now, 8, 16, gains, plain));
+            deck.pcm.generate(a, b, mask, measure ? peaks.data() + 8 : nullptr, plain ? nullptr : gains);
             l = static_cast<float>(a) * kChipScale;
             r = static_cast<float>(b) * kChipScale;
         });
@@ -365,16 +465,15 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
             right[pos + i] += (fmR[i] * fmLevel_ + pcmR[i] * pcmLevel_) * deck.gain;
         }
         pos += n;
-        deck.songTime += n * kVgmRate / hostRate_;
+        deck.songTime += n * speed_ * kVgmRate / hostRate_;
     }
     if (deck.gain == 0.0f && deck.target == 0.0f)
         deck.on = false;
     if (measure)
         for (size_t c = 0; c < peaks.size(); ++c)
         {
-            // 1 is one FM carrier at full level (8192) or a PCM channel at
-            // 127 x 127; an FM channel adding up carriers goes past it.
-            const float level = static_cast<float>(peaks[c]) * (c < 8 ? 1.0f / 8192.0f : 1.0f / 16129.0f);
+            // FM channels reach 32767; a PCM channel 127 x 127.
+            const float level = static_cast<float>(peaks[c]) * (c < 8 ? kChipScale : 1.0f / 16129.0f);
             if (level > peaks_[c].load(std::memory_order_relaxed))
                 peaks_[c].store(level, std::memory_order_relaxed);
         }
