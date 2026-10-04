@@ -52,7 +52,7 @@ public:
     void mouseMagnify(const juce::MouseEvent&, float scale) override;
     bool keyPressed(const juce::KeyPress&) override;
 
-    static constexpr int kHeaderWidth = 264;
+    static constexpr int kHeaderWidth = 300;
     static constexpr int kRulerHeight = 30;
     static constexpr int kMinLaneHeight = 46;
     static constexpr int kMaxLaneHeight = 220;
@@ -96,11 +96,12 @@ private:
     juce::Rectangle<int> nameBounds(int track) const;
     juce::Rectangle<int> pill(int track, int which) const; // 0 mute, 1 solo, after the name
     juce::Rectangle<int> voicePill(int track, int k) const; // the k-th voice's mute, beside its row
-    juce::Rectangle<int> faderBounds(int track) const;      // the volume fader, its meter inside
+    juce::Rectangle<int> meterBounds(int track) const;      // the level meter under the name
+    juce::Rectangle<int> knobBounds(int track) const;       // the volume knob, right of the meter
     juce::Rectangle<int> disclosure(int track) const;       // a chord part's expand and collapse arrow
     bool expanded(int track) const;                          // a chord part showing a row per voice
-    static float faderPosition(float volume);               // dB to 0..1 along the fader
-    static float faderVolume(float position);               // and back
+    static float knobPosition(float volume);                // dB to 0..1 round the knob
+    static float knobVolume(float position);                // and back
     void setVolume(int track, float volume);
 
     void paintRuler(juce::Graphics&);
@@ -110,7 +111,7 @@ private:
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
 
     // Editing.
-    enum class Drag { None, Move, Resize, Box, Ruler, Scroll, Fader };
+    enum class Drag { None, Move, Resize, Box, Ruler, Scroll, Knob };
     void transposeSelection(int semitones);
     void deleteSelection();
     void duplicateSelection();
@@ -132,8 +133,9 @@ private:
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
     NoteRef dragNote_;
-    int dragTrack_ = -1;                   // the track whose fader is dragged
-    bool dragStarted_ = false;            // the fader drag has made its undo step
+    int dragTrack_ = -1;                   // the track whose knob is turned
+    float dragKnob_ = 0;                   // the knob's position when the turn began
+    bool dragStarted_ = false;            // the knob turn has made its undo step
     double dragDelta_ = 0;                 // move or resize amount, in samples, while dragging
     juce::Rectangle<float> box_;
     NoteRef hover_;
@@ -150,7 +152,7 @@ private:
     std::array<std::vector<Owner>, SongPlayer::kMeterChannels> owners_; // by start
     int ownersRevision_ = -1;
     std::array<float, SongPlayer::kMeterChannels> channelLevel_ {};
-    std::vector<float> level_, hold_; // per track, on the fader's scale
+    std::vector<float> level_, hold_; // per track, 0..1 along the meter
     std::vector<double> holdAge_;     // seconds since the hold was set
     bool hoverEdge_ = false;
 };

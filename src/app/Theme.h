@@ -12,6 +12,7 @@ inline const juce::Colour panel { 0xff141a30 };
 inline const juce::Colour panelLight { 0xff1b2340 };
 inline const juce::Colour grid { 0xff232b4d };
 inline const juce::Colour gridBar { 0xff39436f };
+inline const juce::Colour yellow { 0xffffd23d };
 inline const juce::Colour orange { 0xffff8a3d };
 inline const juce::Colour magenta { 0xffff4f9a };
 inline const juce::Colour cyan { 0xff3de0ff };

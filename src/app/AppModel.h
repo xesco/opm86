@@ -40,7 +40,7 @@ public:
     bool ready() const { return built_ != nullptr; } // a build exists to play
 
     // Change the tune, as one step of undo; with newStep false, as part of the
-    // step before (a fader drag is one step).
+    // step before (a knob turn is one step).
     void edit(const juce::String& name, const std::function<void(Tune&)>& change, bool newStep = true);
     juce::UndoManager& undo() { return undo_; }
 
