@@ -562,7 +562,7 @@ void PianoStrip::paint(juce::Graphics& g)
         g.fillRoundedRectangle(key, 2.5f);
         if (down)
         {
-            g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            g.setColour(juce::Colour(0xff3a3a44));
             g.drawRoundedRectangle(key.reduced(0.5f), 2.5f, 1.5f);
         }
         // C keys carry their octave.
@@ -586,7 +586,7 @@ void PianoStrip::paint(juce::Graphics& g)
         const bool down = on[static_cast<size_t>(k)];
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xff1b1e30));
         g.fillRoundedRectangle(key, 2.0f);
-        g.setColour(down ? juce::Colours::lightgrey.withAlpha(0.8f) : juce::Colours::black.withAlpha(0.5f));
+        g.setColour(down ? juce::Colour(0xff3a3a44) : juce::Colours::black.withAlpha(0.5f));
         g.drawRoundedRectangle(key.reduced(0.5f), 2.0f, 1.0f);
     }
 
