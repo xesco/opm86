@@ -753,6 +753,20 @@ std::vector<int> Tune::voices(const TuneTrack& track) const
     return result;
 }
 
+int Tune::freeVoice(const TuneTrack& track, int64_t start, int64_t end) const
+{
+    std::vector<int> all = voices(track);
+    if (all.empty())
+        return -1;
+    std::sort(all.begin(), all.end());
+    for (const int v : all)
+        if (std::none_of(track.notes.begin(), track.notes.end(), [&](const TuneNote& n) {
+                return originalChannel(track, n) == v && n.start < end && start < n.start + n.length;
+            }))
+            return v;
+    return all.front();
+}
+
 std::vector<Tune::Ref> Tune::allocate(bool fm, BuildReport& rep) const
 {
     std::vector<Ref> refs, written;

@@ -91,6 +91,7 @@ target_sources(opm86_tracker PRIVATE
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/PatchWindow.cpp
+    src/app/PianoRoll.cpp
     src/app/SampleWindow.cpp
     src/app/Theme.cpp
     src/app/TrackerView.cpp

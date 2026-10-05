@@ -1186,6 +1186,30 @@ void testWrittenNotes()
     check(before < 1e-6f && during > 0.01f, "written notes are silent before their start and sound from it");
 }
 
+void testFreeVoice()
+{
+    auto tune = Tune::empty();
+    TuneTrack t;
+    t.instrument = -1;
+    t.addedVoices = 0x06;                             // V2 and V3
+    t.notes.push_back({ 0, -1, 1000, 1000, 0, 2 });   // on V3, from 1000 to 2000
+    tune->tracks.push_back(t);
+    const TuneTrack& fm = tune->tracks[0];
+    check(tune->freeVoice(fm, 1500, 2500) == 1, "a new note goes on the lowest voice free over its span");
+    check(tune->freeVoice(fm, 2000, 3000) == 1 && tune->freeVoice(fm, 0, 1000) == 1, "a note that ends or starts at the span's edge leaves its voice free");
+
+    tune->tracks[0].notes.push_back({ 1, -1, 500, 1000, 0, 1 }); // on V2, from 500 to 1500
+    check(tune->freeVoice(tune->tracks[0], 1600, 1700) == 1, "a voice whose note has ended is free");
+    check(tune->freeVoice(tune->tracks[0], 1200, 1300) == 1, "with every voice busy, a new note goes on the track's lowest voice");
+    tune->tracks[0].notes.erase(tune->tracks[0].notes.begin());
+    check(tune->freeVoice(tune->tracks[0], 1200, 1300) == 2, "the next voice up when the lowest is busy");
+
+    TuneTrack drum;
+    drum.kind = TuneTrack::Kind::Drum;
+    TuneTrack empty;
+    check(tune->freeVoice(drum, 0, 100) == -1 && tune->freeVoice(empty, 0, 100) == -1, "a drum track or a track with no voices has no free voice");
+}
+
 void testPreviewVoice()
 {
     // A written note on voice 0 at time 0: middle C on the default instrument.
@@ -1970,6 +1994,7 @@ int main()
     testChipEdits();
     testPreviewVoice();
     testWrittenNotes();
+    testFreeVoice();
     testPatchEdits();
     testPlayerMix();
     testSpeed();

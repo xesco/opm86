@@ -852,7 +852,8 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     heightZoom_.setHome(view_.laneHeight()); // the lanes' first height
     heightZoom_.setTooltip("Track height");
     heightZoom_.onValueChange = [this] {
-        view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
+        const int height = view_.inPianoRoll() ? view_.rowHeight() : view_.laneHeight();
+        view_.zoomLanes(heightZoom_.getValue() / height, TrackerView::kRulerHeight);
     };
 }
 
@@ -879,10 +880,30 @@ void ToolBar::setKeepPlayhead(bool keep)
 
 void ToolBar::syncZoom()
 {
+    // In the piano roll the height slider sets its rows' height, with a
+    // range and home of their own; the lanes' come back with the arrangement.
+    if (view_.inPianoRoll() != rowZoom_)
+    {
+        rowZoom_ = view_.inPianoRoll();
+        const juce::var laneHome = heightZoom_.getProperties()["laneHome"];
+        if (rowZoom_)
+        {
+            heightZoom_.getProperties().set("laneHome", heightZoom_.getProperties()["home"]);
+            heightZoom_.setRange(TrackerView::kMinRowHeight, TrackerView::kMaxRowHeight, 1.0);
+            heightZoom_.setHome(TrackerView::kDefaultRowHeight);
+        }
+        else
+        {
+            heightZoom_.setRange(TrackerView::kMinLaneHeight, TrackerView::kMaxLaneHeight, 1.0);
+            if (!laneHome.isVoid())
+                heightZoom_.setHome(laneHome);
+        }
+        heightZoom_.setTooltip(rowZoom_ ? "Row height" : "Track height");
+    }
     if (!timeZoom_.isMouseButtonDown())
         timeZoom_.setValue(-std::log2(view_.samplesPerPixel()), juce::dontSendNotification);
     if (!heightZoom_.isMouseButtonDown())
-        heightZoom_.setValue(view_.laneHeight(), juce::dontSendNotification);
+        heightZoom_.setValue(rowZoom_ ? view_.rowHeight() : view_.laneHeight(), juce::dontSendNotification);
 }
 
 ToolBar::Only ToolBar::soloed() const
@@ -1679,6 +1700,7 @@ void MainComponent::opened()
 {
     closePatch(); // its track belonged to the song before
     closeSample();
+    view_.songOpened(); // so did the piano roll's
     // Start on the first bar, eight bars across.
     const double bar = model_.tune().barLength();
     const double width = std::max(200, view_.getWidth() - view_.headerWidth());
@@ -1949,6 +1971,12 @@ void MainComponent::fileDragExit(const juce::StringArray&)
     repaint();
 }
 
+void MainComponent::matchHeaderWidths()
+{
+    piano_.setHeaderWidth(view_.headerWidth());
+    overview_.setHeaderWidth(view_.headerWidth());
+}
+
 void MainComponent::frame(double timestamp)
 {
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
@@ -1973,8 +2001,7 @@ void MainComponent::frame(double timestamp)
     // The song took over from a key held: it no longer sounds, so it goes up.
     if (model_.playing())
         piano_.letGo();
-    piano_.setHeaderWidth(view_.headerWidth());
-    overview_.setHeaderWidth(view_.headerWidth());
+    matchHeaderWidths();
     tools_.syncZoom();
     // A WAV render under way shows its progress, and what came of it when it ends.
     if (model_.exporting())
@@ -2031,7 +2058,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& ids)
                    command::play, command::rewind, command::back, command::forward, command::loopSelection, command::loop,
                    command::clearLoop, command::zoomIn, command::zoomOut, command::taller, command::shorter,
                    command::fitTracks, command::fitTime, command::fitBoth, command::defaultZoom, command::keepPlayhead,
-                   command::showKeys, command::showOverview, command::showExpression, command::chip, command::shortcuts });
+                   command::showKeys, command::showOverview, command::showExpression, command::pianoRoll, command::ghostNotes,
+                   command::chip, command::shortcuts });
 }
 
 void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -2175,9 +2203,12 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
             info.setActive(selected);
             break;
         case command::deselect:
-            info.setInfo("Deselect", "No note selected", "Edit", 0);
+            // In the piano roll, Escape goes back to the arrangement.
+            info.setInfo("Deselect", "No note selected; in the piano roll, back to the arrangement", "Edit", 0);
             info.addDefaultKeypress(juce::KeyPress::escapeKey, 0);
-            info.setActive(selected);
+            if (view_.inPianoRoll())
+                info.shortName = "Close Piano Roll";
+            info.setActive(selected || view_.inPianoRoll());
             break;
         case command::moveConflicts:
             info.setInfo("Move Conflicts to Free Voices", "Each note whose voice is busy, to the free voice it plays on", "Edit", 0);
@@ -2281,6 +2312,16 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
             info.setInfo("Show Note Expression", "Each ripped note's pitch line and level shading", "View", 0);
             info.setTicked(view_.showsExpression());
             break;
+        case command::pianoRoll:
+            info.setInfo("Piano Roll", "The selected notes' track, or the last clicked, by pitch", "View", 0);
+            info.setTicked(view_.inPianoRoll());
+            info.setActive(view_.pianoRollTarget() >= 0);
+            break;
+        case command::ghostNotes:
+            info.setInfo("Ghost Notes", "The other tracks' notes, faint, in the piano roll", "View", 0);
+            info.setTicked(view_.showsGhosts());
+            info.setActive(song);
+            break;
         case command::chip:
             info.setInfo("Chip", "The LFO and noise every voice shares", "View", 0);
             info.setTicked(chip_ != nullptr);
@@ -2330,7 +2371,12 @@ bool MainComponent::perform(const InvocationInfo& info)
         case command::fineDownEighth: view_.fineTuneSelection(-8); break;
         case command::louder: view_.changeVelocity(1); break;
         case command::quieter: view_.changeVelocity(-1); break;
-        case command::deselect: view_.deselect(); break;
+        case command::deselect:
+            if (view_.inPianoRoll())
+                view_.setPianoRoll(-1);
+            else
+                view_.deselect();
+            break;
         case command::moveConflicts: view_.moveConflicts(); break;
         case command::play:
             if (model_.playing())
@@ -2367,6 +2413,8 @@ bool MainComponent::perform(const InvocationInfo& info)
         case command::showKeys: piano_.setOpen(!piano_.isOpen()); break;
         case command::showOverview: overview_.setOpen(!overview_.isOpen()); break;
         case command::showExpression: view_.setShowExpression(!view_.showsExpression()); break;
+        case command::pianoRoll: view_.setPianoRoll(view_.inPianoRoll() ? -1 : view_.pianoRollTarget()); break;
+        case command::ghostNotes: view_.setShowGhosts(!view_.showsGhosts()); break;
         case command::chip:
             if (chip_)
                 closeChip();
@@ -2423,6 +2471,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int index, const juce::String&)
         { { command::zoomIn, command::zoomOut, command::taller, command::shorter },
           { command::fitTracks, command::fitTime, command::fitBoth, command::defaultZoom },
           { command::keepPlayhead, command::showKeys, command::showOverview, command::showExpression },
+          { command::pianoRoll, command::ghostNotes },
           { command::chip } },
         { { command::shortcuts } },
     };

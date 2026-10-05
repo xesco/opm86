@@ -339,6 +339,10 @@ public:
     // highest sounding first; a chord part has one per note of the chord.
     // Empty for a drum track.
     std::vector<int> voices(const TuneTrack& track) const;
+    // The lowest of an FM track's voices that none of its notes plays on
+    // from start up to end, for a new note there; else its lowest voice.
+    // -1 for a drum track, or a track with no voices.
+    int freeVoice(const TuneTrack& track, int64_t start, int64_t end) const;
 
     // An id no note in the tune uses yet, for a copy or a new note.
     int newNoteId() const;

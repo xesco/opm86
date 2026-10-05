@@ -139,6 +139,7 @@ private:
     SnapSlider speed_, heightZoom_, timeZoom_;
     JogWheel jog_;
     juce::Rectangle<int> speedCaption_, heightCaption_, timeCaption_; // labels over the sliders
+    bool rowZoom_ = false; // the height slider sets the piano roll's rows, not the tracks' lanes
 };
 
 // A strip under the tracks with a chevron that slides it down to a thin bar
@@ -258,7 +259,7 @@ enum : juce::CommandID
     setTempo, barOne,
     play, rewind, back, forward, loopSelection, loop, clearLoop,
     zoomIn, zoomOut, taller, shorter, fitTracks, fitTime, fitBoth, defaultZoom, keepPlayhead, showKeys, showOverview, showExpression, chip,
-    shortcuts
+    shortcuts, pianoRoll, ghostNotes
 };
 } // namespace command
 
@@ -308,6 +309,7 @@ public:
     juce::PropertiesFile& settings() { return *settings_.getUserSettings(); } // the app's settings, kept between runs
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }
+    void matchHeaderWidths(); // the strips under the tracks line up with the view's header column, as each frame does
     juce::ApplicationCommandManager& commands() { return commands_; }
     void showShortcuts(); // the shortcut sheet, in a window of its own
 

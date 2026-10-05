@@ -45,12 +45,13 @@ public:
     void initialise(const juce::String& commandLine) override
     {
         const auto args = juce::StringArray::fromTokens(commandLine, true);
-        // Hidden: --snapshot rip.vgz out.png [seconds] [lane height] [tracks to mute, as 0,2]
-        // draws the window to a PNG and quits.
+        // Hidden: --snapshot rip.vgz out.png [seconds] [lane height] [tracks to mute, as 0,2, or - for none]
+        // [track for the piano roll] draws the window to a PNG and quits.
         if (args.size() >= 3 && args[0] == "--snapshot")
         {
             snapshot(juce::File(args[1].unquoted()), juce::File(args[2].unquoted()), args.size() > 3 ? args[3].getDoubleValue() : 0.0,
-                     args.size() > 4 ? args[4].getIntValue() : 0, args.size() > 5 ? args[5] : juce::String());
+                     args.size() > 4 ? args[4].getIntValue() : 0, args.size() > 5 && args[5] != "-" ? args[5] : juce::String(),
+                     args.size() > 6 ? args[6].getIntValue() : -1);
             return;
         }
         auto content = std::make_unique<MainComponent>();
@@ -118,6 +119,8 @@ private:
                     return;
             }
             stopTimer();
+            // Off screen no frame comes, so the strips take the header's width here.
+            component->matchHeaderWidths();
             const auto image = component->createComponentSnapshot(component->getLocalBounds(), true, 2.0f);
             out.deleteFile();
             juce::FileOutputStream stream(out);
@@ -128,7 +131,7 @@ private:
         }
     };
 
-    void snapshot(const juce::File& in, const juce::File& out, double seconds, int laneHeight, const juce::String& mute)
+    void snapshot(const juce::File& in, const juce::File& out, double seconds, int laneHeight, const juce::String& mute, int rollTrack)
     {
         snapshot_ = std::make_unique<Snapshot>();
         snapshot_->component = std::make_unique<MainComponent>();
@@ -148,8 +151,10 @@ private:
             snapshot_->play = true;
         }
         auto& view = snapshot_->component->view();
+        // The piano roll opens first, so the lane height sets its rows' height.
+        view.setPianoRoll(rollTrack);
         if (laneHeight > 0)
-            view.zoomLanes(static_cast<double>(laneHeight) / view.laneHeight(), TrackerView::kRulerHeight);
+            view.zoomLanes(static_cast<double>(laneHeight) / (view.inPianoRoll() ? view.rowHeight() : view.laneHeight()), TrackerView::kRulerHeight);
         for (const auto& track : juce::StringArray::fromTokens(mute, ",", ""))
             snapshot_->component->model().edit("Mute", [t = static_cast<size_t>(track.getIntValue())](Tune& tune) { tune.tracks[t].mute = true; });
         snapshot_->startTimer(20);

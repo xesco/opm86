@@ -44,9 +44,23 @@ public:
     void setShowExpression(bool show) { showExpression_ = show; repaint(); }
     bool showsExpression() const { return showExpression_; }
 
-    // Vertical zoom: the height of every lane, kept around the pointer.
+    // Vertical zoom: the height of every lane, or in the piano roll of
+    // every pitch's row, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
     void zoomLanes(double factor, float y);
+
+    // The piano roll: one track's notes by pitch, the keys down the left,
+    // the other tracks' notes faint behind them, and under them a lane for
+    // the notes' velocity, fine tune or pan. Time zooms and scrolls as in
+    // the arrangement, which comes back as it was.
+    void setPianoRoll(int track); // -1 for the arrangement
+    void songOpened(); // back to the arrangement, the track last clicked forgotten: the tracks are another song's
+    int pianoRollTrack() const { return rollTrack_; }
+    bool inPianoRoll() const { return rollTrack_ >= 0; }
+    int pianoRollTarget() const; // the track the command opens: the selected notes', else the last clicked; -1 for none
+    int rowHeight() const { return rowHeight_; } // a pitch's row in the piano roll
+    void setShowGhosts(bool show) { showGhosts_ = show; repaint(); }
+    bool showsGhosts() const { return showGhosts_; }
 
     // Snap grid in VGM samples; 0 is off.
     void setSnap(double samples) { snap_ = samples; }
@@ -66,7 +80,9 @@ public:
     // and voices, their starts from the earliest's. A paste goes at the
     // playhead, on the snap grid, into the notes' own tracks and voices; or,
     // when they all come from one FM track, into the row clicked since the
-    // copy, a ripped note going into another track as a written one.
+    // copy, a ripped note going into another track as a written one. In the
+    // piano roll, every note goes into its track: a note of another track of
+    // the same kind as a written one, on a voice free for it.
     void copySelection();
     void cutSelection(); // a copy, then the notes deleted, as one step of undo
     bool canPaste() const; // notes copied from the song open now
@@ -101,8 +117,12 @@ public:
     static constexpr int kAddRow = 28;      // the room under the last track for the button that adds one
     static constexpr int kMaxLaneHeight = 80;
     static constexpr double kMinSamplesPerPixel = 50, kMaxSamplesPerPixel = 10000; // time zoom, in and out
+    static constexpr int kMinRowHeight = 6, kMaxRowHeight = 40, kDefaultRowHeight = 14; // the piano roll's rows
 
 private:
+    static constexpr float kEdge = 6.0f;      // pixels at a note's right end that resize it
+    static constexpr double kMinLength = 441; // 10 ms, the shortest note
+
     // A note by its track and its id, which edits keep.
     struct NoteRef
     {
@@ -170,7 +190,10 @@ private:
     void paintRuler(juce::Graphics&);
     void paintLanes(juce::Graphics&);
     void paintHeaders(juce::Graphics&);
-    void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
+    void paintGrid(juce::Graphics&, int top, int bottom) const; // bars, beats and sixteenths down the lanes
+    // A note's block; a tag, such as its voice, goes at its right end when there is room.
+    void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, const juce::String& tag = {});
+    juce::String noteTooltip(NoteRef ref) const; // its pitch or channel, length and expression
     // A note's expression, worked out once for each version of the tune.
     const NoteExpression& expressionOf(int track, const TuneNote& n) const;
     // Inside a note's block: shade darker where it is quieter, and a line for its pitch.
@@ -179,7 +202,7 @@ private:
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
 
     // Editing.
-    enum class Drag { None, Move, Resize, Box, Ruler, Scroll, Knob, Loop, LoopStart, LoopEnd };
+    enum class Drag { None, Move, Resize, Box, Ruler, Scroll, Knob, Loop, LoopStart, LoopEnd, Keys, LaneHeight, LaneValue };
     void selectionSpan(int64_t& first, int64_t& last) const; // the selected notes' first start and last end
     int loopEdgeAt(juce::Point<float> p) const; // -1 over the loop's start handle on the ruler, 1 over its end, else 0
     // A move's vertical part: the row the pointer is over, of the dragged
@@ -214,6 +237,47 @@ private:
     void confirm(const juce::String& title, const juce::String& message, const juce::String& button, std::function<void()> then);
     bool refusedWhilePlaying(); // while playing, says why the song cannot change, as the model does, and returns true
     int freeVoice(int track) const; // the lowest chip channel no track has, else the lowest the track has not; -1 for none
+    juce::Rectangle<int> rollButton(int track) const; // after the bin, in a label strip or a track's only row, or in the piano roll's header
+
+    // The piano roll (PianoRoll.cpp). Down from the ruler: a header that
+    // names the track, the rows of pitches from 127 at the top, and the
+    // lane under them: a strip of tabs, then the lane itself when open.
+    enum class Lane { Velocity, Fine, Pan };
+    static constexpr int kRollHeader = 22; // the strip with the track's name
+    static constexpr int kLaneTabs = 20;   // the lane's strip of tabs, all that shows of it closed
+    int rollTop() const { return kRulerHeight + kRollHeader; }
+    int lanesTop() const;   // the lane's strip of tabs; the rows end here
+    float keyTop(double pitch) const; // the top of the row of a pitch, a fraction of a row up for a fraction of a semitone
+    int keyAt(float y) const;         // the pitch whose row is there, 0 to 127
+    void setRollScroll(int y);
+    // The track's pitches in the middle of the rows; with resize, the rows as
+    // tall as fits them all.
+    void fitRoll(bool resize);
+    void zoomRows(double factor, float y);
+    juce::Rectangle<float> rollNoteBounds(int note) const; // a note of the track by index, at its exact pitch
+    NoteRef rollNoteAt(juce::Point<float> p, bool& onRightEdge) const;
+    bool overLaneEdge(float y) const;               // on the lane's top edge, which drags its height
+    juce::Rectangle<int> laneArea() const;          // the lane under the tabs, inside its margins
+    juce::Rectangle<int> laneTab(Lane lane) const;  // in the strip of tabs, over the rows
+    juce::Rectangle<int> laneChevron() const;       // hides the lane or shows it, at the right of the keys' column
+    float laneY(int value) const;                   // where a value of the lane shown sits
+    int laneValue(float y, bool fine) const;        // and back, in coarse steps without fine
+    int noteLaneValue(const TuneNote& note) const; // the note's value in the lane shown, or the one being drawn
+    int laneBarAt(float x) const;                   // the note whose bar is nearest there, a selected one first, by index; -1 for none in reach
+    static void paintRollIcon(juce::Graphics&, juce::Rectangle<float> box, juce::Colour); // a frame round three notes at three pitches
+    void paintRoll(juce::Graphics&);
+    void paintRollHeader(juce::Graphics&);
+    void paintKeys(juce::Graphics&);
+    void paintLane(juce::Graphics&);
+    void rollMouseDown(const juce::MouseEvent&);
+    void rollMouseDrag(const juce::MouseEvent&);
+    void rollMouseUp(const juce::MouseEvent&);
+    void rollMouseMove(const juce::MouseEvent&);
+    void rollDoubleClick(const juce::MouseEvent&);
+    void holdKey(int key); // lets go of the key held, then plays this one with the track's instrument while stopped; -1 only lets go
+    void drawLane(float x0, float y0, float x1, float y1, bool fine); // the values along a drag over the bars it crosses
+    void addRollNote(int key, double time); // a written note at a pitch and time, or a drum track's written hit
+    void dropHiddenSelection(); // in the piano roll, only the track's notes stay selected
 
     AppModel& model_;
     mutable Layout layout_;
@@ -245,6 +309,25 @@ private:
     double loopAnchor_ = 0;                // where a Shift-drag on the ruler began, on the snap grid
     juce::Rectangle<float> box_;
     NoteRef hover_;
+    int lastTrack_ = -1; // the track last clicked in the arrangement
+
+    // The piano roll.
+    int rollTrack_ = -1;
+    int rowHeight_ = kDefaultRowHeight;
+    double rowHeightExact_ = kDefaultRowHeight; // the zoom, unrounded
+    int rollScroll_ = 0;           // pixels of rows above the top, from pitch 127
+    int laneOpenHeight_ = 120;     // the lane, tabs and all, while open
+    bool laneOpen_ = true;
+    Lane lane_ = Lane::Velocity;
+    bool showGhosts_ = true;
+    int dragShift_ = 0;            // semitones the moved notes go up, while dragging
+    int heldKey_ = -1;             // the key the mouse holds down on the keys' column
+    int dragHeight_ = 0;           // the lane's height when its edge drag began
+    bool laneGroup_ = false;       // a selected bar dragged: the selection moves with it
+    int laneGrabbed_ = -1;         // the note whose bar the drag began on, by id
+    juce::Point<float> laneLast_;  // where the drag was last
+    bool rollClick_ = false;       // the piano roll opened from a press, whose double-click it ignores
+    std::map<int, int> laneValues_; // values drawn so far, by note id, until the mouse comes up
 
     // The clipboard: each note with its start from the earliest's, its
     // track, and its row when copied.

@@ -14,9 +14,6 @@ namespace opm86
 namespace
 {
 
-constexpr float kEdge = 6.0f;      // pixels at a note's right end that resize it
-constexpr double kMinLength = 441; // 10 ms, the shortest note
-
 // Header layout; see the comment before voicePill.
 constexpr int kChipColumn = 24;  // width of the chip's column, at the left edge
 constexpr int kKnobColumn = 48;  // width of the dB under the knob
@@ -486,9 +483,13 @@ TrackerView::~TrackerView()
 
 void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
 {
+    // The piano roll's track gone, as an undo can take it, ends the piano roll.
+    if (rollTrack_ >= 0 && (!model_.hasTune() || static_cast<size_t>(rollTrack_) >= model_.tune().tracks.size()))
+        setPianoRoll(-1);
     // Drop selected notes that no longer exist.
     for (auto it = selection_.begin(); it != selection_.end();)
         it = indexOf(*it) < 0 ? selection_.erase(it) : std::next(it);
+    dropHiddenSelection();
     repaint();
 }
 
@@ -568,6 +569,9 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.nameEnd = std::max(layout_.nameEnd, kChipColumn + 14 + name);
     }
     layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + 4 + 17 + 8; // name, mute, solo, gear
+    // A track's only row has its bin and piano roll button after the gear too.
+    if (std::find_if(layout_.voices.begin(), layout_.voices.end(), [](const std::vector<int>& v) { return v.empty(); }) != layout_.voices.end())
+        layout_.knobX += 2 * (17 + 4);
     // The header ends past the knobs' column and the dB under them, with room to breathe.
     layout_.headerWidth = std::max(kMinHeaderWidth, layout_.knobX + (kKnob + kKnobColumn) / 2 + 10);
     return layout_;
@@ -633,6 +637,8 @@ void TrackerView::fitTime()
 
 void TrackerView::fitTracks()
 {
+    if (rollTrack_ >= 0)
+        return fitRoll(true);
     if (!model_.hasTune() || layout().totalRows == 0)
         return;
     // The room the label strips leave, shared by the rows.
@@ -711,6 +717,8 @@ double TrackerView::snapTime(double t) const
 
 juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
 {
+    if (rollTrack_ >= 0 && track == rollTrack_)
+        return rollNoteBounds(note);
     const TuneNote& n = model_.tune().tracks[static_cast<size_t>(track)].notes[static_cast<size_t>(note)];
     const int row = layout().row[static_cast<size_t>(track)][static_cast<size_t>(note)];
     const float h = static_cast<float>(laneHeight_) - 6.0f;
@@ -723,6 +731,8 @@ juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
 TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge) const
 {
     onRightEdge = false;
+    if (rollTrack_ >= 0)
+        return rollNoteAt(p, onRightEdge);
     const int t = yToTrack(p.y);
     if (t < 0 || p.x < lanesX())
         return {};
@@ -835,6 +845,7 @@ void TrackerView::resized()
 {
     setViewStart(viewStart_);
     setScrollY(scrollY_);
+    setRollScroll(rollScroll_);
 }
 
 void TrackerView::setScrollY(int y)
@@ -845,6 +856,8 @@ void TrackerView::setScrollY(int y)
 
 void TrackerView::zoomLanes(double factor, float y)
 {
+    if (rollTrack_ >= 0)
+        return zoomRows(factor, y);
     // The point under the pointer stays where it is.
     const double anchor = std::max(0.0f, y - static_cast<float>(kRulerHeight));
     const double content = (anchor + scrollY_) / laneHeight_;
@@ -971,9 +984,18 @@ void TrackerView::paint(juce::Graphics& g)
                    juce::Justification::centred);
         return;
     }
-    paintLanes(g);
-    paintRuler(g);
-    paintHeaders(g);
+    if (rollTrack_ >= 0)
+    {
+        paintRoll(g);
+        paintRuler(g);
+        paintRollHeader(g);
+    }
+    else
+    {
+        paintLanes(g);
+        paintRuler(g);
+        paintHeaders(g);
+    }
 
     // The playhead, over lanes and ruler, with a soft glow. A second after
     // the last mouse or key event its line fades out, and comes back with
@@ -1066,12 +1088,36 @@ void TrackerView::paintRuler(juce::Graphics& g)
     }
 }
 
-void TrackerView::paintLanes(juce::Graphics& g)
+void TrackerView::paintGrid(juce::Graphics& g, int top, int bottom) const
 {
-    const auto& tracks = model_.tune().tracks;
+    // Bars bright, beats dim, sixteenths when there is room.
     const double beat = model_.tune().beatLength(), origin = model_.tune().firstBeat();
     const long perBar = model_.tune().beatsPerBar();
     const double beatPixels = beat / samplesPerPixel_;
+    const auto y = static_cast<float>(top), h = static_cast<float>(bottom - top);
+    const long first = static_cast<long>(std::floor((viewStart_ - origin) / beat)) - 1;
+    const long last = static_cast<long>(std::ceil((xToTime(static_cast<float>(getWidth())) - origin) / beat));
+    for (long k = first; k <= last; ++k)
+    {
+        const double t0 = origin + static_cast<double>(k) * beat;
+        const bool bar = ((k % perBar) + perBar) % perBar == 0;
+        if (bar || beatPixels > 10)
+        {
+            g.setColour(bar ? theme::gridBar : theme::grid);
+            g.fillRect(timeToX(t0), y, 1.0f, h);
+        }
+        if (beatPixels > 64)
+            for (int s = 1; s < 4; ++s)
+            {
+                g.setColour(theme::grid.withAlpha(0.45f));
+                g.fillRect(timeToX(t0 + s * beat / 4), y, 1.0f, h);
+            }
+    }
+}
+
+void TrackerView::paintLanes(juce::Graphics& g)
+{
+    const auto& tracks = model_.tune().tracks;
     const auto lanes = juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight);
     g.saveState();
     g.reduceClipRegion(lanes);
@@ -1099,25 +1145,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
         g.fillRect(headerWidth(), y + h - 1, getWidth() - headerWidth(), 1);
     }
 
-    // Grid: bars bright, beats dim, sixteenths when there is room.
-    const long first = static_cast<long>(std::floor((viewStart_ - origin) / beat)) - 1;
-    const long last = static_cast<long>(std::ceil((xToTime(static_cast<float>(getWidth())) - origin) / beat));
-    for (long k = first; k <= last; ++k)
-    {
-        const double t0 = origin + static_cast<double>(k) * beat;
-        const bool bar = ((k % perBar) + perBar) % perBar == 0;
-        if (bar || beatPixels > 10)
-        {
-            g.setColour(bar ? theme::gridBar : theme::grid);
-            g.fillRect(timeToX(t0), static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight()));
-        }
-        if (beatPixels > 64)
-            for (int s = 1; s < 4; ++s)
-            {
-                g.setColour(theme::grid.withAlpha(0.45f));
-                g.fillRect(timeToX(t0 + s * beat / 4), static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight()));
-            }
-    }
+    paintGrid(g, kRulerHeight, kRulerHeight + getHeight());
 
     // While notes move across rows, the row the dragged note lands on.
     if (drag_ == Drag::Move && dropTrack_ >= 0)
@@ -1188,14 +1216,16 @@ bool TrackerView::isSounding(const TuneNote& n) const
     return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
 }
 
-void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r)
+void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r, const juce::String& tag)
 {
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const TuneNote& n = tr.notes[static_cast<size_t>(note)];
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
-    const int pitch = model_.tune().pitch(tr, n);
-    const bool audible = model_.tune().audible(tr, n);
     const bool selected = selection_.count({ track, n.id }) > 0;
+    // In the piano roll, a note dragged up or down shows the pitch it moves to.
+    const int shift = track == rollTrack_ && drag_ == Drag::Move && selected ? dragShift_ : 0;
+    const int pitch = model_.tune().pitch(tr, n) + shift;
+    const bool audible = model_.tune().audible(tr, n);
     const bool sounding = isSounding(n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
@@ -1279,20 +1309,42 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
 
     // The label, centred and as large as the note allows: white with a dark
     // outline, so it reads on every colour. It ends where the next note in
-    // the row begins, and notes with no room for 11 px text go without.
-    const juce::String label = drum ? (n.transpose == 0 ? juce::String() : (n.transpose > 0 ? "+" : "") + juce::String(n.transpose))
+    // the row begins, or in the piano roll the next at its pitch, and notes
+    // with no room for 11 px text go without.
+    const int transpose = n.transpose + shift;
+    const juce::String label = drum ? (transpose == 0 ? juce::String() : (transpose > 0 ? "+" : "") + juce::String(transpose))
                                     : theme::noteName(pitch).removeCharacters("-");
     auto room = r;
     const auto& rows = layout().row[static_cast<size_t>(track)];
+    const bool roll = track == rollTrack_;
     for (size_t j = static_cast<size_t>(note) + 1; j < tr.notes.size(); ++j)
-        if (rows[j] == rows[static_cast<size_t>(note)])
+    {
+        // Notes go by start, so one past the block's end cannot clip its label.
+        const float next = timeToX(static_cast<double>(tr.notes[j].start));
+        if (next >= room.getRight())
+            break;
+        if (roll ? model_.tune().pitch(tr, tr.notes[j]) == pitch : rows[j] == rows[static_cast<size_t>(note)])
         {
-            const float next = timeToX(static_cast<double>(tr.notes[j].start));
             if (next > room.getX())
-                room.setRight(std::min(room.getRight(), next));
+                room.setRight(next);
             break;
         }
-    const float height = std::min({ 26.0f, room.getHeight() * 0.62f, (room.getWidth() - 6.0f) / (0.64f * static_cast<float>(label.length())) });
+    }
+    // The tag at the right end, in 9 px text, whenever the block has room
+    // for it; the label takes what is left, or goes without.
+    if (tag.isNotEmpty() && room.getHeight() >= 9.0f)
+    {
+        const float tagWidth = 0.64f * 9.0f * static_cast<float>(tag.length()) + 5.0f;
+        if (room.getWidth() >= tagWidth)
+        {
+            const auto box = room.removeFromRight(tagWidth);
+            g.setColour(juce::Colours::white.withAlpha(audible ? 0.6f : 0.25f));
+            g.setFont(theme::mono(9.0f, true));
+            g.drawText(tag, box.withTrimmedRight(2.0f), juce::Justification::centredRight, false);
+        }
+    }
+    // A piano roll's block is one row high, so its label takes nearly all of it.
+    const float height = std::min({ 26.0f, room.getHeight() * (roll ? 0.95f : 0.62f), (room.getWidth() - 6.0f) / (0.64f * static_cast<float>(label.length())) });
     if (label.isNotEmpty() && height >= 11.0f)
     {
         juce::GlyphArrangement glyphs;
@@ -1656,6 +1708,8 @@ void TrackerView::paintHeaders(juce::Graphics& g)
                   t < hold_.size() ? hold_[t] : 0.0f, audible);
             drawGear();
             drawBin(removeTrackButton(ti));
+            const auto roll = rollButton(ti).toFloat();
+            paintRollIcon(g, roll, isMouseOver() && roll.contains(getMouseXYRelative().toFloat()) ? theme::text : theme::dim);
             continue;
         }
 
@@ -1681,6 +1735,8 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.fillRoundedRectangle(c.x - 0.8f, c.y - 3.6f, 1.6f, 7.2f, 0.5f);
         }
         drawBin(removeTrackButton(ti));
+        if (const auto roll = rollButton(ti).toFloat(); !roll.isEmpty())
+            paintRollIcon(g, roll, isMouseOver() && roll.contains(getMouseXYRelative().toFloat()) ? theme::text : theme::dim);
         for (size_t k = 0; k < voices.size(); ++k)
         {
             const int r = static_cast<int>(k);
@@ -1750,14 +1806,24 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         }
         return;
     }
+    if (rollTrack_ >= 0)
+        return rollMouseDown(e);
 
     const int t = yToTrack(p.y);
+    if (t >= 0)
+        lastTrack_ = t;
     if (p.x < lanesX())
     {
         if (addTrackButton().contains(p.toInt()))
             return addTrack();
         if (t < 0)
             return;
+        if (rollButton(t).contains(p.toInt()))
+        {
+            setPianoRoll(t);
+            rollClick_ = true;
+            return;
+        }
         if (addVoiceButton(t).contains(p.toInt()))
             return addVoice(t);
         if (removeTrackButton(t).contains(p.toInt()))
@@ -1892,6 +1958,8 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
             model_.setLoop(loop);
         return;
     }
+    if (rollTrack_ >= 0)
+        return rollMouseDrag(e);
     if (drag_ == Drag::Move || drag_ == Drag::Resize)
     {
         const int index = indexOf(dragNote_);
@@ -1931,6 +1999,8 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
 
 void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
+    if (rollTrack_ >= 0)
+        return rollMouseUp(e);
     const Drag finished = drag_;
     drag_ = Drag::None;
     // A click on empty lanes, not a box drag, puts the stopped playhead there
@@ -2103,6 +2173,8 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
 {
     if (!model_.hasTune())
         return;
+    if (rollTrack_ >= 0)
+        return rollMouseMove(e);
     bool edge = false;
     hover_ = noteAt(e.position, edge);
     hoverEdge_ = edge;
@@ -2112,34 +2184,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
                    : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
                                                                                  : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
-    {
-        const int i = indexOf(hover_);
-        const auto& tr = model_.tune().tracks[static_cast<size_t>(hover_.track)];
-        const auto& n = tr.notes[static_cast<size_t>(i)];
-        // A note that moves after its key on says how, after the rest.
-        const juce::String moves = expressionSummary(expressionOf(hover_.track, n));
-        // Its expression, where set, comes before.
-        const juce::String set = expressionText(n, tr.kind == TuneTrack::Kind::Drum);
-        if (tr.kind == TuneTrack::Kind::Fm)
-            setTooltip(theme::noteName(model_.tune().pitch(tr, n)) + theme::dot() + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 0)
-                       + " ms" + (set.isEmpty() ? juce::String() : theme::dot() + set) + (moves.isEmpty() ? juce::String() : theme::dot() + moves));
-        else
-        {
-            // A drum hit: the PCM channel it plays on, its step and the rate
-            // that gives, its transposition and its volumes at the trigger,
-            // with its expression.
-            const auto& channels = model_.report().channels;
-            const auto t = static_cast<size_t>(hover_.track), k = static_cast<size_t>(i);
-            int ch = t < channels.size() && k < channels[t].size() ? channels[t][k] : -1;
-            if (ch < 0)
-                ch = model_.tune().originalChannel(tr, n);
-            const PcmVoice v = model_.tune().hitVoice(tr, n, true);
-            const double hz = v.regs[5] / 256.0 * model_.tune().source().pcmRate;
-            setTooltip("PCM ch " + juce::String(ch + 1) + ", step 0x" + juce::String::toHexString(v.regs[5]).toUpperCase().paddedLeft('0', 2) + " ~ "
-                       + juce::String(juce::roundToInt(hz)) + " Hz, " + semitones(n.transpose) + " st, L/R " + juce::String(v.regs[0] & 0x7F) + "/"
-                       + juce::String(v.regs[1] & 0x7F) + (set.isEmpty() ? juce::String() : ", " + set) + (moves.isEmpty() ? juce::String() : ", " + moves));
-        }
-    }
+        setTooltip(noteTooltip(hover_));
     else
     {
         // Over a track's gear: what it opens.
@@ -2147,6 +2192,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
         const bool overGear = t >= 0 && gear(t).expanded(2).contains(e.position.toInt());
         const bool drumGear = overGear && model_.tune().tracks[static_cast<size_t>(t)].kind == TuneTrack::Kind::Drum;
         const bool overPlus = t >= 0 && addVoiceButton(t).contains(e.position.toInt());
+        const bool overRoll = t >= 0 && rollButton(t).contains(e.position.toInt());
         const bool overRemove = t >= 0 && removeTrackButton(t).contains(e.position.toInt());
         const bool overRemoveVoice = t >= 0 && headerRow(t, e.position.y) >= 0
                                      && removeVoiceButton(t, headerRow(t, e.position.y)).contains(e.position.toInt());
@@ -2164,6 +2210,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
                    : drumGear        ? "Sample"
                    : overGear        ? "Patch"
                    : overPlus        ? "Add a voice"
+                   : overRoll        ? "Piano roll"
                    : overAdd         ? "Add a track"
                    : overRemove      ? "Remove the track"
                    : overRemoveVoice ? "Remove the voice"
@@ -2173,6 +2220,35 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
                    : overMeter       ? "Level"
                                      : juce::String());
     }
+}
+
+juce::String TrackerView::noteTooltip(NoteRef ref) const
+{
+    const int i = indexOf(ref);
+    if (i < 0)
+        return {};
+    const auto& tr = model_.tune().tracks[static_cast<size_t>(ref.track)];
+    const auto& n = tr.notes[static_cast<size_t>(i)];
+    // A note that moves after its key on says how, after the rest.
+    const juce::String moves = expressionSummary(expressionOf(ref.track, n));
+    // Its expression, where set, comes before.
+    const juce::String set = expressionText(n, tr.kind == TuneTrack::Kind::Drum);
+    if (tr.kind == TuneTrack::Kind::Fm)
+        return theme::noteName(model_.tune().pitch(tr, n)) + theme::dot() + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 0)
+               + " ms" + (set.isEmpty() ? juce::String() : theme::dot() + set) + (moves.isEmpty() ? juce::String() : theme::dot() + moves);
+    // A drum hit: the PCM channel it plays on, its step and the rate that
+    // gives, its transposition and its volumes at the trigger, with its
+    // expression.
+    const auto& channels = model_.report().channels;
+    const auto t = static_cast<size_t>(ref.track), k = static_cast<size_t>(i);
+    int ch = t < channels.size() && k < channels[t].size() ? channels[t][k] : -1;
+    if (ch < 0)
+        ch = model_.tune().originalChannel(tr, n);
+    const PcmVoice v = model_.tune().hitVoice(tr, n, true);
+    const double hz = v.regs[5] / 256.0 * model_.tune().source().pcmRate;
+    return "PCM ch " + juce::String(ch + 1) + ", step 0x" + juce::String::toHexString(v.regs[5]).toUpperCase().paddedLeft('0', 2) + " ~ "
+           + juce::String(juce::roundToInt(hz)) + " Hz, " + semitones(n.transpose) + " st, L/R " + juce::String(v.regs[0] & 0x7F) + "/"
+           + juce::String(v.regs[1] & 0x7F) + (set.isEmpty() ? juce::String() : ", " + set) + (moves.isEmpty() ? juce::String() : ", " + moves);
 }
 
 float TrackerView::rowVolume(int track, int row) const
@@ -2202,14 +2278,22 @@ void TrackerView::setVolume(int track, int row, float volume)
 
 void TrackerView::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    if (model_.hasTune() && rollTrack_ >= 0)
+        return rollDoubleClick(e);
     if (model_.hasTune() && e.position.x < lanesX())
-        if (const int t = yToTrack(e.position.y); t >= 0 && !compact())
-            if (const int r = headerRow(t, e.position.y); r >= 0 && knobBounds(t, r).expanded(3).contains(e.position.toInt()))
-            {
-                dragStarted_ = false;
-                setVolume(t, r, 0.0f);
-                return;
-            }
+        if (const int t = yToTrack(e.position.y); t >= 0)
+        {
+            if (!compact())
+                if (const int r = headerRow(t, e.position.y); r >= 0 && knobBounds(t, r).expanded(3).contains(e.position.toInt()))
+                {
+                    dragStarted_ = false;
+                    setVolume(t, r, 0.0f);
+                    return;
+                }
+            // The track's name, in its label strip or its only row, opens the piano roll.
+            if ((labelled(t) ? label(t) : nameBounds(t)).contains(e.position.toInt()))
+                return setPianoRoll(t);
+        }
     if (!model_.hasTune() || e.position.x < lanesX() || e.position.y < kRulerHeight)
         return;
     bool edge = false;
@@ -2248,12 +2332,15 @@ void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
         zoomLanes(std::pow(1.6, static_cast<double>(w.deltaY) * 2.0), e.position.y);
         return;
     }
-    // Otherwise it scrolls: sideways through time, up and down through tracks.
+    // Otherwise it scrolls: sideways through time, up and down through
+    // tracks, or in the piano roll through pitches.
     const float dx = std::abs(w.deltaX) > 0 ? w.deltaX : (e.mods.isShiftDown() ? w.deltaY : 0.0f);
     const float dy = e.mods.isShiftDown() ? 0.0f : w.deltaY;
     if (std::abs(dx) > 0)
         setViewStart(viewStart_ - dx * 400.0 * samplesPerPixel_);
-    if (std::abs(dy) > 0)
+    if (std::abs(dy) > 0 && rollTrack_ >= 0)
+        setRollScroll(rollScroll_ - static_cast<int>(dy * 200.0f));
+    else if (std::abs(dy) > 0)
         setScrollY(scrollY_ - static_cast<int>(dy * 200.0f));
 }
 
@@ -2277,6 +2364,7 @@ void TrackerView::selectAll()
     for (size_t t = 0; t < tracks.size(); ++t)
         for (const TuneNote& n : tracks[t].notes)
             selection_.insert({ static_cast<int>(t), n.id });
+    dropHiddenSelection(); // in the piano roll, every note of its track
     repaint();
 }
 
@@ -2492,7 +2580,7 @@ void TrackerView::paste()
         return c.kind == TuneTrack::Kind::Fm && c.track == clipboard_.front().track && c.name == clipboard_.front().name;
     });
     int targetRow = -1;
-    if (oneTrack && fmTrack(pasteTrack_) && labelled(pasteTrack_))
+    if (rollTrack_ < 0 && oneTrack && fmTrack(pasteTrack_) && labelled(pasteTrack_))
     {
         const auto& voices = layout().voices[static_cast<size_t>(pasteTrack_)];
         if (const auto it = std::find(voices.begin(), voices.end(), pasteVoice_); it != voices.end())
@@ -2508,12 +2596,41 @@ void TrackerView::paste()
         TuneNote note;
     };
     std::vector<Placed> placed;
-    size_t lost = 0;
+    size_t lost = 0, refused = 0;
+    // In the piano roll, the track with the notes pasted so far, for the
+    // voices they leave free.
+    TuneTrack roll = rollTrack_ >= 0 ? tune.tracks[static_cast<size_t>(rollTrack_)] : TuneTrack {};
+    const bool rollFm = roll.kind == TuneTrack::Kind::Fm;
     for (const ClipNote& c : clipboard_)
     {
         TuneNote n = c.note;
         n.start += at;
         const int own = trackOf(c);
+        if (rollTrack_ >= 0)
+        {
+            // A note of another track goes in written, if it is of the same
+            // kind and, for a drum hit, the track has a sample to play.
+            if (own != rollTrack_)
+            {
+                if (c.kind != roll.kind || (!rollFm && tune.sample(roll) == nullptr))
+                {
+                    ++refused;
+                    continue;
+                }
+                if (rollFm)
+                {
+                    n = tune.writtenCopy(TuneTrack {}, n, 0);
+                    n.voice = tune.freeVoice(roll, n.start, n.start + n.length);
+                    if (n.voice < 0)
+                        n.voice = std::max(0, freeVoice(rollTrack_));
+                }
+                else
+                    n.source = -1, n.voice = -1;
+            }
+            roll.notes.push_back(n);
+            placed.push_back({ rollTrack_, n });
+            continue;
+        }
         if (targetRow < 0)
         {
             if (own < 0)
@@ -2537,7 +2654,7 @@ void TrackerView::paste()
     if (placed.empty())
     {
         if (model_.onNotice)
-            model_.onNotice("The copied notes' tracks are gone");
+            model_.onNotice(refused > 0 ? "The copied notes cannot go into this track" : "The copied notes' tracks are gone");
         return;
     }
 
@@ -2561,10 +2678,13 @@ void TrackerView::paste()
     if (!done)
         return;
     selection_ = pasted;
+    dropHiddenSelection();
     if (first.valid())
         preview(first);
     if (lost > 0 && model_.onNotice)
         model_.onNotice(juce::String(lost) + (lost == 1 ? " copied note's track is gone" : " copied notes' tracks are gone"));
+    if (refused > 0 && model_.onNotice)
+        model_.onNotice(juce::String(refused) + (refused == 1 ? " copied note cannot go into this track" : " copied notes cannot go into this track"));
     repaint();
 }
 
