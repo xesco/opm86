@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <vector>
 
 using namespace opm86;
@@ -1983,6 +1984,357 @@ void testWrittenDrums()
           "a previewed sample sounds as the same hit written in the song");
 }
 
+// Switching songs while playing: a new version at the playhead sounds as
+// that version played from there, a note it no longer has stops with the
+// crossfade, a switch waits for snapshots that do not reach the playhead,
+// and a newer version while one waits is told against what plays.
+void testSongSwitch()
+{
+    std::string error;
+    auto tune = Tune::load(test::makeSong(), "Song", error);
+    if (!tune)
+        return;
+    // The lead, on chip channel 0, and the middle of its third note.
+    size_t lead = 0;
+    for (size_t t = 0; t < tune->tracks.size(); ++t)
+        if (tune->tracks[t].kind == TuneTrack::Kind::Fm && tune->originalChannel(tune->tracks[t], tune->tracks[t].notes[0]) == 0)
+            lead = t;
+    const TuneNote& third = tune->tracks[lead].notes[2];
+    const double at = static_cast<double>(third.start + third.length / 2);
+    const size_t rate = 48000;
+    const auto toAt = static_cast<size_t>(at * rate / kVgmRate);
+    const size_t settle = rate / 50; // past the 3 ms crossfade and the filters
+
+    const auto a = tune->build();
+    const auto aSnapshots = makeSnapshots(*a);
+    auto version = [&tune](const std::function<void(Tune&)>& change) {
+        Tune t = *tune;
+        change(t);
+        return std::shared_ptr<const VgmSong>(t.build());
+    };
+    // A playing from the start up to the playhead.
+    auto playing = [&](SongPlayer& player, uint8_t fm = 0xFF, uint16_t pcm = 0xFFFF) {
+        player.prepare(rate);
+        player.setChannels(fm, pcm);
+        player.setSong(a, aSnapshots);
+        player.play(0.0);
+        renderSong(player, toAt);
+    };
+    auto fresh = [&](const std::shared_ptr<const VgmSong>& song, double from, size_t length, uint8_t fm = 0xFF, uint16_t pcm = 0xFFFF) {
+        SongPlayer player;
+        player.prepare(rate);
+        player.setChannels(fm, pcm);
+        player.setSong(song, makeSnapshots(*song));
+        player.play(from);
+        return renderSong(player, length);
+    };
+
+    // The note under the playhead a fourth up: from the switch on, the new
+    // version sounds as it does played from there.
+    const auto b = version([lead](Tune& t) { t.tracks[lead].notes[2].transpose = 5; });
+    const auto bSnapshots = makeSnapshots(*b);
+    size_t ym = 0, pcm = 0;
+    firstDifference(*a, *b, ym, pcm);
+    SongPlayer live;
+    playing(live);
+    const double switchAt = live.position();
+    live.replaceSong(b, bSnapshots, ym, pcm);
+    const auto heard = renderSong(live, rate / 2);
+    const auto expected = fresh(b, switchAt, rate / 2);
+    check(differenceDb(heard.data() + settle, expected.data() + settle, rate / 2 - settle) < -100.0,
+          "a switch mid-note sounds as the new version played from the playhead, after the crossfade");
+
+    // The lead gone: its channel, keyed in the old version, is silent once
+    // the crossfade ends, with no note left hanging.
+    const auto c = version([lead](Tune& t) { t.tracks[lead].notes.clear(); });
+    firstDifference(*a, *c, ym, pcm);
+    SongPlayer cut;
+    playing(cut, 0x01, 0);
+    const auto before = renderSong(cut, rate / 100);
+    cut.replaceSong(c, makeSnapshots(*c), ym, pcm);
+    const auto after = renderSong(cut, rate / 2);
+    check(peakOf(before, 0, before.size()) > 0.01f && peakOf(after, rate / 200, after.size()) < 1e-6f,
+          "a switch to a version with no note there leaves no channel keyed");
+
+    // Snapshots that end before the playhead: the old version plays on, and
+    // the switch takes place once more snapshots reach it.
+    auto early = std::make_shared<SongSnapshots>();
+    extendSnapshots(*b, *early, at - 1.5 * kVgmRate);
+    firstDifference(*a, *b, ym, pcm);
+    SongPlayer waits, reference;
+    playing(waits);
+    playing(reference);
+    const bool switched = waits.replaceSong(b, early, ym, pcm);
+    const auto meanwhile = renderSong(waits, rate / 10);
+    const auto oldOnly = renderSong(reference, rate / 10);
+    const bool waiting = !switched && waits.switching() && differenceDb(meanwhile.data(), oldOnly.data(), rate / 10) < -200.0;
+    const double late = waits.position();
+    waits.updateSnapshots(bSnapshots);
+    const auto then = renderSong(waits, rate / 2);
+    const auto lateExpected = fresh(b, late, rate / 2);
+    check(waiting && !waits.switching() && differenceDb(then.data() + settle, lateExpected.data() + settle, rate / 2 - settle) < -100.0,
+          "a switch waits for snapshots that reach the playhead, the old version playing on meanwhile");
+
+    // While B waits, a newer version D, B with a change far ahead: D shares
+    // with B everything up to that change, but not the note under the
+    // playhead with what plays, so playback moves to D with the crossfade.
+    const auto d = version([lead](Tune& t) {
+        t.tracks[lead].notes[2].transpose = 5;
+        t.tracks[lead].notes.back().transpose = 7;
+    });
+    size_t ymBd = 0, pcmBd = 0;
+    firstDifference(*b, *d, ymBd, pcmBd);
+    SongPlayer coalesced;
+    playing(coalesced);
+    coalesced.replaceSong(b, early, ym, pcm);
+    const double newest = coalesced.position();
+    coalesced.replaceSong(d, makeSnapshots(*d), ymBd, pcmBd);
+    const auto dHeard = renderSong(coalesced, rate / 2);
+    const auto dExpected = fresh(d, newest, rate / 2);
+    check(differenceDb(dHeard.data() + settle, dExpected.data() + settle, rate / 2 - settle) < -100.0,
+          "a newer version while a switch waits takes its place, against the version that plays");
+
+    // A new tempo's map: the new version plays from the playhead moved.
+    SongPlayer moved;
+    playing(moved);
+    const double from = moved.position();
+    moved.replaceSong(b, bSnapshots, ym, pcm, TimeMap::scaled(0.0, 0.5));
+    const auto movedHeard = renderSong(moved, rate / 2);
+    const auto movedExpected = fresh(b, from * 0.5, rate / 2);
+    check(differenceDb(movedHeard.data() + settle, movedExpected.data() + settle, rate / 2 - settle) < -100.0,
+          "a switch with a new tempo plays on from the playhead moved to the same beat");
+
+    // A slower tempo whose switch waits, with the loop in the new time: the
+    // old version reaches the loop's end in its own time and jumps back to
+    // the loop's start in the new one, where the switch takes place.
+    auto start = std::make_shared<SongSnapshots>();
+    extendSnapshots(*b, *start, 0.6 * kVgmRate);
+    SongPlayer looped;
+    playing(looped);
+    const double here = looped.position();
+    const TimeMap slower = TimeMap::scaled(0.0, 2.0);
+    looped.setLoop(0.25 * kVgmRate, slower(here + 0.05 * kVgmRate));
+    const bool held = !looped.replaceSong(b, start, ym, pcm, slower) && looped.switching();
+    renderSong(looped, rate / 10);
+    check(held && !looped.switching() && std::abs(looped.position() - 0.3 * kVgmRate) < 0.005 * kVgmRate,
+          "a loop set in a new tempo's time ends where the old version, still playing while a switch waits, reaches it");
+
+    // While a switch waits, the old version keeps the mix it had: one for
+    // the new version's channels, here every channel muted, waits for it.
+    ChannelMix silent;
+    for (auto& changes : silent.changes)
+        changes.push_back({ 0.0, 0.0f });
+    SongPlayer kept, unmixed;
+    playing(kept);
+    playing(unmixed);
+    kept.setMix(std::make_shared<const ChannelMix>(silent));
+    kept.replaceSong(b, early, ym, pcm);
+    const auto keptHeard = renderSong(kept, rate / 10);
+    const auto unmixedHeard = renderSong(unmixed, rate / 10);
+    check(kept.switching() && differenceDb(keptHeard.data(), unmixedHeard.data(), rate / 10) < -200.0,
+          "while a switch waits, the old version plays with its own mix, not the new version's");
+}
+
+// A sample as it plays on its own SegaPCM channel: the left output of each
+// chip sample of the song, from its writes, on channel's own.
+std::vector<int32_t> pcmOutput(const VgmSong& song, int channel, size_t samples)
+{
+    SegaPcm chip;
+    chip.reset();
+    chip.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
+    std::vector<int32_t> out;
+    size_t write = 0;
+    for (size_t k = 0; k < samples; ++k)
+    {
+        const double now = static_cast<double>(k) * kVgmRate / song.pcmRate;
+        for (; write < song.pcm.size() && song.pcm[write].time <= now; ++write)
+            if (!(song.pcm[write].address & 0x3000))
+                chip.write(song.pcm[write].address, song.pcm[write].value);
+        int32_t l = 0, r = 0;
+        chip.generate(l, r, static_cast<uint16_t>(1u << channel));
+        out.push_back(l);
+    }
+    return out;
+}
+
+// Samples loaded from audio: encoded for the chip, placed in free pages of
+// the banks, played by written hits and in place of a rip's sample.
+void testLoadedSamples()
+{
+    // A short tone at the chip's rate, made as it is: each byte its value.
+    constexpr size_t kFrames = 3000;
+    std::vector<float> tone(kFrames);
+    for (size_t i = 0; i < kFrames; ++i)
+        tone[i] = 0.5f * static_cast<float>(std::sin(static_cast<double>(i) * 0.05));
+    const float* channels[] = { tone.data() };
+    SampleEncoding plain;
+    plain.trim = plain.normalise = false;
+    const PadSample sound = encodeSample("Tone", channels, 1, kFrames, 15625.0, plain);
+    bool bytes = sound.data.size() == kFrames && sound.step == 0x80 && !sound.loop;
+    for (size_t i = 0; bytes && i < kFrames; ++i)
+        bytes = sound.data[i] == static_cast<uint8_t>(std::lround(tone[i] * 127.0) + 0x80);
+    check(bytes, "audio at the chip's rate encodes as 8-bit unsigned bytes, played once");
+    SampleEncoding shaped;
+    std::vector<float> quiet(kFrames, 0.0f);
+    for (size_t i = 1000; i < 2000; ++i)
+        quiet[i] = 0.25f * static_cast<float>(std::sin(static_cast<double>(i) * 0.05));
+    const float* stereo[] = { quiet.data(), quiet.data() };
+    const PadSample trimmed = encodeSample("Quiet", stereo, 2, kFrames, 31250.0, shaped);
+    const auto loudest = std::max_element(trimmed.data.begin(), trimmed.data.end());
+    check(trimmed.data.size() < 600 && trimmed.data.size() > 400 && loudest != trimmed.data.end() && *loudest >= 0xFE,
+          "a trimmed, normalised sample keeps only its sound, at full scale, at the rate chosen");
+
+    // A song written from empty takes the sample, and a written hit plays its bytes.
+    auto written = Tune::empty();
+    const int index = written->loadSample(-1, sound);
+    const PadSample* placed = index == 0 && written->samples().size() == 1 ? &written->samples()[0] : nullptr;
+    check(placed != nullptr && placed->data == sound.data
+              && std::equal(sound.data.begin(), sound.data.end(), written->rom().begin() + static_cast<long>(placed->romOffset + placed->address))
+              && std::all_of(written->source().rom.begin(), written->source().rom.end(), [](uint8_t v) { return v == 0x80; }),
+          "a song written from empty takes a sample into its ROM, the empty one it had left as it was");
+    TuneTrack drum;
+    drum.kind = TuneTrack::Kind::Drum;
+    drum.instrument = index;
+    drum.name = "Drum 1";
+    const int64_t length = written->sampleLength(drum, 0);
+    drum.notes.push_back({ 0, -1, 22050, length, 0, -1 });
+    written->tracks.push_back(drum);
+    BuildReport report;
+    const auto song = written->build(&report);
+    const int ch = report.channels[0][0];
+    const auto out = pcmOutput(*song, ch, static_cast<size_t>(song->pcmRate * 0.75));
+    const auto trigger = static_cast<size_t>(std::ceil(22050.0 * song->pcmRate / kVgmRate));
+    bool plays = ch >= 0 && placed != nullptr && out.size() > trigger + 2 * kFrames;
+    for (size_t i = 0; plays && i < kFrames; ++i)
+        plays = out[trigger + 2 * i] == (sound.data[i] - 0x80) * 127 && out[trigger + 2 * i + 1] == out[trigger + 2 * i];
+    check(plays && std::all_of(out.begin(), out.begin() + static_cast<long>(trigger), [](int32_t v) { return v == 0; }),
+          "a written hit of a loaded sample plays its bytes, at its step, from its start");
+
+    // A ripped sample replaced: only the hits of that sample change, to the
+    // new one's place and bank, played once; the rest of the song stays.
+    std::string error;
+    auto rip = Tune::load(test::makeSong(), "Song", error);
+    if (!rip)
+        return;
+    const auto original = rip->build();
+    int replaced = -1, kept = -1;
+    for (const TuneTrack& t : rip->tracks)
+        if (t.kind == TuneTrack::Kind::Drum)
+            (replaced < 0 ? replaced : kept) = t.instrument;
+    const uint16_t oldStart = rip->samples()[static_cast<size_t>(replaced)].address, keptStart = rip->samples()[static_cast<size_t>(kept)].address;
+    check(rip->loadSample(replaced, sound) == replaced && rip->sampleLoaded(replaced) && !rip->sampleLoaded(kept), "a rip's sample takes a loaded one's place");
+    const PadSample& now = rip->samples()[static_cast<size_t>(replaced)];
+    const auto edited = rip->build();
+    const auto was = triggers(*original), is = triggers(*edited);
+    bool others = was.size() == is.size() && sameWrites(original->ym, edited->ym), moved = true;
+    size_t hitsMoved = 0;
+    for (size_t i = 0; others && i < was.size(); ++i)
+    {
+        const uint16_t start = static_cast<uint16_t>(was[i].regs[6] | was[i].regs[7] << 8);
+        if (start == keptStart)
+            others = was[i].time == is[i].time && was[i].regs == is[i].regs && was[i].flags == is[i].flags;
+        else if (start == oldStart)
+        {
+            ++hitsMoved;
+            const uint16_t newStart = static_cast<uint16_t>(is[i].regs[6] | is[i].regs[7] << 8);
+            moved = moved && newStart == now.address && is[i].regs[4] == sampleLastPage(now) && (is[i].flags & 0x70) == (now.bank & 0x70)
+                    && (is[i].flags & 0x02) != 0 && is[i].time == was[i].time;
+        }
+    }
+    check(others && moved && hitsMoved > 0, "a replaced sample changes only its own hits, to its new place, played once");
+    check(std::equal(original->rom.begin(), original->rom.begin() + 0xC00, edited->rom.begin()) && rip->source().rom == original->rom,
+          "the rip's ROM keeps its samples, and the rip itself stays as it was");
+    rip->setLoadedSamples({});
+    const auto back = rip->build();
+    check(sameWrites(back->ym, original->ym) && sameWrites(back->pcm, original->pcm) && back->rom == original->rom,
+          "with no sample loaded, the song builds as the rip again");
+
+    // The banks: a sample keeps to one bank, ends before its last page and
+    // takes no page in use; the ROM grows by whole banks as far as the
+    // banking reaches, and no further.
+    auto fill = [](uint32_t interfaceRegister, int count, std::vector<PadSample>& out) {
+        auto file = test::makeSong();
+        test::put32(file, 0x3C, interfaceRegister);
+        std::string e;
+        auto t = Tune::load(file, "Song", e);
+        PadSample big;
+        big.data.assign(kMaxSampleBytes, 0x90);
+        PadSample small;
+        small.data.assign(0x1000, 0x70);
+        int placedCount = 0;
+        for (int i = 0; i < count; ++i)
+            if (t->loadSample(-1, i == 0 ? small : big) >= 0)
+                ++placedCount;
+        out.assign(t->samples().begin(), t->samples().end());
+        return std::make_pair(placedCount, t->rom().size());
+    };
+    std::vector<PadSample> all;
+    const auto [eight, size] = fill(0x0070000C, 9, all);
+    bool banks = eight == 8 && size == SegaPcm::kRomSize && all.size() == 10;
+    RomRanges ranges;
+    for (size_t i = 0; banks && i < all.size(); ++i)
+    {
+        const PadSample& s = all[i];
+        const size_t first = s.address >> 8, last = (s.address + s.data.size() - 1) >> 8;
+        banks = s.romOffset == SegaPcm::banking(0x0070000C).offset(s.bank) && last <= 0xFE && first <= last;
+        const size_t from = s.romOffset + (s.address & 0xFF00u), to = s.romOffset + ((last + 1) << 8);
+        for (const auto& [x, y] : ranges)
+            banks = banks && (to <= x || from >= y);
+        ranges.emplace_back(from, to);
+    }
+    check(banks && all[2].romOffset == 0 && all[2].address == 0x0C00 && all[3].romOffset == 0x10000,
+          "loaded samples take the free pages of the rip's banks, one bank each, none over another");
+    const auto [wider, grown] = fill(0x00F0000C, 9, all);
+    const auto [capped, capSize] = fill(0x00F00014, 2, all);
+    check(wider == 9 && grown == 0x90000 && capped == 1 && capSize == SegaPcm::kRomSize,
+          "the ROM grows by a bank as the banking reaches, and never past the chip's 16 MB");
+
+    // A rip that reads more than its samples: a hit from 0x0200 that loops
+    // back to 0x0000, before its start, and plays on to page 5 once its end
+    // page moves there. In a bank past the ROM, the chip reads it through
+    // the mirror, from bank 0.
+    auto reading = [](uint32_t interfaceRegister, uint8_t bank) {
+        test::VgmBuilder v;
+        v.rom(std::vector<uint8_t>(0x600, 0x90), 0);
+        v.pcm(0x86, static_cast<uint8_t>(bank | 0x01));
+        v.pcm(0x02, 100);
+        v.pcm(0x03, 100);
+        v.pcm(0x04, 0x00);
+        v.pcm(0x05, 0x00);
+        v.pcm(0x06, 0x03);
+        v.pcm(0x07, 0x80);
+        v.pcm(0x84, 0x00);
+        v.pcm(0x85, 0x02);
+        v.pcm(0x86, bank);
+        v.wait(4410);
+        v.pcm(0x06, 0x05);
+        v.wait(4410);
+        v.pcm(0x86, static_cast<uint8_t>(bank | 0x01));
+        v.wait(4410);
+        auto file = v.finish();
+        test::put32(file, 0x3C, interfaceRegister);
+        std::string e;
+        return Tune::load(file, "Reads", e);
+    };
+    PadSample short1;
+    short1.data.assign(0x100, 0x70);
+    auto loops = reading(0x0070000C, 0x00);
+    const int at = loops ? loops->loadSample(-1, short1) : -1;
+    const PadSample* away = at >= 0 ? &loops->samples()[static_cast<size_t>(at)] : nullptr;
+    check(away != nullptr && (away->romOffset != 0 || away->address >= 0x0600),
+          "a loaded sample takes no page the rip reads outside its samples, as a loop before a start or an end page moved");
+    auto mirrored = reading(0x00F0000C, 0x80);
+    PadSample big;
+    big.data.assign(kMaxSampleBytes, 0x90);
+    int fitted = 0;
+    while (mirrored && fitted < 16 && mirrored->loadSample(-1, big) >= 0)
+        ++fitted;
+    bool clear = mirrored != nullptr && mirrored->rom().size() == SegaPcm::kRomSize && fitted == 7;
+    for (int i = 0; clear && i < 0x600; ++i)
+        clear = mirrored->romByte(static_cast<size_t>(i)) == 0x90;
+    check(clear, "a rip that reads through the ROM's mirror keeps the ROM within it, and the bank it reads there");
+}
+
 int main()
 {
     testOpmBank();
@@ -2011,6 +2363,8 @@ int main()
     testPcmBanking();
     testSampleEdit();
     testWrittenDrums();
+    testSongSwitch();
+    testLoadedSamples();
     std::printf("%s\n", failures == 0 ? "all checks passed" : "some checks failed");
     return failures == 0 ? 0 : 1;
 }

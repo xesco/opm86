@@ -51,17 +51,23 @@ void firstDifference(const VgmSong& a, const VgmSong& b, size_t& ym, size_t& pcm
 // Builds tunes on a background thread, newest request first: a request
 // replaces one still waiting, and a newer request stops work on an older one.
 // Each build reuses the snapshots of the build before it up to the first
-// change, then makes snapshots up to just past the given play position and
-// publishes the version, so playback can switch to it at once; then it makes
-// the rest and publishes the version again, complete.
+// change, then makes snapshots up to just past the playhead and publishes
+// the version, so playback can switch to it at once; then it makes the rest
+// and publishes the version again, complete. A build that a newer request
+// overtakes before it is published is dropped, so a run of quick edits
+// publishes only the newest.
 class TuneRebuilder
 {
 public:
     TuneRebuilder();
     ~TuneRebuilder();
 
-    // Message thread. position is the song time playback is at, in VGM samples.
-    void request(const Tune& tune, double position);
+    // Message thread. position is the song time playback is at, in VGM
+    // samples. Returns the request's number, which its version carries.
+    uint64_t request(const Tune& tune, double position);
+    // Where playback is now, in VGM samples, or below 0 when it is stopped:
+    // the first snapshots reach past it, as it moves on while they are made.
+    void setPlayhead(double songTime) { playhead_.store(songTime); }
     // Build without mute, solo and volume, which the player then applies (see mixOf).
     void setMixInPlayer(bool inPlayer) { mixInPlayer_.store(inPlayer); }
 
@@ -80,6 +86,7 @@ private:
     std::optional<TuneVersion> ready_;
     bool quit_ = false;
     std::atomic<bool> mixInPlayer_ { false };
+    std::atomic<double> playhead_ { -1.0 };
 
     // Worker thread only: the last build, whose snapshots the next one reuses.
     std::shared_ptr<const VgmSong> lastSong_;

@@ -51,42 +51,48 @@ void freeUnused(std::deque<std::shared_ptr<const T>>& kept)
 }
 } // namespace
 
-// One undoable edit: the tracks, the chip's edits and the grid before and after it.
+struct AppModel::TuneState
+{
+    std::vector<TuneTrack> tracks;
+    ChipEdits chip;
+    SongGrid grid;
+    std::shared_ptr<const SampleSet> samples; // shared, as the tune shares them
+};
+
+// One undoable edit: the tune's state before and after it.
 class AppModel::TracksChange : public juce::UndoableAction
 {
 public:
-    TracksChange(AppModel& model, std::vector<TuneTrack> before, std::vector<TuneTrack> after, ChipEdits chipBefore, ChipEdits chipAfter,
-                 SongGrid gridBefore, SongGrid gridAfter)
-        : model_(model), before_(std::move(before)), after_(std::move(after)), chipBefore_(chipBefore), chipAfter_(chipAfter),
-          gridBefore_(gridBefore), gridAfter_(gridAfter)
-    {
-    }
+    TracksChange(AppModel& model, TuneState before, TuneState after) : model_(model), before_(std::move(before)), after_(std::move(after)) {}
 
     bool perform() override
     {
-        model_.setTracks(after_, chipAfter_, gridAfter_);
+        model_.setTracks(after_);
         return true;
     }
 
     bool undo() override
     {
-        model_.setTracks(before_, chipBefore_, gridBefore_);
+        model_.setTracks(before_);
         return true;
     }
 
     int getSizeInUnits() override
     {
         size_t notes = 0;
-        for (const auto& t : before_)
+        for (const auto& t : before_.tracks)
             notes += t.notes.size();
+        // A step that loads samples keeps a set of its own, every sample's
+        // bytes in it, counted as so many notes' worth of memory.
+        if (after_.samples && after_.samples != before_.samples)
+            for (const PadSample& s : after_.samples->samples)
+                notes += s.data.size() / sizeof(TuneNote);
         return static_cast<int>(notes / 50 + 1);
     }
 
 private:
     AppModel& model_;
-    std::vector<TuneTrack> before_, after_;
-    ChipEdits chipBefore_, chipAfter_;
-    SongGrid gridBefore_, gridAfter_;
+    TuneState before_, after_;
 };
 
 // A WAV render on a thread of its own, into a temporary file that takes
@@ -261,21 +267,11 @@ void AppModel::take(std::unique_ptr<Tune> tune, const juce::File& rip)
     loopChanged_ = false;
     auditionTrack_ = previewTrack_ = -1;
     auditionOps_ = 0;
+    remaps_.clear();
     rebuild();
     sendMix();
     sendLoop();
-    // The preview's chips run as the song's do; its SegaPCM reads the song's ROM.
-    {
-        const juce::SpinLock::ScopedLockType lock(commandLock_);
-        commands_.previewChip = true;
-        commands_.previewRate = tune_->source().fmRate;
-        commands_.previewShift = tune_->clockShift();
-        commands_.previewSong = tune_->sourcePointer();
-        commands_.previewPcmCount = 0;
-    }
-    // Kept here, so the audio thread never frees one.
-    previewSongs_.push_back(tune_->sourcePointer());
-    freeUnused(previewSongs_);
+    sendPreviewSong();
     savedRevision_ = revision_;
     sendChangeMessage();
 }
@@ -320,19 +316,12 @@ bool AppModel::edit(const juce::String& name, const std::function<void(Tune&)>& 
 {
     if (!tune_)
         return false;
-    std::vector<TuneTrack> before = tune_->tracks;
     Tune changed = *tune_;
     change(changed);
-    // A new song while playing would have to catch up with the playhead.
-    if (playing() && (!sameBuild(before, changed.tracks) || changed.length() != tune_->length()))
-    {
-        if (onNotice)
-            onNotice("Stop playback to edit notes (Space)");
-        return false;
-    }
     if (newStep)
         undo_.beginNewTransaction(name);
-    undo_.perform(new TracksChange(*this, std::move(before), changed.tracks, tune_->chip, changed.chip, tune_->grid, changed.grid));
+    undo_.perform(new TracksChange(*this, { tune_->tracks, tune_->chip, tune_->grid, tune_->sampleSet() },
+                                   { std::move(changed.tracks), changed.chip, changed.grid, changed.sampleSet() }));
     return true;
 }
 
@@ -341,15 +330,7 @@ bool AppModel::setTempo(double bpm, bool newStep)
     if (!tune_)
         return false;
     // A rip's grid alone, or a written song's notes with it.
-    if (tune_->ripped())
-        return edit("Tempo", [bpm](Tune& tune) { tune.setTempo(bpm); }, newStep);
-    if (playing())
-    {
-        if (onNotice)
-            onNotice("Stop playback to change the tempo of written notes (Space)");
-        return false;
-    }
-    return edit("Change tempo", [bpm](Tune& tune) { tune.setTempo(bpm); }, newStep);
+    return edit(tune_->ripped() ? "Tempo" : "Change tempo", [bpm](Tune& tune) { tune.setTempo(bpm); }, newStep);
 }
 
 bool AppModel::setBeatsPerBar(int beats, bool newStep)
@@ -375,8 +356,19 @@ void AppModel::setLoop(const LoopRegion& loop)
 
 void AppModel::sendLoop()
 {
-    const LoopRegion& loop = tune_->loop;
+    // The player still plays a song in the time before a tempo change: the
+    // loop waits for the song in its own time.
+    if (!remaps_.empty())
+    {
+        remaps_.back().loop = tune_->loop;
+        return;
+    }
     const juce::SpinLock::ScopedLockType lock(commandLock_);
+    loopCommand(tune_->loop);
+}
+
+void AppModel::loopCommand(const LoopRegion& loop)
+{
     commands_.loop = true;
     commands_.loopStart = static_cast<double>(loop.start);
     commands_.loopEnd = loop.active() ? static_cast<double>(loop.end) : 0.0;
@@ -384,49 +376,53 @@ void AppModel::sendLoop()
 
 bool AppModel::undoStep(bool redo)
 {
-    // The steps that change only the mix, by their names in edit.
-    static const juce::StringArray kMix { "Mute", "Solo", "Mute voice", "Solo voice", "Volume", "Voice volume", "Reset mix", "Edit patch", "Revert patch", "Load instrument", "Voice output", "Solo none", "Solo instruments", "Solo drums", "Edit chip", "Tempo", "Beats per bar", "Bar 1 here" };
-    const juce::String step = redo ? undo_.getRedoDescription() : undo_.getUndoDescription();
-    // The meter sets how long a song with no rip is, so it may need a new build.
-    const bool mix = kMix.contains(step) && (step != "Beats per bar" || tune_->ripped());
-    if (playing() && step.isNotEmpty() && !mix)
-    {
-        if (onNotice)
-            onNotice(juce::String(redo ? "Stop playback to redo " : "Stop playback to undo ") + step.toLowerCase() + " (Space)");
-        return false;
-    }
     return redo ? undo_.redo() : undo_.undo();
 }
 
-
-void AppModel::setTracks(const std::vector<TuneTrack>& tracks, const ChipEdits& chip, const SongGrid& grid)
+void AppModel::setTracks(const TuneState& state)
 {
     // Mute, solo and volume alone change only the mix, and the chip's edits
     // go to the player with it: no new song to build. The grid changes no
-    // write, unless it makes a song with no rip longer or shorter.
+    // write, unless it makes a song with no rip longer or shorter. A sample
+    // loaded changes the ROM, and the drums' writes with it.
     const int64_t length = tune_->length();
-    const bool notes = !sameBuild(tune_->tracks, tracks);
+    const bool notes = !sameBuild(tune_->tracks, state.tracks);
+    const bool samples = state.samples != tune_->sampleSet();
     // A new tempo in a song with no rip moves the notes, and the loop keeps
     // its beats with them, on the edit, its undo and its redo alike.
-    const bool rescale = !tune_->ripped() && tune_->loop.valid() && !juce::exactlyEqual(grid.beatLength, tune_->grid.beatLength);
+    const bool tempo = !tune_->ripped() && !juce::exactlyEqual(state.grid.beatLength, tune_->grid.beatLength);
+    const TimeMap moved = tempo ? TimeMap::scaled(state.grid.firstBeat, state.grid.beatLength / tune_->grid.beatLength) : TimeMap {};
+    const bool rescale = tempo && tune_->loop.valid();
     if (rescale)
     {
-        const double scale = grid.beatLength / tune_->grid.beatLength, origin = grid.firstBeat;
         LoopRegion& loop = tune_->loop;
-        loop.start = std::max<int64_t>(0, std::llround(origin + (static_cast<double>(loop.start) - origin) * scale));
-        loop.end = std::max<int64_t>(loop.start + 1, std::llround(origin + (static_cast<double>(loop.end) - origin) * scale));
+        loop.start = std::max<int64_t>(0, std::llround(moved(static_cast<double>(loop.start))));
+        loop.end = std::max<int64_t>(loop.start + 1, std::llround(moved(static_cast<double>(loop.end))));
         loop = loop.fitted();
     }
-    tune_->tracks = tracks;
-    tune_->chip = chip;
-    tune_->grid = grid;
-    const bool build = notes || tune_->length() != length;
+    tune_->tracks = state.tracks;
+    tune_->chip = state.chip;
+    tune_->grid = state.grid;
+    tune_->setSampleSet(state.samples);
+    const bool build = notes || samples || tune_->length() != length;
     ++revision_;
     if (build)
-        rebuild();
+    {
+        // Playing, the new song plays on from the same beat once it is built,
+        // its first snapshots made from there.
+        const bool remap = tempo && playing();
+        const uint64_t request = rebuild(remap ? moved : TimeMap {});
+        if (remap)
+            remaps_.push_back({ request, moved, std::nullopt });
+    }
     if (rescale)
         sendLoop();
-    sendMix();
+    if (samples)
+        sendPreviewSong();
+    // A new song brings the mix for its own channels when it is built; until
+    // then the player keeps the one for the song it plays.
+    if (!build)
+        sendMix();
     sendChangeMessage();
 }
 
@@ -447,28 +443,60 @@ void AppModel::setProbe(int voices, int track)
     commands_.probeOwner = owner;
 }
 
-void AppModel::sendMix()
+std::pair<std::shared_ptr<const ChannelMix>, std::shared_ptr<const PatchEdits>> AppModel::mixNow()
 {
-    auto mix = mixOf(*tune_, report_);
-    {
-        const juce::SpinLock::ScopedLockType lock(commandLock_);
-        commands_.mix = mix;
-    }
+    std::shared_ptr<const ChannelMix> mix = mixOf(*tune_, report_);
     // The edited instruments, by the same channels.
     std::shared_ptr<const PatchEdits> edits = patchEditsOf(*tune_, report_, auditionTrack_, auditionOps_);
+    mixes_.push_back(mix);
+    freeUnused(mixes_);
+    if (edits)
+    {
+        edits_.push_back(edits);
+        freeUnused(edits_);
+    }
+    return { std::move(mix), std::move(edits) };
+}
+
+void AppModel::sendMix()
+{
+    auto [mix, edits] = mixNow();
     {
         const juce::SpinLock::ScopedLockType lock(commandLock_);
-        commands_.edits = edits;
+        commands_.mix = std::move(mix);
+        commands_.edits = std::move(edits);
         commands_.newEdits = true;
     }
-    edits_.push_back(std::move(edits));
-    freeUnused(edits_);
     // The probe's owner follows the notes and their channels too.
     if (probeVoices_ != 0)
         setProbe(probeVoices_, probeTrack_);
+}
+
+void AppModel::sendPreviewSong()
+{
+    // The preview's chips run as the song's do; its SegaPCM reads the tune's
+    // ROM, with the samples loaded into it.
+    std::shared_ptr<const VgmSong> song = tune_->sourcePointer();
+    if (tune_->sampleSet())
+    {
+        auto loaded = std::make_shared<VgmSong>();
+        loaded->header = song->header;
+        loaded->fmRate = song->fmRate;
+        loaded->pcmRate = song->pcmRate;
+        loaded->rom = tune_->rom();
+        song = std::move(loaded);
+    }
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.previewChip = true;
+        commands_.previewRate = tune_->source().fmRate;
+        commands_.previewShift = tune_->clockShift();
+        commands_.previewSong = song;
+        commands_.previewPcmCount = 0;
+    }
     // Kept here, so the audio thread never frees one.
-    mixes_.push_back(std::move(mix));
-    freeUnused(mixes_);
+    previewSongs_.push_back(std::move(song));
+    freeUnused(previewSongs_);
 }
 
 const FmPatch& AppModel::editedPatch(int track) const
@@ -605,9 +633,19 @@ void AppModel::previewSample(int track, int key, bool on)
     commands_.previewPcm[commands_.previewPcmCount++] = event;
 }
 
-void AppModel::rebuild()
+double AppModel::playheadAhead(const TimeMap& next) const
 {
-    rebuilder_.request(*tune_, position_.load());
+    TimeMap map;
+    for (const Remap& r : remaps_)
+        map = map.then(r.map);
+    return map.then(next)(position_.load());
+}
+
+uint64_t AppModel::rebuild(const TimeMap& next)
+{
+    const double at = playheadAhead(next);
+    rebuilder_.setPlayhead(playing() ? at : -1.0);
+    return rebuilder_.request(*tune_, at);
 }
 
 void AppModel::play()
@@ -671,30 +709,64 @@ void AppModel::scrub(double songTime)
 
 void AppModel::timerCallback()
 {
+    rebuilder_.setPlayhead(playing() ? playheadAhead() : -1.0);
     auto version = rebuilder_.take();
     if (!version)
         return;
     report_ = version->report;
     ++reportRevision_;
 
-    // Tell the player what stayed the same, compared with what it has.
+    // Tell the player what stayed the same, compared with what it has. A
+    // sample loaded since changes the ROM: what plays moves to the new one
+    // with the crossfade.
     const bool same = built_ == version->song;
     size_t ym = 0, pcm = 0;
     if (built_ && !same)
+    {
         firstDifference(*built_, *version->song, ym, pcm);
+        if (built_->rom != version->song->rom)
+            pcm = 0;
+    }
+    // The tempo changes the build has, how they move the playhead, and the
+    // loop in its time.
+    TimeMap moved;
+    std::optional<LoopRegion> loop;
+    for (; !remaps_.empty() && remaps_.front().request <= version->version; remaps_.pop_front())
+    {
+        moved = moved.then(remaps_.front().map);
+        if (remaps_.front().loop)
+            loop = remaps_.front().loop;
+    }
+    // The build may have moved notes to other channels: the mix for them
+    // goes with the song, in the same block.
+    auto [mix, edits] = mixNow();
     {
         const juce::SpinLock::ScopedLockType lock(commandLock_);
+        // A song the audio thread has not taken yet: it still plays the one
+        // before, so this one is told against that.
+        const bool untaken = commands_.newSong;
         commands_.song = version->song;
         commands_.snapshots = version->snapshots;
-        commands_.ymUnchanged = ym;
-        commands_.pcmUnchanged = pcm;
-        commands_.fresh = built_ == nullptr;
-        commands_.newSong = !same;
-        commands_.sameSong = same;
+        if (!same)
+        {
+            commands_.ymUnchanged = untaken ? std::min(commands_.ymUnchanged, ym) : ym;
+            commands_.pcmUnchanged = untaken ? std::min(commands_.pcmUnchanged, pcm) : pcm;
+            commands_.timeMap = untaken ? commands_.timeMap.then(moved) : moved;
+            commands_.newSong = true;
+        }
+        commands_.sameSong = !commands_.newSong;
+        commands_.fresh = commands_.fresh || built_ == nullptr;
+        commands_.mix = std::move(mix);
+        commands_.edits = std::move(edits);
+        commands_.newEdits = true;
+        // The audio thread sets the loop after the song.
+        if (loop)
+            loopCommand(*loop);
     }
+    if (probeVoices_ != 0)
+        setProbe(probeVoices_, probeTrack_);
     built_ = version->song;
     keep_.push_back(std::move(*version));
-    sendMix(); // the build may have moved notes to other channels
     // The newest stays, as the chip's state when stopped is read from it.
     keep_.erase(std::remove_if(keep_.begin(), keep_.end() - 1,
                                [](const TuneVersion& v) { return v.song.use_count() == 1 && v.snapshots.use_count() == 1; }),
@@ -736,19 +808,19 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             }
             if (c.newSong || c.sameSong)
             {
+                // Playing, a new song takes over at the playhead, or once its
+                // snapshots reach it, the old one playing on meanwhile (see
+                // SongPlayer::replaceSong).
                 if (c.fresh || !player_.playing())
                     player_.setSong(c.song, c.snapshots);
                 else if (c.newSong)
-                    waitingForSnapshots_ = !player_.replaceSong(c.song, c.snapshots, c.ymUnchanged, c.pcmUnchanged);
+                    player_.replaceSong(c.song, c.snapshots, c.ymUnchanged, c.pcmUnchanged, c.timeMap);
                 else
-                {
                     player_.updateSnapshots(c.snapshots);
-                    if (waitingForSnapshots_)
-                        waitingForSnapshots_ = !player_.play(player_.position());
-                }
                 // The command keeps no reference: the model holds the version.
                 c.song.reset();
                 c.snapshots.reset();
+                c.timeMap = {};
                 c.newSong = c.sameSong = c.fresh = false;
             }
             if (c.previewChip)

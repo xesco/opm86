@@ -2,6 +2,8 @@
 
 #include "Theme.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 #include <cmath>
 
 namespace opm86
@@ -17,7 +19,107 @@ juce::String hex(int value, int digits)
     return "0x" + juce::String::toHexString(value).toUpperCase().paddedLeft('0', digits);
 }
 
+// The rates a sample can be made at, as the chip's steps, and the folder the
+// last one came from.
+constexpr uint8_t kSteps[3] = { 0x40, 0x80, 0xFF };
+juce::File lastFolder;
+
+double stepRate(uint8_t step)
+{
+    return step * SegaPcm::kSampleRate / 256.0;
+}
+
 } // namespace
+
+// AudioSampleChooser ----------------------------------------------------------
+
+void AudioSampleChooser::choose(juce::Component* parent, std::function<void(const PadSample&)> done)
+{
+    done_ = std::move(done);
+    const juce::File folder = lastFolder.isDirectory() ? lastFolder : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    chooser_ = std::make_unique<juce::FileChooser>("Load a sample from an audio file", folder, "*.wav;*.aif;*.aiff");
+    juce::Component::SafePointer<juce::Component> owner(parent);
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, owner](const juce::FileChooser& c) {
+        if (owner == nullptr || !c.getResult().existsAsFile())
+            return;
+        lastFolder = c.getResult().getParentDirectory();
+        askEncoding(owner, c.getResult());
+    });
+}
+
+void AudioSampleChooser::askEncoding(juce::Component* parent, const juce::File& file)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels == 0 || reader->sampleRate <= 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Load sample", "Could not read " + file.getFullPathName());
+        return;
+    }
+    // What the file holds, and how much of it each rate keeps.
+    const double seconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    juce::String fits;
+    for (const uint8_t step : kSteps)
+        fits << (fits.isEmpty() ? "" : ", ") << juce::String(static_cast<double>(kMaxSampleBytes) / stepRate(step), 1) << " s at "
+             << juce::String(stepRate(step) / 1000.0, 1) << " kHz";
+    options_ = std::make_unique<juce::AlertWindow>(
+        "Load sample",
+        file.getFileName() + ": " + juce::String(seconds, 2) + " s, " + (reader->numChannels == 1 ? "mono" : juce::String(reader->numChannels) + " channels")
+            + ", " + juce::String(juce::roundToInt(reader->sampleRate)) + " Hz. The chip plays it once, in mono, from 8-bit samples: up to " + fits
+            + ". The rest is cut.",
+        juce::MessageBoxIconType::NoIcon, parent);
+    juce::StringArray rates;
+    for (const uint8_t step : kSteps)
+        rates.add(juce::String(stepRate(step) / 1000.0, 1) + " kHz (step " + hex(step, 2) + ")");
+    options_->addComboBox("rate", rates, "Rate");
+    options_->getComboBoxComponent("rate")->setSelectedItemIndex(1);
+    auto trim = std::make_shared<juce::ToggleButton>("Trim the silence at its start and end");
+    auto normalise = std::make_shared<juce::ToggleButton>("Normalise to full scale");
+    for (auto* toggle : { trim.get(), normalise.get() })
+    {
+        toggle->setSize(320, 28);
+        toggle->setToggleState(true, juce::dontSendNotification);
+        options_->addCustomComponent(toggle);
+    }
+    options_->addButton("Load", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    options_->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<juce::AlertWindow> window(options_.get());
+    options_->enterModalState(true, juce::ModalCallbackFunction::create([this, window, file, trim, normalise](int result) {
+        // Gone with its owner: nothing more to do.
+        if (window == nullptr)
+            return;
+        SampleEncoding encoding;
+        encoding.step = kSteps[juce::jlimit(0, 2, window->getComboBoxComponent("rate")->getSelectedItemIndex())];
+        encoding.trim = trim->getToggleState();
+        encoding.normalise = normalise->getToggleState();
+        options_.reset();
+        if (result != 1)
+            return;
+        juce::AudioFormatManager manager;
+        manager.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> in(manager.createReaderFor(file));
+        if (in == nullptr)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Load sample", "Could not read " + file.getFullPathName());
+            return;
+        }
+        // Two minutes at most: more than any rate keeps, with silence to trim.
+        const auto frames = static_cast<int>(std::min<juce::int64>(in->lengthInSamples, static_cast<juce::int64>(in->sampleRate * 120.0)));
+        const auto channels = static_cast<int>(in->numChannels);
+        juce::AudioBuffer<float> audio(channels, frames);
+        in->read(&audio, 0, frames, 0, true, true);
+        const PadSample sound = encodeSample(file.getFileNameWithoutExtension().toStdString(), audio.getArrayOfReadPointers(), channels,
+                                             static_cast<size_t>(frames), in->sampleRate, encoding);
+        if (sound.data.empty())
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Load sample", file.getFileName() + " has no sound");
+            return;
+        }
+        if (done_)
+            done_(sound);
+    }));
+}
 
 // SampleView ------------------------------------------------------------------
 
@@ -30,6 +132,17 @@ SampleView::SampleView(AppModel& model, int track) : model_(model), track_(track
         model_.edit("Revert sample", [t = track_](Tune& tune) { tune.tracks[static_cast<size_t>(t)].sample = {}; });
     };
     addAndMakeVisible(revert_);
+    replace_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    replace_.setWantsKeyboardFocus(false);
+    replace_.setTooltip("Load the sample's sound from a WAV or AIFF file, for every track that plays it");
+    replace_.onClick = [this] {
+        juce::Component::SafePointer<SampleView> self(this);
+        chooser_.choose(this, [self](const PadSample& sound) {
+            if (self != nullptr)
+                self->replace(sound);
+        });
+    };
+    addAndMakeVisible(replace_);
     // Middle C plays the sample at its pitch; a key up stops a sample that
     // loops, and a one-shot plays out.
     keyboard_.setLowest(48);
@@ -180,6 +293,35 @@ void SampleView::commit(Field f, std::optional<int> v, bool newStep)
         dragStep_ = false;
 }
 
+void SampleView::replace(const PadSample& sound)
+{
+    if (sample() == nullptr)
+        return;
+    const int index = model_.tune().tracks[static_cast<size_t>(track_)].instrument;
+    // Tried on a copy first: with no room left in the ROM, nothing changes.
+    Tune trial = model_.tune();
+    if (trial.loadSample(index, sound) < 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Replace sample",
+                                               "No bank of the song's ROM has room for " + juce::String(sound.data.size()) + " bytes more");
+        return;
+    }
+    model_.edit("Replace sample", [index, sound](Tune& tune) {
+        tune.loadSample(index, sound);
+        // An edit of the old sample's place and pitch does not fit the new
+        // one: every track that plays it starts from the new sample's own.
+        for (TuneTrack& t : tune.tracks)
+            if (t.kind == TuneTrack::Kind::Drum && t.instrument == index)
+            {
+                t.sample.start.reset();
+                t.sample.endPage.reset();
+                t.sample.loop.reset();
+                t.sample.loopStart.reset();
+                t.sample.step.reset();
+            }
+    });
+}
+
 int SampleView::first() const
 {
     const PadSample* pad = sample();
@@ -230,7 +372,10 @@ void SampleView::resized()
     controlsPanel_ = r.removeFromTop(130);
     r.removeFromTop(10);
     keyboard_.setBounds(r.removeFromBottom(kKeyboardHeight));
-    revert_.setBounds(header_.reduced(12, 10).removeFromTop(24).removeFromRight(86));
+    auto buttons = header_.reduced(12, 10).removeFromTop(24);
+    revert_.setBounds(buttons.removeFromRight(86));
+    buttons.removeFromRight(8);
+    replace_.setBounds(buttons.removeFromRight(100));
     waveBox_ = wave_.reduced(12, 10).withTrimmedTop(24);
 
     // The playback row: the loop's switch, the pitch as a dial and as a
@@ -261,7 +406,7 @@ void SampleView::paint(juce::Graphics& g)
     auto top = header_.reduced(12, 10);
     g.setColour(theme::orange);
     g.setFont(theme::pixel(16.0f));
-    g.drawText(juce::String(tr.name).toUpperCase() + (e.any() ? "*" : ""), top.removeFromTop(24).withTrimmedRight(100), juce::Justification::centredLeft,
+    g.drawText(juce::String(tr.name).toUpperCase() + (e.any() ? "*" : ""), top.removeFromTop(24).withTrimmedRight(204), juce::Justification::centredLeft,
                false);
     top.removeFromTop(4);
     const size_t bytes = pad->data.size();
@@ -331,7 +476,7 @@ void SampleView::paintWave(juce::Graphics& g)
     // Each pixel column's lowest and highest sample, unsigned 8-bit about
     // 0x80, from the ROM as the chip reads it: bright between the start
     // and the end, faint outside them.
-    const auto& rom = model_.tune().source().rom;
+    const Tune& tune = model_.tune();
     const int columns = juce::jmax(1, waveBox_.getWidth());
     for (int x = 0; x < columns; ++x)
     {
@@ -340,8 +485,7 @@ void SampleView::paintWave(juce::Graphics& g)
         int low = 127, high = -128;
         for (int a = from; a < to; ++a)
         {
-            const size_t at = pad->romOffset + static_cast<size_t>(a);
-            const int v = (at < rom.size() ? rom[at] : 0x80) - 0x80;
+            const int v = tune.romByte(pad->romOffset + static_cast<size_t>(a)) - 0x80;
             low = std::min(low, v), high = std::max(high, v);
         }
         const float y0 = box.getCentreY() - static_cast<float>(high) / 128.0f * (box.getHeight() * 0.5f - 2.0f);

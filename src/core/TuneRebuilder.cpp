@@ -132,15 +132,17 @@ TuneRebuilder::~TuneRebuilder()
     worker_.join();
 }
 
-void TuneRebuilder::request(const Tune& tune, double position)
+uint64_t TuneRebuilder::request(const Tune& tune, double position)
 {
+    uint64_t number = 0;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         pending_ = tune;
         position_ = position;
-        ++requested_;
+        number = ++requested_;
     }
     wake_.notify_all();
+    return number;
 }
 
 std::optional<TuneVersion> TuneRebuilder::take()
@@ -188,10 +190,21 @@ void TuneRebuilder::run()
         else
             snapshots = std::make_shared<SongSnapshots>();
 
-        // First up to just past the play position, so playback can switch now.
+        // First up to just past the playhead, so playback can switch now: again
+        // while it has moved on as they were made.
         const double end = songEnd(*song);
-        double reached = std::min(end, position + 2.0 * kVgmRate);
-        extendSnapshots(*song, *snapshots, reached);
+        double reached = -1.0;
+        for (;;)
+        {
+            const double want = std::min(end, std::max(position, playhead_.load()) + 2.0 * kVgmRate);
+            if (want <= reached)
+                break;
+            extendSnapshots(*song, *snapshots, want);
+            reached = want;
+        }
+        // A newer edit came while this was built: this version is never heard.
+        if (superseded())
+            continue;
         v.song = song;
         v.snapshots = std::make_shared<SongSnapshots>(*snapshots);
         v.complete = reached >= end;

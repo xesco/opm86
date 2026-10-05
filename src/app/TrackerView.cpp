@@ -143,7 +143,7 @@ public:
     // the output sides. Count is how many notes it edits: with more than
     // one, the caller moves each by the change.
     NoteEditor(bool drum, int count, const Values& current, std::function<void(const Values&)> preview,
-               std::function<bool(const Values&)> apply)
+               std::function<void(const Values&)> apply)
         : drum_(drum), initial_(current), values_(current), preview_(std::move(preview)), apply_(std::move(apply))
     {
         auto caption = [this](juce::Label& l, const juce::String& text, juce::Colour colour) {
@@ -280,8 +280,7 @@ public:
 
 private:
     // Every typed value read, then the changes in at once and the callout
-    // closed. A value that is not one, or an edit the model refuses, keeps
-    // it open; the model says why.
+    // closed. A value that is not one keeps it open.
     void commit()
     {
         bool ok = true;
@@ -289,8 +288,8 @@ private:
             ok = read(*e) && ok;
         if (!ok)
             return;
-        if (!(values_ == initial_) && !apply_(values_))
-            return;
+        if (!(values_ == initial_))
+            apply_(values_);
         close();
     }
 
@@ -398,7 +397,7 @@ private:
     bool drum_;
     Values initial_, values_;
     std::function<void(const Values&)> preview_;
-    std::function<bool(const Values&)> apply_;
+    std::function<void(const Values&)> apply_;
     bool closed_ = false; // applied or dropped already
     juce::Label pitchCaption_, fineCaption_, velocityCaption_, panCaption_, count_, sixtyFourths_;
     juce::TextEditor pitch_, fine_, velocity_, pan_;
@@ -2548,8 +2547,7 @@ void TrackerView::copySelection()
 
 void TrackerView::cutSelection()
 {
-    // Refused whole while playing, so the clipboard never holds notes still in the song.
-    if (selection_.empty() || refusedWhilePlaying())
+    if (selection_.empty())
         return;
     copySelection();
     removeSelection("Cut notes");
@@ -2741,8 +2739,8 @@ void TrackerView::editNote(NoteRef ref)
     };
     auto apply = [self, chosen, changed](const NoteEditor::Values& v) {
         if (self == nullptr)
-            return true;
-        return self->model_.edit("Edit note", [&chosen, &changed, &v](Tune& t) {
+            return;
+        self->model_.edit("Edit note", [&chosen, &changed, &v](Tune& t) {
             for (size_t k = 0; k < t.tracks.size(); ++k)
                 for (TuneNote& x : t.tracks[k].notes)
                     if (chosen.count({ static_cast<int>(k), x.id }))
@@ -2889,15 +2887,6 @@ void TrackerView::confirm(const juce::String& title, const juce::String& message
                                  });
 }
 
-bool TrackerView::refusedWhilePlaying()
-{
-    if (!model_.playing())
-        return false;
-    if (model_.onNotice)
-        model_.onNotice("Stop playback to edit notes (Space)");
-    return true;
-}
-
 namespace
 {
 juce::String notesOf(size_t count)
@@ -2908,13 +2897,11 @@ juce::String notesOf(size_t count)
 
 void TrackerView::addTrack()
 {
-    if (refusedWhilePlaying())
-        return;
-    // A song with no samples, as one written from empty, offers only FM.
+    // Each sample with its number, its length and the hits that use it, then
+    // a new one from an audio file, which a song with no samples, as one
+    // written from empty, offers alone.
+    static constexpr int kFromAudio = 100000;
     const auto& samples = model_.tune().samples();
-    if (samples.empty())
-        return addFmTrack();
-    // Each sample with its number, its length and the hits that use it.
     std::vector<int> uses(samples.size(), 0);
     for (const VgmHit& h : model_.tune().imported().hits)
         if (h.sample >= 0 && static_cast<size_t>(h.sample) < uses.size())
@@ -2927,27 +2914,40 @@ void TrackerView::addTrack()
         drums.addItem(static_cast<int>(k) + 2, "PCM " + juce::String(k + 1) + theme::dot() + length + theme::dot() + juce::String(uses[k])
                                                     + (uses[k] == 1 ? " hit" : " hits"));
     }
+    if (!samples.empty())
+        drums.addSeparator();
+    drums.addItem(kFromAudio, "From audio file...");
     juce::PopupMenu menu;
     menu.addItem(1, "FM track");
     menu.addSubMenu("Drum track", drums);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(addTrackButton() + getScreenPosition()), [this](int chosen) {
         if (chosen == 1)
             addFmTrack();
+        else if (chosen == kFromAudio)
+            addAudioTrack();
         else if (chosen >= 2)
             addDrumTrack(chosen - 2);
     });
 }
 
-void TrackerView::addDrumTrack(int sample)
+namespace
 {
-    if (refusedWhilePlaying() || sample < 0 || static_cast<size_t>(sample) >= model_.tune().samples().size())
-        return;
-    // Named Drum and the next number no track has.
+// Drum and the next number no drum track has.
+std::string nextDrumName(const Tune& tune)
+{
     int number = 1;
-    for (const TuneTrack& t : model_.tune().tracks)
+    for (const TuneTrack& t : tune.tracks)
         if (t.name.rfind("Drum ", 0) == 0)
             number = std::max(number, std::atoi(t.name.c_str() + 5) + 1);
-    const std::string name = "Drum " + std::to_string(number);
+    return "Drum " + std::to_string(number);
+}
+} // namespace
+
+void TrackerView::addDrumTrack(int sample)
+{
+    if (sample < 0 || static_cast<size_t>(sample) >= model_.tune().samples().size())
+        return;
+    const std::string name = nextDrumName(model_.tune());
     confirm("Add a track?", juce::String(name) + " plays PCM " + juce::String(sample + 1) + ". It has no hits: double-click its row to write one.", "Add",
             [this, sample, name] {
                 model_.edit("Add track", [sample, name](Tune& tune) {
@@ -2960,10 +2960,33 @@ void TrackerView::addDrumTrack(int sample)
             });
 }
 
+void TrackerView::addAudioTrack()
+{
+    juce::Component::SafePointer<TrackerView> self(this);
+    audioChooser_.choose(this, [self](const PadSample& sound) {
+        if (self == nullptr || !self->model_.hasTune())
+            return;
+        // Tried on a copy first: with no room left in the ROM, nothing changes.
+        Tune trial = self->model_.tune();
+        if (trial.loadSample(-1, sound) < 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Add track",
+                                                   "No bank of the song's ROM has room for " + juce::String(sound.data.size()) + " bytes more");
+            return;
+        }
+        const std::string name = nextDrumName(self->model_.tune());
+        self->model_.edit("Add track", [sound, name](Tune& tune) {
+            TuneTrack t;
+            t.kind = TuneTrack::Kind::Drum;
+            t.instrument = tune.loadSample(-1, sound);
+            t.name = name;
+            tune.tracks.push_back(t);
+        });
+    });
+}
+
 void TrackerView::addFmTrack()
 {
-    if (refusedWhilePlaying())
-        return;
     const int voice = std::max(0, freeVoice(-1));
     // Named FM and the next number no track has.
     int number = 1;
@@ -2985,8 +3008,6 @@ void TrackerView::addFmTrack()
 
 void TrackerView::removeTrack(int track)
 {
-    if (refusedWhilePlaying())
-        return;
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const std::string name = tr.name;
     confirm("Remove " + juce::String(name) + "?", notesOf(tr.notes.size()) + " Undo brings it back.", "Remove", [this, track, name] {
@@ -3025,9 +3046,6 @@ void TrackerView::removeVoice(int track, int row)
     const std::string name = tr.name;
     const auto count = static_cast<size_t>(std::count_if(tr.notes.begin(), tr.notes.end(),
                                                          [&](const TuneNote& n) { return model_.tune().originalChannel(tr, n) == voice; }));
-    // A voice with no notes leaves the song to build as it is, so playback allows it.
-    if (count > 0 && refusedWhilePlaying())
-        return;
     confirm("Remove V" + juce::String(voice + 1) + " from " + juce::String(name) + "?", notesOf(count) + " Undo brings it back.", "Remove",
             [this, track, voice, name] {
                 if (track >= static_cast<int>(model_.tune().tracks.size()) || model_.tune().tracks[static_cast<size_t>(track)].name != name)

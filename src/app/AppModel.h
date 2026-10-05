@@ -64,19 +64,21 @@ public:
     bool ready() const { return built_ != nullptr; } // a build exists to play
 
     // Change the tune, as one step of undo; with newStep false, as part of the
-    // step before (a knob turn is one step). While playing, only the mix can
-    // change: an edit that needs a new song is refused, with a notice, and
-    // edit returns false.
+    // step before (a knob turn is one step). Its samples change with it, in
+    // the same step. Playing or stopped alike: the tune shows the edit at
+    // once, and an edit that needs a new song has it built in the background;
+    // playback then switches to it at the playhead with a crossfade (see
+    // SongPlayer::replaceSong). Returns false with no tune.
     bool edit(const juce::String& name, const std::function<void(Tune&)>& change, bool newStep = true);
-    // Undo, or redo, one step; while playing, only a step of the mix.
+    // Undo, or redo, one step, playing or stopped alike, as an edit goes.
     bool undoStep(bool redo = false);
     juce::UndoManager& undo() { return undo_; }
-    std::function<void(const juce::String&)> onNotice; // why an edit was refused
+    std::function<void(const juce::String&)> onNotice; // a word for the status line, as what a paste left out
 
     // The song's structure (see Tune::grid), each change a step of undo, or
     // with newStep false part of the step before, as a drag is. A change of
-    // tempo that moves a song's written notes is refused while playing, as
-    // any edit of notes is; the others go at once.
+    // tempo moves a song's written notes with their beats, and playback
+    // carries on from the same beat.
     bool setTempo(double bpm, bool newStep = true);
     bool setBeatsPerBar(int beats, bool newStep = true);
     bool barOneHere(); // bar 1 starts at the playhead, which is then on a downbeat
@@ -187,13 +189,27 @@ public:
 private:
     class TracksChange;
     class WavExport;
+    struct TuneState; // what a step of undo changes: the tracks, the chip's edits, the grid and the samples
     friend class TracksChange;
 
     void take(std::unique_ptr<Tune> tune, const juce::File& rip); // a new tune, opened as it is
-    void setTracks(const std::vector<TuneTrack>& tracks, const ChipEdits& chip, const SongGrid& grid);
-    void sendLoop(); // the loop to the player
-    void rebuild();
-    void sendMix(); // sends the tracks' mute, solo, volume, edited instruments and chip to the player
+    void setTracks(const TuneState& state);
+    // The loop to the player; while a tempo change waits for its build, with
+    // that build (see Remap), as the loop is in its song's time.
+    void sendLoop();
+    void loopCommand(const LoopRegion& loop); // with commandLock_ held
+    // Where the playhead is in the song the newest request builds: moved by
+    // the tempo changes waiting for their builds, then by next.
+    double playheadAhead(const TimeMap& next = {}) const;
+    // The build's request number (see TuneRebuilder::request); next is how
+    // this request moves song time, while playing.
+    uint64_t rebuild(const TimeMap& next = {});
+    // The tracks' mute, solo, volume, edited instruments and chip for the
+    // player, by the newest build's channels; kept here, so the audio thread
+    // never frees one.
+    std::pair<std::shared_ptr<const ChannelMix>, std::shared_ptr<const PatchEdits>> mixNow();
+    void sendMix(); // sends them to the player
+    void sendPreviewSong(); // the preview's chips, its SegaPCM reading the tune's ROM
     // Key -1 with on false lets go of every key. A key down can carry a
     // note's expression (see PreviewVoice::noteOn).
     void sendPreviewKey(int key, bool on, double seconds, int fine = 0, int quieter = 0, uint8_t sides = 0xC0);
@@ -219,6 +235,16 @@ private:
     int reportRevision_ = 0;
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
     std::deque<TuneVersion> keep_;          // recent versions, freed here, never on the audio thread
+    // A tempo change made while playing: the request that builds it, how it
+    // moves song time, and the loop in the new time, which goes to the
+    // player with the build.
+    struct Remap
+    {
+        uint64_t request = 0;
+        TimeMap map;
+        std::optional<LoopRegion> loop;
+    };
+    std::deque<Remap> remaps_; // in order of request
     std::deque<std::shared_ptr<const ChannelMix>> mixes_; // and recent mixes and probe owners
     int probeVoices_ = 0, probeTrack_ = -1;                 // what the probe follows
     std::deque<std::shared_ptr<const PatchEdits>> edits_;   // recent instrument edits, freed here
@@ -247,6 +273,7 @@ private:
         int probeVoices = 0;
         bool probe = false; // the probe changed
         size_t ymUnchanged = 0, pcmUnchanged = 0;
+        TimeMap timeMap; // how the playhead moves into the new song
         bool newSong = false, sameSong = false, fresh = false;
         bool play = false, stop = false;
         bool scrub = false; // the play is a scrub's moment
@@ -282,7 +309,6 @@ private:
     };
     juce::SpinLock commandLock_;
     Commands commands_;
-    bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
 
     std::atomic<bool> playing_ { false };

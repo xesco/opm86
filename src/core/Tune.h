@@ -220,9 +220,23 @@ struct NoteExpression
     bool empty() const { return pitch.empty() && level.empty(); }
 };
 
+// The song's drum samples as edited: those loaded from audio files, in the
+// order they were loaded, and what they make of the rip's samples and ROM.
+// The ROM itself is not kept: it is the rip's, grown to romSize, with each
+// loaded sample written at its place (see Tune::rom). The places are pages
+// the rip's song never reads, so a hit of a sample replaced plays on as it
+// did until the build moves it to the new one.
+struct SampleSet
+{
+    std::vector<LoadedSample> loaded;
+    std::vector<PadSample> samples; // the rip's, those loaded in place of some, then the new ones
+    size_t romSize = 0;             // the ROM's size, with the banks the loaded samples added
+};
+
 // A tune is cheap to copy: what never changes is shared between copies,
 // and only the tracks and the chip's edits are copied, so an edit can hand a
-// copy to a builder.
+// copy to a builder. Its samples as edited are shared too: an edit of them
+// makes a new set.
 class Tune
 {
 public:
@@ -237,7 +251,32 @@ public:
     std::shared_ptr<const VgmSong> sourcePointer() const { return data_->source; }
     const SongLog& log() const { return data_->log; }
     const std::vector<FmPatch>& patches() const { return data_->import.patches; }
-    const std::vector<PadSample>& samples() const { return data_->import.samples; }
+    // The drum samples as edited: the rip's, with those loaded from audio
+    // files in place of some, then the new ones (see SampleSet).
+    const std::vector<PadSample>& samples() const { return samples_ ? samples_->samples : data_->import.samples; }
+    // The ROM the samples play from, made anew on each call: the rip's, with
+    // the loaded samples in it. romByte reads one byte of it without making
+    // it, 0x80 past its end.
+    std::vector<uint8_t> rom() const;
+    uint8_t romByte(size_t at) const;
+    // The samples loaded from audio files, in the order loaded; and whether
+    // the sample at an index is one of them.
+    const std::vector<LoadedSample>& loadedSamples() const;
+    bool sampleLoaded(int index) const;
+    // Loads a sample's sound, as encodeSample makes it, in place of the
+    // sample at index, or with an index past the samples as a new one after
+    // them. Every loaded sample is placed in the ROM again, in the order
+    // loaded. Returns the sample's index, or -1, changing nothing, when no
+    // bank has room for it.
+    int loadSample(int index, const PadSample& sample);
+    // Every loaded sample at once, as a project keeps them: each index the
+    // rip's or the next new one. Returns false, changing nothing, when one
+    // does not fit or has no sound.
+    bool setLoadedSamples(const std::vector<LoadedSample>& loaded);
+    // The samples as edited, to keep and put back as they were, as undo does;
+    // none for the rip's.
+    const std::shared_ptr<const SampleSet>& sampleSet() const { return samples_; }
+    void setSampleSet(std::shared_ptr<const SampleSet> set) { samples_ = std::move(set); }
     // What the importer read from the rip: its notes and hits, in the order of the log's.
     const VgmImport& imported() const { return data_->import; }
     // The instrument an FM track's notes are built with, before its edits:
@@ -318,7 +357,7 @@ public:
     // are empty.
     NoteExpression expression(const TuneTrack& track, const TuneNote& note) const;
 
-    // A drum track's sample, by its instrument; nullptr for none.
+    // A drum track's sample, by its instrument, as edited; nullptr for none.
     const PadSample* sample(const TuneTrack& track) const;
     // A drum track's sample as a written hit plays it, transposed by
     // semitones: the track's edit over the sample's own settings.
@@ -376,6 +415,15 @@ private:
     std::vector<Ref> allocate(bool fm, BuildReport& report) const;
     int logChannel(const TuneTrack& track, const TuneNote& note) const; // the game's channel, or a written note's voice
     PcmVoice rippedVoice(const TuneTrack& track, const TuneNote& note, int fine) const; // a ripped hit's start, as hitVoice has it, fine tuned
+    // A drum track's sample loaded in place of the rip's, which its ripped
+    // hits play instead; nullptr when the rip's is as it was.
+    const PadSample* replacement(const TuneTrack& track) const;
+    // The sample edit a ripped hit plays with: the track's, inside its
+    // sample's range. A hit of a replaced sample plays the new one's range
+    // once, unless the track's edit sets its own, at the game's step moved
+    // as far as the new sample's own step is from the rip's.
+    SampleEdit rippedEdit(const TuneTrack& track, const TuneNote& note) const;
+    uint8_t withBank(const TuneTrack& track, uint8_t flags) const; // a ripped hit's flags, with the bank of its sample's replacement
 
     // The registers a note needs from its channel, as the game had them at
     // its key on (FM) or trigger (drums), by register offset from the channel.
@@ -399,6 +447,7 @@ private:
         double clockShift = 0.0;        // semitones the chip's clock adds
     };
     std::shared_ptr<const Data> data_;
+    std::shared_ptr<const SampleSet> samples_; // none: the rip's samples and ROM
 };
 
 } // namespace opm86

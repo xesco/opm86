@@ -214,6 +214,27 @@ struct ChannelMix
     std::array<std::vector<Change>, kChannels> changes;
 };
 
+// How song time moves from one version of a song to the next: a song with
+// no rip whose tempo changes keeps its notes on their beats, so a time t
+// becomes shift + scale x t. The default leaves every time where it is.
+struct TimeMap
+{
+    double shift = 0.0, scale = 1.0;
+    bool moves = false; // false: the identity
+
+    // The tempo scaled by scale about a song time, as Tune::setTempo moves the notes.
+    static TimeMap scaled(double origin, double scale) { return { origin * (1.0 - scale), scale, true }; }
+    double operator()(double t) const { return moves ? shift + scale * t : t; }
+    double inverse(double t) const { return moves ? (t - shift) / scale : t; } // a time in the new version, back in the old
+    // This move, then the next.
+    TimeMap then(const TimeMap& next) const
+    {
+        if (!moves || !next.moves)
+            return moves ? *this : next;
+        return { next.shift + next.scale * shift, next.scale * scale, true };
+    }
+};
+
 // Plays a VGM song exactly, from any point, with a choice of channels.
 // Everything here runs on the audio thread and does not allocate.
 class SongPlayer
@@ -232,6 +253,9 @@ public:
     // Set channels' gains over time, as a tune's mute, solo and volume do,
     // without a new song: the chips run the same, only their output is
     // scaled. A new mix glides in over 20 ms. The caller keeps it alive.
+    // The mix and the edits below are for the newest version: a deck still
+    // playing an older one, while a switch waits or as it fades out, keeps
+    // those it has.
     void setMix(std::shared_ptr<const ChannelMix> mix) { mix_ = std::move(mix); }
     // Edited instruments and chip settings, applied as the song writes to the
     // chip and at once to the channels playing them and to the chip's LFO and
@@ -278,19 +302,28 @@ public:
     // reaches the end, playback jumps back to the start at that output
     // sample, with the crossfade. With the end at or before the start, the
     // song plays through, as it does with a loop no longer than the
-    // crossfade. A deck that is already past the end plays on.
+    // crossfade. A deck that is already past the end plays on. The loop is
+    // in the newest version's time: while a switch waits, the deck heard
+    // reaches its end in its own time, by the switch's map.
     void setLoop(double start, double end) { loopStart_ = start, loopEnd_ = end; }
 
     // Switch to a new version of the song while playing. A deck that has not
     // yet reached the first changed write (by index in each chip's write
-    // list) carries on with the new version seamlessly; otherwise playback
-    // jumps to the same position in the new version with the crossfade.
-    // Returns false when the snapshots do not reach the position yet.
-    // The caller keeps old versions alive: a deck lets go of one here.
+    // list, against the version before) carries on with the new version
+    // seamlessly; otherwise playback jumps to the same position in the new
+    // version, moved by the map, with the crossfade. The new version's chips
+    // start from its own snapshots, so a note the old one was sounding there
+    // ends with the fade, and only the new version's notes sound after it.
+    // When the snapshots do not reach the position yet, the old version plays
+    // on and the switch waits for them (see updateSnapshots); it returns
+    // false then. A newer version while one waits takes its place, against
+    // what plays. The caller keeps old versions alive: a deck lets go of one here.
     bool replaceSong(std::shared_ptr<const VgmSong> song, std::shared_ptr<const SongSnapshots> snapshots,
-                     size_t ymUnchanged, size_t pcmUnchanged);
-    // More snapshots of the same version, as they are made.
-    void updateSnapshots(std::shared_ptr<const SongSnapshots> snapshots) { snapshots_ = std::move(snapshots); }
+                     size_t ymUnchanged, size_t pcmUnchanged, TimeMap map = {});
+    // More snapshots of the same version, as they are made; a switch that
+    // waits takes place once they reach the position.
+    void updateSnapshots(std::shared_ptr<const SongSnapshots> snapshots);
+    bool switching() const { return switching_; } // a switch waits for snapshots
     bool playing() const { return decks_[static_cast<size_t>(active_)].on; }
     double position() const;   // song time of the next output sample
 
@@ -345,6 +378,11 @@ private:
 
     std::shared_ptr<const VgmSong> song_;
     std::shared_ptr<const SongSnapshots> snapshots_;
+    // A switch that waits for snapshots: what the deck heard has in common
+    // with song_, and how its time moves into it.
+    bool switching_ = false;
+    size_t switchYm_ = 0, switchPcm_ = 0;
+    TimeMap switchMap_;
     std::array<Deck, 2> decks_;
     int active_ = 0;
     double hostRate_ = 48000.0;

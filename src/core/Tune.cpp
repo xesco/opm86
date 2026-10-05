@@ -80,6 +80,123 @@ struct Request
     bool forceAddress = false;         // drums: write the start address whatever the copy says
 };
 
+// What a song's SegaPCM reads of its ROM as it plays.
+struct RomReads
+{
+    RomRanges ranges;      // whole pages, at their offsets as the chip masks them
+    size_t span = 1;       // the ROM's size rounded up to a power of two, as the chip masks with it
+    bool mirrored = false; // a read lands past the span, so a larger ROM would read other bytes there
+};
+
+// Follows each SegaPCM channel through a song's writes as the chip plays
+// it: from a trigger or a new address on, at its step, to its end page and
+// round its loop, or stopped there by a one-shot, until the next write
+// that changes them, in the bank its flags select. Every page it passes is
+// read. One chip sample more than the timing gives counts as read, so a
+// page reached by a byte is never left out.
+RomReads romReads(const VgmSong& song)
+{
+    RomReads out;
+    while (out.span < song.rom.size() && out.span < 0x80000000u)
+        out.span <<= 1;
+    std::vector<bool> read((out.span + 0xFF) >> 8, false);
+    const SegaPcm::Banking banking = SegaPcm::banking(song.header.segaPcmInterface);
+
+    // The pages of a bank from one address to another, as the chip counts
+    // addresses (the byte in the bank x 256), wrapping in the bank.
+    auto mark = [&](uint32_t bank, double from, double to) {
+        const auto first = static_cast<int64_t>(from) >> 16, last = std::min(static_cast<int64_t>(to) >> 16, first + 255);
+        for (int64_t p = first; p <= last; ++p)
+        {
+            const size_t offset = static_cast<size_t>(bank) + (static_cast<size_t>(p & 0xFF) << 8);
+            out.mirrored = out.mirrored || offset + 0xFF >= out.span;
+            read[(offset & (out.span - 1)) >> 8] = true;
+            read[((offset + 0xFF) & (out.span - 1)) >> 8] = true;
+        }
+    };
+
+    constexpr double kAddresses = 0x1000000; // a channel's address wraps at 24 bits
+    std::array<uint8_t, 256> ram {};
+    for (size_t ch = 0; ch < SegaPcm::kChannels; ++ch)
+        ram[ch * 8 + 0x86] = 0x01;
+    std::array<double, SegaPcm::kChannels> address {}; // per channel, where it plays
+    std::array<double, SegaPcm::kChannels> until {};   // and the song time it has played to
+
+    // A channel played on to a song time, its address written back as the chip writes it.
+    auto advance = [&](size_t ch, double time) {
+        uint8_t* regs = &ram[ch * 8];
+        const double samples = (time - until[ch]) * song.pcmRate / kVgmRate;
+        until[ch] = time;
+        if ((regs[0x86] & 1) || samples <= 0.0)
+            return;
+        const uint32_t bank = banking.offset(regs[0x86]);
+        const auto endPage = static_cast<uint8_t>(regs[6] + 1);
+        const double end = static_cast<double>(endPage) * 0x10000, step = regs[7];
+        const double loop = static_cast<double>(regs[5] << 16 | regs[4] << 8);
+        // How far an address is from the end page; none on it, as the chip loops or stops there at once.
+        auto distance = [&](double from) { return (static_cast<int64_t>(from) >> 16) == endPage ? 0.0 : std::fmod(end - from + kAddresses, kAddresses); };
+        double& a = address[ch];
+        double left = samples * step;
+        const double toEnd = distance(a);
+        if (toEnd > 0.0)
+            mark(bank, a, a + std::min(left + step, toEnd - 1.0));
+        if (left < toEnd)
+            a += left;
+        else if (regs[0x86] & 2)
+            regs[0x86] |= 1;
+        else
+        {
+            left -= toEnd;
+            const double lap = distance(loop);
+            if (lap <= 0.0)
+                mark(bank, loop, loop + step), a = loop;
+            else if (left >= lap)
+                mark(bank, loop, loop + lap - 1.0), a = loop + std::fmod(left, lap);
+            else
+                mark(bank, loop, loop + std::min(left + step, lap - 1.0)), a = loop + left;
+        }
+        a = std::fmod(a, kAddresses);
+        regs[0x84] = static_cast<uint8_t>(static_cast<int64_t>(a) >> 8);
+        regs[0x85] = static_cast<uint8_t>(static_cast<int64_t>(a) >> 16);
+    };
+
+    // The writes as the player applies them, its two stop markers too (see writePcm).
+    for (const VgmWrite& w : song.pcm)
+    {
+        const auto offset = static_cast<size_t>(w.address & 0xFF);
+        const size_t ch = (offset >> 3) & 15;
+        advance(ch, w.time);
+        if (w.address & 0x2000)
+            ram[offset] |= 0x01;
+        else if (w.address & 0x1000)
+        {
+            if (!(ram[offset] & 0x02))
+                ram[offset] |= 0x01;
+        }
+        else
+        {
+            ram[offset] = w.value;
+            const size_t reg = offset & 0x87;
+            if (reg == 0x84 || reg == 0x85)
+                address[ch] = static_cast<double>(ram[ch * 8 + 0x85] << 16 | ram[ch * 8 + 0x84] << 8);
+        }
+    }
+    // Whatever still plays at the end plays on to its end page, or round its loop.
+    for (size_t ch = 0; ch < SegaPcm::kChannels; ++ch)
+        advance(ch, 1e12);
+
+    for (size_t p = 0; p < read.size();)
+    {
+        size_t q = p;
+        while (q < read.size() && read[q])
+            ++q;
+        if (q > p)
+            out.ranges.emplace_back(p << 8, q << 8);
+        p = q + 1;
+    }
+    return out;
+}
+
 } // namespace
 
 uint16_t pcmRegister(int channel, int index)
@@ -558,8 +675,7 @@ NoteExpression Tune::expression(const TuneTrack& track, const TuneNote& note) co
     // with the track's sample edit over the game's values.
     const PcmVoice voice = hitVoice(track, note);
     const auto& state = data_->pcmState[static_cast<size_t>(note.source)].regs;
-    const PadSample* pad = sample(track);
-    const SampleEdit edit = pad != nullptr ? track.sample.fitted(*pad) : track.sample;
+    const SampleEdit edit = rippedEdit(track, note);
     int left = voice.regs[0] & 0x7F, right = voice.regs[1] & 0x7F, step = voice.regs[5];
     const int volume0 = std::max(left, right), step0 = step;
     for (size_t i = first; i < writes.size(); ++i)
@@ -593,10 +709,139 @@ NoteExpression Tune::expression(const TuneTrack& track, const TuneNote& note) co
 
 const PadSample* Tune::sample(const TuneTrack& track) const
 {
-    const auto& samples = data_->import.samples;
-    if (track.kind != TuneTrack::Kind::Drum || track.instrument < 0 || static_cast<size_t>(track.instrument) >= samples.size())
+    const auto& all = samples();
+    if (track.kind != TuneTrack::Kind::Drum || track.instrument < 0 || static_cast<size_t>(track.instrument) >= all.size())
         return nullptr;
-    return &samples[static_cast<size_t>(track.instrument)];
+    return &all[static_cast<size_t>(track.instrument)];
+}
+
+const std::vector<LoadedSample>& Tune::loadedSamples() const
+{
+    static const std::vector<LoadedSample> kNone;
+    return samples_ ? samples_->loaded : kNone;
+}
+
+bool Tune::sampleLoaded(int index) const
+{
+    const auto& loaded = loadedSamples();
+    return std::any_of(loaded.begin(), loaded.end(), [index](const LoadedSample& l) { return l.index == index; });
+}
+
+int Tune::loadSample(int index, const PadSample& sample)
+{
+    std::vector<LoadedSample> loaded = loadedSamples();
+    const auto it = std::find_if(loaded.begin(), loaded.end(), [index](const LoadedSample& l) { return l.index == index; });
+    if (index < 0 || static_cast<size_t>(index) >= samples().size())
+    {
+        index = static_cast<int>(samples().size());
+        loaded.push_back({ index, sample });
+    }
+    else if (it != loaded.end())
+        it->sample = sample;
+    else
+        loaded.push_back({ index, sample });
+    return setLoadedSamples(loaded) ? index : -1;
+}
+
+bool Tune::setLoadedSamples(const std::vector<LoadedSample>& loaded)
+{
+    if (loaded.empty())
+    {
+        samples_.reset();
+        return true;
+    }
+    // From the rip's samples and ROM each time, so the same samples loaded
+    // in the same order always land in the same places. Every page the rip's
+    // song reads stays as it is, its samples' and any other, such as a loop
+    // before a sample's start or a bank read through the ROM's mirror. A rip
+    // that reads through the mirror keeps the ROM within its power of two,
+    // as a larger one would change what the mirror reads.
+    auto set = std::make_shared<SampleSet>();
+    set->samples = data_->import.samples;
+    set->romSize = data_->source->rom.size();
+    const RomReads reads = romReads(*data_->source);
+    RomRanges used = samplePages(set->samples);
+    used.insert(used.end(), reads.ranges.begin(), reads.ranges.end());
+    const size_t maxSize = reads.mirrored ? reads.span : kMaxRomSize;
+    for (const LoadedSample& l : loaded)
+    {
+        if (l.index < 0 || static_cast<size_t>(l.index) > set->samples.size())
+            return false;
+        PadSample placed = l.sample;
+        if (!placeSample(set->romSize, data_->source->header.segaPcmInterface, used, placed, maxSize))
+            return false;
+        if (static_cast<size_t>(l.index) == set->samples.size())
+            set->samples.push_back(std::move(placed));
+        else
+            set->samples[static_cast<size_t>(l.index)] = std::move(placed);
+        set->loaded.push_back(l);
+    }
+    samples_ = std::move(set);
+    return true;
+}
+
+std::vector<uint8_t> Tune::rom() const
+{
+    std::vector<uint8_t> out = data_->source->rom;
+    if (!samples_)
+        return out;
+    out.resize(std::max(out.size(), samples_->romSize), 0x80);
+    for (const LoadedSample& l : samples_->loaded)
+        writeSample(out, samples_->samples[static_cast<size_t>(l.index)]);
+    return out;
+}
+
+uint8_t Tune::romByte(size_t at) const
+{
+    if (samples_)
+        for (const LoadedSample& l : samples_->loaded)
+        {
+            const PadSample& s = samples_->samples[static_cast<size_t>(l.index)];
+            const size_t from = s.romOffset + s.address, to = (from + s.data.size() + 0xFF) & ~size_t { 0xFF };
+            if (at >= from && at < to)
+                return at - from < s.data.size() ? s.data[at - from] : uint8_t { 0x80 };
+        }
+    const auto& source = data_->source->rom;
+    return at < source.size() ? source[at] : uint8_t { 0x80 };
+}
+
+const PadSample* Tune::replacement(const TuneTrack& track) const
+{
+    if (!samples_ || track.kind != TuneTrack::Kind::Drum || track.instrument < 0
+        || static_cast<size_t>(track.instrument) >= data_->import.samples.size() || !sampleLoaded(track.instrument))
+        return nullptr;
+    return &samples_->samples[static_cast<size_t>(track.instrument)];
+}
+
+SampleEdit Tune::rippedEdit(const TuneTrack& track, const TuneNote& note) const
+{
+    const PadSample* pad = sample(track);
+    if (pad == nullptr)
+        return track.sample;
+    SampleEdit e = track.sample.fitted(*pad);
+    if (note.written() || replacement(track) == nullptr)
+        return e;
+    if (!e.start)
+        e.start = sampleFirst(*pad);
+    if (!e.endPage)
+        e.endPage = sampleLastPage(*pad);
+    if (!e.loop)
+        e.loop = pad->loop;
+    if (!e.step)
+    {
+        const uint8_t game = data_->pcmState[static_cast<size_t>(note.source)].regs[5];
+        e.step = std::max<uint8_t>(1, scaleTo(game, data_->import.samples[static_cast<size_t>(track.instrument)].step, pad->step, 255));
+    }
+    return e;
+}
+
+uint8_t Tune::withBank(const TuneTrack& track, uint8_t flags) const
+{
+    const PadSample* pad = replacement(track);
+    if (pad == nullptr)
+        return flags;
+    const uint32_t mask = SegaPcm::banking(data_->source->header.segaPcmInterface).mask;
+    return static_cast<uint8_t>((static_cast<uint32_t>(flags) & ~mask) | (static_cast<uint32_t>(pad->bank) & mask));
 }
 
 PcmVoice Tune::sampleVoice(const TuneTrack& track, int transpose, int fine) const
@@ -643,7 +888,7 @@ PcmVoice Tune::rippedVoice(const TuneTrack& track, const TuneNote& note, int fin
     const auto& regs = data_->pcmState[static_cast<size_t>(note.source)].regs;
     std::copy(regs.begin(), regs.end(), v.regs.begin());
     const PadSample* pad = sample(track);
-    const SampleEdit e = pad ? track.sample.fitted(*pad) : track.sample;
+    const SampleEdit e = rippedEdit(track, note);
     if (e.left)
         v.regs[0] = *e.left;
     if (e.right)
@@ -663,7 +908,7 @@ PcmVoice Tune::rippedVoice(const TuneTrack& track, const TuneNote& note, int fin
     // The flags come from the hit's trigger in the log.
     for (const LogWrite& w : data_->log.hits[static_cast<size_t>(note.source)].writes)
         if (w.offset == 0 && isTrigger(w.address, w.value))
-            v.flags = w.value;
+            v.flags = withBank(track, w.value);
     const bool gameLoops = !(v.flags & 0x02);
     if (e.loop)
         v.flags = static_cast<uint8_t>((v.flags & ~0x02) | (*e.loop ? 0x00 : 0x02));
@@ -966,7 +1211,7 @@ std::shared_ptr<VgmSong> Tune::build(BuildReport* report, bool mix) const
             // Drums: the track's sample edit, and the game's registers at
             // the trigger, which the hit's later writes are moved against.
             const PadSample* pad = fm ? nullptr : sample(track);
-            const SampleEdit edit = pad != nullptr ? track.sample.fitted(*pad) : SampleEdit {};
+            const SampleEdit edit = pad != nullptr ? rippedEdit(track, note) : SampleEdit {};
             static const std::array<uint8_t, kPcmRegs> kNoState {};
             const auto& state = fm || note.written() ? kNoState : data_->pcmState[static_cast<size_t>(note.source)].regs;
             PcmVoice voice;       // the registers the hit starts with
@@ -1117,6 +1362,7 @@ std::shared_ptr<VgmSong> Tune::build(BuildReport* report, bool mix) const
                         value = static_cast<uint8_t>(reg == 0x84 ? *edit.start : *edit.start >> 8);
                     else if (reg == 0x86 && !(value & 1))
                     {
+                        value = withBank(track, value);
                         if (w.offset == 0)
                             oneShot = (value & 0x02) != 0;
                         if (edit.loop)
@@ -1203,7 +1449,7 @@ std::shared_ptr<VgmSong> Tune::build(BuildReport* report, bool mix) const
     song->fmRate = src.fmRate;
     song->pcmRate = src.pcmRate;
     song->length = static_cast<uint32_t>(length());
-    song->rom = src.rom;
+    song->rom = rom();
     song->fmChannelsUsed = src.fmChannelsUsed;
     song->pcmUsed = src.pcmUsed;
     song->beatLength = grid.beatLength;

@@ -126,6 +126,36 @@ int main()
     }
     check(asPlayed, "an older project's 5 and 6 column rows read with the expression as played");
 
+    // A sample loaded from audio, with a drum track that plays it: the
+    // project keeps its bytes, raw in binary and as base64 in JSON, and
+    // opens with the sample in the ROM and the hit playing it.
+    auto drums = Tune::empty();
+    PadSample sound;
+    sound.name = "Clap";
+    sound.step = 0x40;
+    for (int i = 0; i < 700; ++i)
+        sound.data.push_back(static_cast<uint8_t>(0x80 + (i * 37) % 90 - 45));
+    TuneTrack clap;
+    clap.kind = TuneTrack::Kind::Drum;
+    clap.instrument = drums->loadSample(-1, sound);
+    clap.name = "Drum 1";
+    clap.notes = { makeNote(1, -1, -1, 0, 0, std::nullopt) };
+    drums->tracks = { clap };
+    const auto built = drums->build();
+    const juce::File sampled = dir.getChildFile("sampled.opm86"), sampledJson = dir.getChildFile("sampled.json");
+    bool kept = project::save(*drums, juce::File(), sampled, error) && project::exportJson(*drums, juce::File(), sampledJson, error);
+    for (const juce::File& f : { sampled, sampledJson })
+    {
+        juce::File rip;
+        const auto opened = project::load(f, rip, error);
+        kept = kept && opened && opened->samples().size() == 1 && opened->samples()[0].data == sound.data && opened->samples()[0].step == 0x40
+               && opened->samples()[0].name == "Clap" && opened->rom() == drums->rom() && opened->build()->pcm.size() == built->pcm.size();
+    }
+    const juce::var saved = juce::JSON::parse(sampledJson)["samples"][0]["data"];
+    juce::MemoryOutputStream decoded;
+    check(kept && saved.isString() && juce::Base64::convertFromBase64(decoded, saved.toString()) && decoded.getDataSize() == sound.data.size(),
+          "a loaded sample's bytes come back from a project, binary or JSON, and the song plays it");
+
     dir.deleteRecursively();
     std::printf(failures == 0 ? "all checks passed\n" : "%d checks failed\n", failures);
     return failures == 0 ? 0 : 1;

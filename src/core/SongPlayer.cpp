@@ -215,6 +215,7 @@ void SongPlayer::setSong(std::shared_ptr<const VgmSong> song, std::shared_ptr<co
 {
     song_ = std::move(song);
     snapshots_ = std::move(snapshots);
+    switching_ = false;
     for (Deck& d : decks_)
         d.on = false, d.gain = d.target = 0;
 }
@@ -560,6 +561,7 @@ bool SongPlayer::play(double songTime)
     Deck& deck = decks_[static_cast<size_t>(next)];
     if (!seek(deck, songTime))
         return false;
+    switching_ = false; // the deck heard plays song_ now
     deck.on = true;
     deck.target = 1.0f;
     if (wasOn)
@@ -575,32 +577,63 @@ bool SongPlayer::play(double songTime)
 }
 
 bool SongPlayer::replaceSong(std::shared_ptr<const VgmSong> song, std::shared_ptr<const SongSnapshots> snapshots,
-                             size_t ymUnchanged, size_t pcmUnchanged)
+                             size_t ymUnchanged, size_t pcmUnchanged, TimeMap map)
 {
+    // While a switch still waits, the deck heard plays an older version than
+    // song_: it has in common with the new one what both changes kept, and
+    // its time moves by both.
+    if (switching_)
+    {
+        ymUnchanged = std::min(ymUnchanged, switchYm_);
+        pcmUnchanged = std::min(pcmUnchanged, switchPcm_);
+        map = switchMap_.then(map);
+        switching_ = false;
+    }
     song_ = std::move(song);
     snapshots_ = std::move(snapshots);
     Deck& deck = decks_[static_cast<size_t>(active_)];
-    if (!deck.on)
+    // Stopped, or fading out to stop: the next play starts the new version.
+    if (!deck.on || deck.target <= 0.0f)
         return true;
-    if (deck.ymWrite <= ymUnchanged && deck.pcmWrite <= pcmUnchanged && deck.silence == 0)
+    if (!map.moves && deck.ymWrite <= ymUnchanged && deck.pcmWrite <= pcmUnchanged && deck.silence == 0)
     {
+        // The chips hold what the new version would have written: it plays
+        // on from here, its samples from its own ROM.
         deck.song = song_;
+        deck.pcm.setRom(song_->rom.data(), song_->rom.size(), song_->header.segaPcmInterface);
         return true;
     }
-    return play(deck.songTime);
+    if (play(map(deck.songTime)))
+        return true;
+    switching_ = true;
+    switchYm_ = ymUnchanged;
+    switchPcm_ = pcmUnchanged;
+    switchMap_ = map;
+    return false;
+}
+
+void SongPlayer::updateSnapshots(std::shared_ptr<const SongSnapshots> snapshots)
+{
+    snapshots_ = std::move(snapshots);
+    const Deck& deck = decks_[static_cast<size_t>(active_)];
+    if (switching_ && deck.on && deck.target > 0.0f)
+        play(switchMap_(deck.songTime));
 }
 
 void SongPlayer::stop()
 {
     decks_[static_cast<size_t>(active_)].target = 0.0f;
+    switching_ = false; // the next play starts the newest version
 }
 
 void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
 {
     const VgmSong& song = *deck.song;
-    if (deck.mix != mix_)
+    // The mix and the edits follow the newest version's channels.
+    const bool newest = deck.song == song_;
+    if (newest && deck.mix != mix_)
         seekMix(deck, true);
-    if (deck.edits != edits_)
+    if (newest && deck.edits != edits_)
         seekEdits(deck);
     if (deck.probeOwner != probeOwner_)
     {
@@ -815,9 +848,11 @@ void SongPlayer::render(float* left, float* right, int count)
         int n = count - done;
         bool wrap = false;
         const Deck& heard = decks_[static_cast<size_t>(active_)];
-        if (looping && heard.on && heard.target > 0.0f && heard.songTime < loopEnd_)
+        // While a switch waits, the deck heard plays the older version, in its own time.
+        const double loopEnd = switching_ ? switchMap_.inverse(loopEnd_) : loopEnd_;
+        if (looping && heard.on && heard.target > 0.0f && heard.songTime < loopEnd)
         {
-            const double until = std::ceil((loopEnd_ - heard.songTime) / step);
+            const double until = std::ceil((loopEnd - heard.songTime) / step);
             if (until <= static_cast<double>(n))
                 n = std::max(1, static_cast<int>(until)), wrap = true;
         }

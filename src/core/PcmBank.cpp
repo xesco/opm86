@@ -149,25 +149,27 @@ PadSample fromBuffer(const char* name, const Buffer& b)
 
 } // namespace
 
-PadSample makeSample(const std::string& name, const float* audio, size_t length, double sampleRate)
+namespace
 {
-    PadSample s;
-    s.name = name;
-    if (audio == nullptr || length == 0 || sampleRate <= 0)
-        return s;
 
-    // Band-limit before dropping to the chip rate, then step through linearly.
-    std::vector<double> source(audio, audio + length);
-    if (sampleRate > kNativeRate * 1.01)
+// Audio at sampleRate as chip bytes at rate: band-limited before dropping
+// to a lower rate, then stepped through linearly, up to kMaxSampleBytes.
+std::vector<uint8_t> toChip(std::vector<double> source, double sampleRate, double rate)
+{
+    std::vector<uint8_t> out;
+    if (source.empty())
+        return out;
+    if (sampleRate > rate * 1.01)
     {
-        LowPass a(kNativeRate * 0.45, sampleRate), b(kNativeRate * 0.45, sampleRate);
+        LowPass a(rate * 0.45, sampleRate), b(rate * 0.45, sampleRate);
         for (double& x : source)
             x = b.process(a.process(x));
     }
 
-    const double ratio = sampleRate / kNativeRate;
+    const size_t length = source.size();
+    const double ratio = sampleRate / rate;
     const auto outLength = std::min(kMaxSampleBytes, static_cast<size_t>(static_cast<double>(length) / ratio));
-    s.data.reserve(outLength);
+    out.reserve(outLength);
     for (size_t i = 0; i < outLength; ++i)
     {
         const double pos = static_cast<double>(i) * ratio;
@@ -176,13 +178,138 @@ PadSample makeSample(const std::string& name, const float* audio, size_t length,
         const double frac = pos - static_cast<double>(i0);
         const double x = source[i0] + (source[i1] - source[i0]) * frac;
         const long q = std::lround(x * 127.0) + 0x80;
-        s.data.push_back(static_cast<uint8_t>(std::clamp(q, 0L, 255L)));
+        out.push_back(static_cast<uint8_t>(std::clamp(q, 0L, 255L)));
     }
+    return out;
+}
 
-    // Trailing silence would only waste ROM.
-    while (!s.data.empty() && std::abs(static_cast<int>(s.data.back()) - 0x80) <= 1)
-        s.data.pop_back();
+// Trailing silence would only waste ROM.
+void trimTail(std::vector<uint8_t>& data)
+{
+    while (!data.empty() && std::abs(static_cast<int>(data.back()) - 0x80) <= 1)
+        data.pop_back();
+}
+
+} // namespace
+
+PadSample makeSample(const std::string& name, const float* audio, size_t length, double sampleRate)
+{
+    PadSample s;
+    s.name = name;
+    if (audio == nullptr || length == 0 || sampleRate <= 0)
+        return s;
+    s.data = toChip(std::vector<double>(audio, audio + length), sampleRate, kNativeRate);
+    trimTail(s.data);
     return s;
+}
+
+PadSample encodeSample(const std::string& name, const float* const* channels, int channelCount, size_t length, double sampleRate,
+                       const SampleEncoding& encoding)
+{
+    PadSample s;
+    s.name = name;
+    s.step = std::max<uint8_t>(encoding.step, 1);
+    s.left = s.right = 127;
+    if (channels == nullptr || channelCount <= 0 || length == 0 || sampleRate <= 0)
+        return s;
+
+    // Mono: the channels' mean.
+    std::vector<double> mono(length, 0.0);
+    for (int c = 0; c < channelCount; ++c)
+        for (size_t i = 0; i < length; ++i)
+            mono[i] += static_cast<double>(channels[c][i]) / static_cast<double>(channelCount);
+    double peak = 0.0;
+    for (const double x : mono)
+        peak = std::max(peak, std::abs(x));
+
+    // Silence is anything under half the smallest step the chip's eight bits
+    // keep, of full scale or, normalised, of the peak.
+    if (encoding.trim)
+    {
+        const double quiet = (encoding.normalise ? peak : 1.0) / 256.0;
+        auto loud = [quiet](double x) { return std::abs(x) > quiet; };
+        const auto first = std::find_if(mono.begin(), mono.end(), loud);
+        const auto last = std::find_if(mono.rbegin(), mono.rend(), loud).base();
+        mono = first < last ? std::vector<double>(first, last) : std::vector<double>();
+    }
+    if (encoding.normalise && peak > 0.0)
+        for (double& x : mono)
+            x /= peak;
+
+    s.data = toChip(std::move(mono), sampleRate, static_cast<double>(s.step) * SegaPcm::kSampleRate / 256.0);
+    if (encoding.trim)
+        trimTail(s.data);
+    return s;
+}
+
+RomRanges samplePages(const std::vector<PadSample>& samples)
+{
+    RomRanges out;
+    for (const PadSample& s : samples)
+    {
+        if (s.data.empty())
+            continue;
+        const size_t end = std::min<size_t>(0x10000, (static_cast<size_t>(s.address) + s.data.size() + 0xFF) & ~size_t { 0xFF });
+        out.emplace_back(s.romOffset + (s.address & 0xFF00u), s.romOffset + end);
+    }
+    return out;
+}
+
+bool placeSample(size_t& romSize, uint32_t interfaceRegister, RomRanges& used, PadSample& sample, size_t maxSize)
+{
+    maxSize = std::min(maxSize, kMaxRomSize);
+    const size_t bytes = std::min(sample.data.size(), kMaxSampleBytes);
+    if (bytes == 0)
+        return false;
+    const size_t pages = (bytes + 0xFF) >> 8;
+
+    // Each bank the flags' bank bits select, once, by its place in the ROM.
+    const SegaPcm::Banking banking = SegaPcm::banking(interfaceRegister);
+    std::vector<std::pair<size_t, uint8_t>> banks;
+    for (uint32_t flags = 0; flags < 256; ++flags)
+    {
+        const auto bits = static_cast<uint8_t>(flags & banking.mask);
+        const size_t offset = static_cast<size_t>(bits) << banking.shift;
+        if (offset < maxSize && std::none_of(banks.begin(), banks.end(), [offset](const auto& b) { return b.first == offset; }))
+            banks.emplace_back(offset, bits);
+    }
+    std::sort(banks.begin(), banks.end());
+
+    for (const auto& [offset, bits] : banks)
+    {
+        // Pages 0 to 0xFE: an end page of 0xFF wraps to 0, and the sample never stops.
+        for (size_t page = 0; page + pages <= 0xFF;)
+        {
+            const size_t from = offset + (page << 8), to = from + (pages << 8);
+            if (to > maxSize)
+                break;
+            const auto clash = std::find_if(used.begin(), used.end(), [from, to](const auto& r) { return r.first < to && r.second > from; });
+            if (clash != used.end())
+            {
+                // On past the range in the way, to the page after it.
+                page = std::max(page + 1, (clash->second - offset + 0xFF) >> 8);
+                continue;
+            }
+            if (romSize < to)
+                romSize = std::min(maxSize, offset + 0x10000);
+            sample.data.resize(bytes);
+            sample.romOffset = static_cast<uint32_t>(offset);
+            sample.bank = bits;
+            sample.address = static_cast<uint16_t>(page << 8);
+            used.emplace_back(from, to);
+            return true;
+        }
+    }
+    return false;
+}
+
+void writeSample(std::vector<uint8_t>& rom, const PadSample& sample)
+{
+    const size_t from = sample.romOffset + sample.address, to = (from + sample.data.size() + 0xFF) & ~size_t { 0xFF };
+    if (sample.data.empty() || to > rom.size())
+        return;
+    std::copy(sample.data.begin(), sample.data.end(), rom.begin() + static_cast<long>(from));
+    std::fill(rom.begin() + static_cast<long>(from + sample.data.size()), rom.begin() + static_cast<long>(to), uint8_t { 0x80 });
 }
 
 std::shared_ptr<const PcmBank> buildBank(const PadSet& pads)

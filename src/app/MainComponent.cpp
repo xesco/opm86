@@ -169,7 +169,7 @@ public:
             slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
             slider->setWantsKeyboardFocus(false);
             // A drag is one step of undo. On release the slider shows the
-            // song's value again, in case the model refused the drag.
+            // song's value again.
             slider->onDragStart = [this] { dragging_ = true, stepTaken_ = false; };
             slider->onDragEnd = [this] {
                 dragging_ = false;

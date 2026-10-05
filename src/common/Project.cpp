@@ -267,6 +267,25 @@ void packTracks(const juce::var& root, bool pack)
             }
 }
 
+// The loaded samples' sound swapped between base64 (JSON) and raw bytes (binary).
+void packSamples(const juce::var& root, bool pack)
+{
+    if (const auto* samples = root["samples"].getArray())
+        for (const auto& v : *samples)
+            if (auto* o = v.getDynamicObject())
+            {
+                const juce::var data = o->getProperty("data");
+                if (pack && data.isString())
+                {
+                    juce::MemoryOutputStream bytes;
+                    if (juce::Base64::convertFromBase64(bytes, data.toString()))
+                        o->setProperty("data", bytes.getMemoryBlock());
+                }
+                else if (!pack && data.isBinaryData())
+                    o->setProperty("data", juce::Base64::toBase64(data.getBinaryData()->getData(), data.getBinaryData()->getSize()));
+            }
+}
+
 // The project's tree, as JSON holds it.
 juce::var tree(const Tune& tune, const juce::File& rip, const juce::File& to)
 {
@@ -362,6 +381,22 @@ juce::var tree(const Tune& tune, const juce::File& rip, const juce::File& to)
     loop->setProperty("end", static_cast<juce::int64>(tune.loop.end));
     loop->setProperty("on", tune.loop.on);
     root->setProperty("loop", juce::var(loop));
+    // The samples loaded from audio files, in the order loaded: each one's
+    // index among the song's samples, its name, its step and its bytes.
+    if (!tune.loadedSamples().empty())
+    {
+        juce::Array<juce::var> samples;
+        for (const LoadedSample& l : tune.loadedSamples())
+        {
+            auto* sample = new juce::DynamicObject();
+            sample->setProperty("index", l.index);
+            sample->setProperty("name", juce::String(l.sample.name));
+            sample->setProperty("step", static_cast<int>(l.sample.step));
+            sample->setProperty("data", juce::Base64::toBase64(l.sample.data.data(), l.sample.data.size()));
+            samples.add(juce::var(sample));
+        }
+        root->setProperty("samples", samples);
+    }
     return juce::var(root);
 }
 
@@ -388,6 +423,7 @@ bool save(const Tune& tune, const juce::File& rip, const juce::File& to, juce::S
 {
     const juce::var root = tree(tune, rip, to);
     packTracks(root, true);
+    packSamples(root, true);
     juce::MemoryOutputStream out;
     out.write(kMagic, sizeof(kMagic));
     out.writeByte(static_cast<char>(kFormat));
@@ -438,6 +474,7 @@ std::optional<Contents> read(const juce::File& from, juce::String& error)
             if (!decode(in, root) || !in.isExhausted())
                 root = juce::var();
             packTracks(root, false);
+            packSamples(root, false);
         }
     }
     else
@@ -556,6 +593,22 @@ std::optional<Contents> read(const juce::File& from, juce::String& error)
     c.loop.end = std::max<int64_t>(0, static_cast<juce::int64>(loop["end"]));
     c.loop = c.loop.fitted();
     c.loop.on = static_cast<bool>(loop["on"]) && c.loop.valid();
+    // Each loaded sample with sound, at most as long as the chip plays; its
+    // step within the register's range.
+    if (const auto* samples = root["samples"].getArray())
+        for (const juce::var& v : *samples)
+        {
+            juce::MemoryOutputStream bytes;
+            if (!v.isObject() || !juce::Base64::convertFromBase64(bytes, v["data"].toString()) || bytes.getDataSize() == 0)
+                continue;
+            LoadedSample l;
+            l.index = static_cast<int>(v["index"]);
+            l.sample.name = v["name"].toString().toStdString();
+            l.sample.step = static_cast<uint8_t>(juce::jlimit(1, 255, static_cast<int>(v["step"])));
+            const auto* data = static_cast<const uint8_t*>(bytes.getData());
+            l.sample.data.assign(data, data + std::min(bytes.getDataSize(), kMaxSampleBytes));
+            c.samples.push_back(std::move(l));
+        }
     return c;
 }
 
@@ -592,7 +645,15 @@ std::unique_ptr<Tune> load(const juce::File& from, juce::File& rip, juce::String
     // them; a song written from empty has none.
     rip = contents->rip;
     std::unique_ptr<Tune> tune = rip == juce::File() ? Tune::empty() : loadRip(rip, error);
-    if (!tune || !fits(*tune, contents->tracks, error))
+    if (!tune)
+        return nullptr;
+    // The samples loaded from audio files first, as tracks play them.
+    if (!tune->setLoadedSamples(contents->samples))
+    {
+        error = "Its samples do not fit in the song's ROM";
+        return nullptr;
+    }
+    if (!fits(*tune, contents->tracks, error))
         return nullptr;
     // An edited instrument over the rip's: the project keeps the patch's own
     // settings, and the song's LFO and output sides stay.

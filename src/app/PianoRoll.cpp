@@ -758,7 +758,7 @@ void TrackerView::rollMouseDown(const juce::MouseEvent& e)
             setRollScroll(rollScroll_);
             return;
         }
-        if (p.x < lanesX() || refusedWhilePlaying())
+        if (p.x < lanesX())
             return;
         // A selected bar of several moves the selection's together; else
         // the bar is set where it is pressed, and a drag draws across the

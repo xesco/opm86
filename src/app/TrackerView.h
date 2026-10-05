@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppModel.h"
+#include "SampleWindow.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -226,16 +227,17 @@ private:
     // with no hits, a written hit of its sample.
     void addNoteAt(int track, int row, double time);
     // Asks which track to add: an FM track with one voice, on the default
-    // instrument, or a drum track of one of the rip's samples, with no hits.
+    // instrument, or a drum track, with no hits, of one of the song's
+    // samples or of a new one loaded from an audio file.
     void addTrack();
     void addFmTrack();
     void addDrumTrack(int sample);
+    void addAudioTrack(); // a drum track for a new sample, loaded from an audio file
     void addVoice(int track); // the next voice for an FM track
     void removeTrack(int track);
     void removeVoice(int track, int row); // and the notes on it
     // Asks before doing something to the tracks: the question, what it does, and the button that does it.
     void confirm(const juce::String& title, const juce::String& message, const juce::String& button, std::function<void()> then);
-    bool refusedWhilePlaying(); // while playing, says why the song cannot change, as the model does, and returns true
     int freeVoice(int track) const; // the lowest chip channel no track has, else the lowest the track has not; -1 for none
     juce::Rectangle<int> rollButton(int track) const; // after the bin, in a label strip or a track's only row, or in the piano roll's header
 
@@ -362,6 +364,7 @@ private:
     std::vector<std::vector<double>> voiceHoldAge_;
     std::vector<double> holdAge_;     // seconds since the hold was set
     bool hoverEdge_ = false;
+    AudioSampleChooser audioChooser_; // the audio file for a new drum track
 };
 
 } // namespace opm86
