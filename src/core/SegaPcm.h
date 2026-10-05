@@ -9,7 +9,9 @@ namespace opm86
 
 // Sega 315-5218 PCM chip: 16 channels of unsigned 8-bit samples with
 // 7-bit stereo volume and an 8.8 fixed-point step. Behaviour follows
-// MAME's segapcm.cpp in its 512 KB bank mode, as wired in Out Run.
+// MAME's segapcm.cpp. Its banks are wired per board: the VGM header's
+// interface register says how (see banking), and with none the chip runs
+// in the 512 KB bank mode of Out Run.
 //
 // Per-channel registers, at channel * 8 + offset:
 //   0x02 left volume    0x03 right volume
@@ -25,7 +27,21 @@ public:
     static constexpr int kChannels = 16;
     static constexpr size_t kRomSize = 0x80000;           // 8 banks of 64 KB
 
-    void setRom(const uint8_t* rom) { rom_ = rom; }
+    // How the bank bits of a channel's flags select its place in the ROM: a
+    // ROM offset is (flags & mask) << shift. MAME's decoding of the VGM
+    // header's interface register: the low byte is the shift, and bits
+    // 16-23 widen the mask. 0, as most rips have it, is the 512 KB bank mode.
+    struct Banking
+    {
+        int shift = 12;
+        uint32_t mask = 0x70;
+        uint32_t offset(uint8_t flags) const { return static_cast<uint32_t>(flags & mask) << shift; }
+    };
+    static Banking banking(uint32_t interfaceRegister);
+
+    // The ROM, of size bytes, and the bank decoding from the VGM header's
+    // interface register. A read past the ROM's end plays silence.
+    void setRom(const uint8_t* rom, size_t size = kRomSize, uint32_t interfaceRegister = 0);
     void reset();
 
     void write(int offset, uint8_t value);
@@ -41,6 +57,9 @@ private:
     std::array<uint8_t, 0x100> ram_ {};
     std::array<uint8_t, kChannels> low_ {};
     const uint8_t* rom_ = nullptr;
+    size_t romSize_ = kRomSize;
+    uint32_t romMask_ = kRomSize - 1; // the ROM's size rounded up to a power of two, less one
+    Banking banking_;
 };
 
 } // namespace opm86

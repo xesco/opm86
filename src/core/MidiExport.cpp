@@ -18,8 +18,6 @@ namespace opm86
 namespace
 {
 
-constexpr int kLeadInBeats = 4;
-
 // Song time to MIDI ticks: one tick is one VGM sample, so every event keeps
 // its recorded time, and a whole number of ticks of lead-in puts the song's
 // first beat at the start of the second bar. A quarter note is the song's
@@ -118,10 +116,12 @@ MidiExport exportMidi(const Arrangement& arrangement)
     const ArrangementMidi midi = arrangementMidi(arrangement, false);
     result.skippedHits = midi.skippedHits;
 
-    // A beat longer than MIDI allows (below 81 BPM) is written as two.
+    // A beat longer than MIDI allows (below 81 BPM) is written as two, and
+    // a bar then has twice as many quarter notes.
     double beat = arrangement.beatLength;
+    int quartersPerBar = std::clamp(arrangement.beatsPerBar, 1, 64);
     while (beat > 32767.0)
-        beat /= 2.0;
+        beat /= 2.0, quartersPerBar *= 2;
     ticks.ticksPerQuarter = static_cast<int>(std::lround(beat));
     // The lead-in is a whole number of 20 ms steps (882 VGM samples): a whole
     // number of samples at 44.1 kHz, at 48 kHz and at both chips' rates, so
@@ -129,13 +129,13 @@ MidiExport exportMidi(const Arrangement& arrangement)
     // samples. The first beat lands within 10 ms of the second bar.
     constexpr double kStep = 882.0;
     ticks.leadIn = static_cast<uint32_t>(
-        kStep * std::max(1.0, std::round((kLeadInBeats * ticks.ticksPerQuarter - arrangement.firstBeat) / kStep)));
+        kStep * std::max(1.0, std::round((quartersPerBar * ticks.ticksPerQuarter - arrangement.firstBeat) / kStep)));
     result.tempo = 60.0 * kVgmRate / ticks.ticksPerQuarter;
     result.leadIn = ticks.leadIn;
 
     TrackWriter tempo;
     tempo.meta(0x03, title);
-    tempo.add(0, 0, { 0xFF, 0x58, 0x04, 4, 2, 24, 8 }); // 4/4
+    tempo.add(0, 0, { 0xFF, 0x58, 0x04, static_cast<uint8_t>(quartersPerBar), 2, 24, 8 }); // the meter, in quarter notes
 
     // One MIDI track per arrangement track, each starting with the
     // controllers that name the song and the instrument or drum kit.

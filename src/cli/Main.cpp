@@ -3,6 +3,8 @@
 #include "AudioFile.h"
 #include "Engine.h"
 #include "MidiExport.h"
+#include "Project.h"
+#include "SongExport.h"
 #include "SongTrack.h"
 #include "VgmSong.h"
 #include "VgmImport.h"
@@ -34,6 +36,7 @@ commands:
   vgm2mid IN.vgz OUT.mid    convert a VGM file to a MIDI file that plays its patches and drums
   vgmplay IN.vgz OUT.wav    render a VGM file as the game's chips play it, to compare with render
   songtrack IN.vgz OUT.mid  write a song track, one note per beat, to rearrange the exact song
+  export IN.opm86 OUT       export a project or a VGM rip as the tracker plays it, to OUT.vgz, .vgm, .wav or .mid
   patches                   list the patches and the drum pads
   tune                      measure the tuning of six notes
 
@@ -42,12 +45,16 @@ options:
   --vgm FILE                import patches and drum samples from a .vgm or .vgz file
   --pad NOTE=FILE           put an audio file on the drum pad for NOTE (36-51); repeat for more pads
   --drum-channel N          play drums on MIDI channel N, on every channel with all, or on none with 0 (default: 10)
-  --rate HZ                 render at HZ samples per second (default: 48000)
+  --rate HZ                 render at HZ samples per second (default: 48000, and 44100 for export)
+  --bits N                  write the exported WAV with samples of N bits, 16 or 24 (default: 16)
+  --loop                    export only the project's loop to WAV, played once, when the loop is on
   --tail SECONDS            keep rendering for SECONDS after the last MIDI event (default: 2)
   --song FILE               render a song track by playing FILE, a .vgm or .vgz, exactly
   --mix                     write the song track as one track for the whole song, not one per stem
 
 A MIDI program change P selects patch number P + 1 in the list that `opm86 patches` prints.
+An exported VGM or WAV file sounds as the tracker plays the song, with its edits and its mix.
+An exported MIDI file holds the notes, but not the FM sound of the edited instruments.
 )";
 
 struct Options
@@ -60,7 +67,10 @@ struct Options
     std::map<int, std::string> pads;
     int drumChannel = 10;
     double rate = 48000.0;
+    bool rateSet = false; // --rate given, not the default
     double tail = 2.0;
+    int bits = 16;
+    bool loop = false;
 };
 
 std::optional<Options> parse(int argc, char** argv)
@@ -85,7 +95,18 @@ std::optional<Options> parse(int argc, char** argv)
             }
         }
         else if (arg == "--rate" && hasValue)
-            o.rate = std::atof(argv[++i]);
+            o.rate = std::atof(argv[++i]), o.rateSet = true;
+        else if (arg == "--bits" && hasValue)
+        {
+            o.bits = std::atoi(argv[++i]);
+            if (o.bits != 16 && o.bits != 24)
+            {
+                std::fprintf(stderr, "opm86: --bits takes 16 or 24, not %s\n", argv[i]);
+                return std::nullopt;
+            }
+        }
+        else if (arg == "--loop")
+            o.loop = true;
         else if (arg == "--tail" && hasValue)
             o.tail = std::atof(argv[++i]);
         else if (arg == "--song" && hasValue)
@@ -530,6 +551,90 @@ int vgmToMidi(const Options& o)
     return 0;
 }
 
+// A project, or a rip alone, as the tracker plays it: a VGM with every edit
+// in its writes, a WAV render, or the notes as MIDI, by the output's extension.
+int exportSong(const Options& o)
+{
+    if (o.positional.size() != 2)
+    {
+        std::fprintf(stderr, "usage: opm86 export IN.opm86 OUT.vgz|OUT.vgm|OUT.wav|OUT.mid [--rate HZ] [--bits N] [--loop]\n");
+        return 2;
+    }
+    const juce::File in = juce::File::getCurrentWorkingDirectory().getChildFile(o.positional[0]);
+    const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(o.positional[1]);
+    const char* outName = o.positional[1].c_str();
+    const bool vgm = out.hasFileExtension(".vgz") || out.hasFileExtension(".vgm");
+    if (!vgm && !out.hasFileExtension(".wav") && !out.hasFileExtension(".mid"))
+    {
+        std::fprintf(stderr, "opm86: %s: the output file must end in .vgz, .vgm, .wav or .mid\n", outName);
+        return 2;
+    }
+    // Only a WAV render has a rate, a sample size and a loop to play once.
+    if (!out.hasFileExtension(".wav") && (o.loop || o.rateSet || o.bits != 16))
+        std::fprintf(stderr, "opm86: %s: --loop, --rate and --bits apply only to a WAV export; ignoring them\n", outName);
+    juce::String error;
+    const auto tune = project::open(in, error);
+    if (!tune)
+    {
+        std::fprintf(stderr, "opm86: %s: %s\n", o.positional[0].c_str(), error.toRawUTF8());
+        return 1;
+    }
+    auto minutes = [](double seconds) {
+        const auto s = static_cast<int>(seconds);
+        return std::to_string(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + std::to_string(s % 60);
+    };
+    auto written = [&](const std::vector<uint8_t>& bytes) {
+        if (bytes.empty() || !out.replaceWithData(bytes.data(), bytes.size()))
+        {
+            std::fprintf(stderr, "opm86: cannot write %s\n", outName);
+            return false;
+        }
+        return true;
+    };
+
+    if (vgm)
+    {
+        const auto song = bakedSong(*tune);
+        if (!written(writeVgm(*song, in.getFileNameWithoutExtension().toStdString(), out.hasFileExtension(".vgz"))))
+            return 1;
+        std::printf("wrote %s: %s, %zu YM2151 and %zu SegaPCM writes\n", outName, minutes(song->length / kVgmRate).c_str(),
+                    song->ymLogged, song->pcmLogged);
+        return 0;
+    }
+    if (out.hasFileExtension(".mid"))
+    {
+        // Named after the rip, as the plugin finds a song's patches and drums by its name.
+        const MidiExport midi = exportMidi(*tune, tune->source().name);
+        if (!written(midi.file))
+            return 1;
+        std::printf("wrote %s: %zu track%s, the notes without the FM sound\n", outName, midi.tracks.size(), midi.tracks.size() == 1 ? "" : "s");
+        return 0;
+    }
+
+    if (o.loop && !tune->loop.active())
+        std::fprintf(stderr, "opm86: %s has no loop on; exporting the whole song\n", o.positional[0].c_str());
+    const double rate = o.rateSet ? o.rate : 44100.0;
+    TuneRenderer renderer(*tune, rate, o.loop);
+    renderer.prepare([] { return true; });
+    WavWriter wav;
+    if (!wav.open(out.getFullPathName().toStdString(), static_cast<uint32_t>(rate), o.bits))
+    {
+        std::fprintf(stderr, "opm86: cannot write %s\n", outName);
+        return 1;
+    }
+    std::vector<float> left(4096), right(4096);
+    while (const int n = renderer.render(left.data(), right.data(), static_cast<int>(left.size())))
+        wav.write(left.data(), right.data(), n);
+    if (!wav.close())
+    {
+        std::fprintf(stderr, "opm86: cannot write %s\n", outName);
+        return 1;
+    }
+    std::printf("wrote %s: %s%s, %d-bit, %.0f Hz\n", outName, minutes(wav.frames() / rate).c_str(), renderer.loop() ? " of the loop" : "",
+                o.bits, rate);
+    return 0;
+}
+
 int vgmPlay(const Options& o)
 {
     if (o.positional.size() != 2)
@@ -747,6 +852,8 @@ int main(int argc, char** argv)
         return vgmPlay(*options);
     if (command == "songtrack")
         return songTrack(*options);
+    if (command == "export")
+        return exportSong(*options);
     const auto setup = load(*options);
     if (!setup)
         return 1;

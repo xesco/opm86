@@ -23,9 +23,12 @@ add_library(opm86_core STATIC
     src/core/Engine.cpp
     src/core/FmSection.cpp
     src/core/MidiExport.cpp
+    src/core/OpmBank.cpp
+    src/core/PreviewVoice.cpp
     src/core/PcmBank.cpp
     src/core/Presets.cpp
     src/core/SegaPcm.cpp
+    src/core/SongExport.cpp
     src/core/SongLog.cpp
     src/core/SongPlayer.cpp
     src/core/SongTrack.cpp
@@ -54,7 +57,10 @@ FetchContent_MakeAvailable(JUCE)
 
 # The command-line player and renderer.
 juce_add_console_app(opm86_cli PRODUCT_NAME "opm86")
-target_sources(opm86_cli PRIVATE src/cli/Main.cpp)
+target_sources(opm86_cli PRIVATE
+    src/cli/Main.cpp
+    src/common/Instruments.cpp
+    src/common/Project.cpp)
 set_target_properties(opm86_cli PROPERTIES OUTPUT_NAME opm86)
 target_include_directories(opm86_cli PRIVATE src/common)
 target_compile_definitions(opm86_cli PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
@@ -81,10 +87,16 @@ juce_add_gui_app(opm86_tracker
     DOCUMENT_EXTENSIONS vgz vgm)
 target_sources(opm86_tracker PRIVATE
     src/app/AppModel.cpp
+    src/app/ChipWindow.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
+    src/app/PatchWindow.cpp
+    src/app/SampleWindow.cpp
     src/app/Theme.cpp
-    src/app/TrackerView.cpp)
+    src/app/TrackerView.cpp
+    src/common/Instruments.cpp
+    src/common/Project.cpp)
+target_include_directories(opm86_tracker PRIVATE src/common)
 target_compile_definitions(opm86_tracker PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
@@ -96,6 +108,7 @@ target_link_libraries(opm86_tracker
         opm86_fonts
         juce::juce_audio_devices
         juce::juce_audio_utils
+        juce::juce_dsp
         juce::juce_gui_extra
     PUBLIC
         juce::juce_recommended_config_flags
@@ -114,6 +127,23 @@ target_sources(song_test PRIVATE tests/song_test.cpp)
 target_compile_definitions(song_test PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
 target_link_libraries(song_test PRIVATE opm86_core juce::juce_audio_basics)
 add_test(NAME song_test COMMAND song_test)
+
+# Checks the project file: notes saved and read back, and an older project's rows.
+juce_add_console_app(project_test)
+target_sources(project_test PRIVATE
+    tests/project_test.cpp
+    src/common/Instruments.cpp
+    src/common/Project.cpp)
+target_include_directories(project_test PRIVATE src/common)
+target_compile_definitions(project_test PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_link_libraries(project_test
+    PRIVATE
+        opm86_core
+        juce::juce_core
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+add_test(NAME project_test COMMAND project_test)
 
 if(OPM86_BUILD_PLUGIN)
     juce_add_plugin(OPM86

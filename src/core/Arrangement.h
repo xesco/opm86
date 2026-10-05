@@ -45,6 +45,7 @@ struct ArrNote
     std::vector<std::pair<int64_t, double>> bend { { 0, 0.0 } };
     std::vector<NoteChange> changes { NoteChange {} }; // FM, first at offset 0
     std::vector<HitChange> hit;                         // drums, first at offset 0
+    double fine = 0.0; // drums: semitones on top of the pitch and the steps, a hit's fine tune
 
     int64_t end() const { return start + length; }
 };
@@ -66,6 +67,7 @@ struct Arrangement
     std::vector<PadSample> samples;
     double beatLength = kVgmRate / 2.0; // VGM samples per beat
     double firstBeat = 0.0;             // song time of beat 0
+    int beatsPerBar = 4;                // beats in a bar, each a quarter note
     int64_t length = 0;                 // VGM samples
     std::vector<ArrTrack> tracks;
 

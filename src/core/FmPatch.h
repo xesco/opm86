@@ -22,6 +22,7 @@ struct FmOperator
     uint8_t dt2 = 0;    // coarse detune, 0-3
     uint8_t ks = 0;     // key scaling, 0-3
     bool amEn = false;  // LFO amplitude modulation enable
+    bool on = true;     // keyed on with the note; off, it stays silent (the tracker's patch edits)
 
     bool operator==(const FmOperator&) const = default;
 };
@@ -47,6 +48,17 @@ struct FmPatch
 
     bool operator==(const FmPatch&) const = default;
 };
+
+// The operators a key on starts, as register 0x08's bits 3-6 (M1, C1, M2,
+// C2): those switched off are left out.
+inline uint8_t keyOnMask(const FmPatch& patch)
+{
+    uint8_t keys = 0;
+    for (size_t i = 0; i < 4; ++i)
+        if (patch.op[i].on)
+            keys = static_cast<uint8_t>(keys | 0x08 << i);
+    return keys;
+}
 
 inline constexpr const char* kOperatorNames[4] = { "M1", "C1", "M2", "C2" };
 

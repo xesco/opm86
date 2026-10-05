@@ -188,7 +188,7 @@ ArrangementMidi arrangementMidi(const Arrangement& a, bool audibleOnly)
                 for (const HitChange& h : n.hit)
                     reach = std::max(reach, std::abs(12.0 * std::log2(std::max<uint8_t>(h.step, 1)
                                                                       / a.samples[static_cast<size_t>(t.source)].step)
-                                                     + (n.pitch - 60)));
+                                                     + (n.pitch - 60) + n.fine));
         }
     out.bendRange = std::min(96, static_cast<int>(std::ceil(reach)));
 
@@ -326,7 +326,7 @@ ArrangementMidi arrangementMidi(const Arrangement& a, bool audibleOnly)
         for (const ArrNote& n : tr.notes)
         {
             auto semitones = [&](uint8_t step) {
-                return 12.0 * std::log2(std::max<uint8_t>(step, 1) / padStep) + (n.pitch - 60);
+                return 12.0 * std::log2(std::max<uint8_t>(step, 1) / padStep) + (n.pitch - 60) + n.fine;
             };
             // Each message group goes out whole and in order, so hits at one
             // time cannot take each other's settings. The note on or

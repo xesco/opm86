@@ -1,8 +1,11 @@
 #include "MainComponent.h"
 
+#include "Project.h"
+
 #include "Theme.h"
 
 #include <cmath>
+#include <numeric>
 
 namespace opm86
 {
@@ -52,7 +55,11 @@ public:
     void drawButtonText(juce::Graphics& g, juce::TextButton& b, bool over, bool) override
     {
         g.setFont(getTextButtonFont(b, b.getHeight()));
-        g.setColour(b.getToggleState() ? theme::background : over ? theme::text : theme::dim);
+        // A button's own text colour when it sets one, as an edited value does.
+        const juce::Colour own = b.findColour(juce::TextButton::textColourOffId);
+        g.setColour(b.getToggleState() ? theme::background
+                    : b.isColourSpecified(juce::TextButton::textColourOffId) ? (over ? own.brighter(0.2f) : own)
+                    : over ? theme::text : theme::dim);
         g.drawText(b.getButtonText(), b.getLocalBounds(), juce::Justification::centred);
     }
 
@@ -123,16 +130,160 @@ public:
         const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + 20;
         return juce::Rectangle<int>(at.x + 12, at.y + 18, w, 24).constrainedWithin(parent);
     }
+
+    // A callout: the panel's colour, edged in cyan.
+    void drawCallOutBoxBackground(juce::CallOutBox&, juce::Graphics& g, const juce::Path& path, juce::Image&) override
+    {
+        g.setColour(theme::panel);
+        g.fillPath(path);
+        g.setColour(theme::cyan);
+        g.strokePath(path, juce::PathStrokeType(1.5f));
+    }
+
+    // A command's key with nothing to act on, as Delete with no note
+    // selected, does nothing quietly.
+    void playAlertSound() override {}
 };
 
-// Song time as an LED readout: bar.beat.sixteenth and m:ss.cc.
-juce::String barBeat(const VgmSong& song, double t)
+// The song's tempo and meter, in a callout from the BPM counter: the tempo
+// dragged or typed, the beats in a bar, and bar 1 moved to the playhead.
+// Each follows the model, as an undo changes it.
+class TempoEditor : public juce::Component, private juce::ChangeListener
 {
-    const double beats = (t - song.firstBeat) / song.beatLength;
+public:
+    explicit TempoEditor(AppModel& model) : model_(model)
+    {
+        for (auto [caption, text] : { std::pair { &tempoCaption_, "TEMPO (BPM)" }, std::pair { &meterCaption_, "BEATS PER BAR" } })
+        {
+            caption->setText(text, juce::dontSendNotification);
+            caption->setFont(theme::pixel(8.0f));
+            caption->setColour(juce::Label::textColourId, theme::orange);
+            addAndMakeVisible(caption);
+        }
+        tempo_.setRange(SongGrid::kMinTempo, SongGrid::kMaxTempo, 0.1);
+        tempo_.setSkewFactorFromMidPoint(120.0);
+        meter_.setRange(1.0, SongGrid::kMaxBeatsPerBar, 1.0);
+        for (auto [slider, value] : { std::pair { &tempo_, &tempoValue_ }, std::pair { &meter_, &meterValue_ } })
+        {
+            slider->setSliderStyle(juce::Slider::LinearHorizontal);
+            slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+            slider->setWantsKeyboardFocus(false);
+            // A drag is one step of undo. On release the slider shows the
+            // song's value again, in case the model refused the drag.
+            slider->onDragStart = [this] { dragging_ = true, stepTaken_ = false; };
+            slider->onDragEnd = [this] {
+                dragging_ = false;
+                sync();
+            };
+            addAndMakeVisible(slider);
+            // The value, typed after a click.
+            value->setEditable(true, true, false);
+            value->setFont(theme::mono(14.0f, true));
+            value->setJustificationType(juce::Justification::centred);
+            value->setColour(juce::Label::textColourId, theme::text);
+            value->setColour(juce::Label::backgroundColourId, theme::background);
+            value->setColour(juce::Label::outlineColourId, theme::gridBar);
+            value->setColour(juce::Label::textWhenEditingColourId, theme::text);
+            value->setColour(juce::Label::backgroundWhenEditingColourId, theme::background);
+            value->setColour(juce::Label::outlineWhenEditingColourId, theme::cyan);
+            value->setColour(juce::TextEditor::highlightColourId, theme::magenta.withAlpha(0.5f));
+            addAndMakeVisible(value);
+        }
+        tempo_.onValueChange = [this] {
+            if (!syncing_ && !model_.setTempo(tempo_.getValue(), newStep()))
+                sync();
+        };
+        meter_.onValueChange = [this] {
+            if (!syncing_ && !model_.setBeatsPerBar(static_cast<int>(meter_.getValue()), newStep()))
+                sync();
+        };
+        // A typed value out of range goes to the nearest end; text that is no number changes nothing.
+        tempoValue_.onTextChange = [this] {
+            const juce::String t = tempoValue_.getText().trim();
+            if (t.containsOnly("0123456789.") && t.containsAnyOf("0123456789"))
+                tempo_.setValue(std::round(juce::jlimit(SongGrid::kMinTempo, SongGrid::kMaxTempo, t.getDoubleValue()) * 10.0) / 10.0);
+            sync();
+        };
+        meterValue_.onTextChange = [this] {
+            const juce::String t = meterValue_.getText().trim();
+            if (t.containsOnly("0123456789") && t.isNotEmpty())
+                meter_.setValue(juce::jlimit(1, SongGrid::kMaxBeatsPerBar, t.getIntValue()));
+            sync();
+        };
+        here_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+        here_.setTooltip("Bar 1 starts at the playhead, which is then on a downbeat");
+        here_.setWantsKeyboardFocus(false);
+        here_.onClick = [this] { model_.barOneHere(); };
+        addAndMakeVisible(here_);
+        model_.addChangeListener(this);
+        sync();
+        setSize(300, 150);
+    }
+
+    ~TempoEditor() override { model_.removeChangeListener(this); }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(10, 8);
+        for (auto [caption, slider, value] : { std::tuple { &tempoCaption_, &tempo_, &tempoValue_ }, std::tuple { &meterCaption_, &meter_, &meterValue_ } })
+        {
+            caption->setBounds(area.removeFromTop(16));
+            auto row = area.removeFromTop(28);
+            value->setBounds(row.removeFromRight(64).reduced(0, 2));
+            row.removeFromRight(10);
+            slider->setBounds(row);
+            area.removeFromTop(6);
+        }
+        area.removeFromTop(4);
+        here_.setBounds(area.removeFromTop(28));
+    }
+
+private:
+    // The first change of a drag, or any change not dragged, begins a step.
+    bool newStep()
+    {
+        const bool first = !dragging_ || !stepTaken_;
+        stepTaken_ = true;
+        return first;
+    }
+
+    void sync()
+    {
+        if (!model_.hasTune())
+            return;
+        syncing_ = true;
+        const Tune& tune = model_.tune();
+        if (!tempo_.isMouseButtonDown())
+            tempo_.setValue(tune.tempo(), juce::dontSendNotification);
+        if (!meter_.isMouseButtonDown())
+            meter_.setValue(tune.beatsPerBar(), juce::dontSendNotification);
+        if (!tempoValue_.isBeingEdited())
+            tempoValue_.setText(juce::String(tune.tempo(), 1), juce::dontSendNotification);
+        if (!meterValue_.isBeingEdited())
+            meterValue_.setText(juce::String(tune.beatsPerBar()), juce::dontSendNotification);
+        syncing_ = false;
+    }
+
+    void changeListenerCallback(juce::ChangeBroadcaster*) override { sync(); }
+
+    AppModel& model_;
+    juce::Label tempoCaption_, meterCaption_, tempoValue_, meterValue_;
+    juce::Slider tempo_, meter_;
+    juce::TextButton here_ { "BAR 1 STARTS AT THE PLAYHEAD" };
+    bool dragging_ = false, stepTaken_ = false, syncing_ = false;
+};
+
+// Song time as an LED readout: bar.beat.sixteenth on the song's grid, and m:ss.cc.
+juce::String barBeat(const Tune& tune, double t)
+{
+    const long perBar = 4L * tune.beatsPerBar(); // sixteenths
+    const double beats = (t - tune.firstBeat()) / tune.beatLength();
     const auto sixteenths = static_cast<long>(std::floor(beats * 4));
-    const long bar = (sixteenths >= 0 ? sixteenths / 16 : (sixteenths - 15) / 16) + 1;
-    const long inBar = ((sixteenths % 16) + 16) % 16;
-    return juce::String(bar).paddedLeft('0', 3) + "." + juce::String(inBar / 4 + 1) + "." + juce::String(inBar % 4 + 1);
+    const long bar = (sixteenths >= 0 ? sixteenths / perBar : (sixteenths - perBar + 1) / perBar) + 1;
+    const long inBar = ((sixteenths % perBar) + perBar) % perBar;
+    // A bar before bar 1 has its sign in front of the digits.
+    const juce::String number = juce::String(std::abs(bar)).paddedLeft('0', bar < 0 ? 2 : 3);
+    return (bar < 0 ? "-" : "") + number + "." + juce::String(inBar / 4 + 1) + "." + juce::String(inBar % 4 + 1);
 }
 
 juce::String clock(double t)
@@ -163,6 +314,13 @@ void drawLed(juce::Graphics& g, juce::Rectangle<int> r, const juce::String& capt
     g.drawText(value, valueArea.translated(0, 1), juce::Justification::centredLeft);
     g.setColour(colour);
     g.drawText(value, valueArea, juce::Justification::centredLeft);
+}
+
+// The keys a keyboard has in black: C#, D#, F#, G# and A#.
+bool isBlackKey(int key)
+{
+    const int pc = key % 12;
+    return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 }
 
 } // namespace
@@ -218,6 +376,30 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             outline.addCentredArc(c.x, c.y + 3.5f, 6.5f, 2.5f, 0.0f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, false);
             outline.lineTo(c.x + 6.5f, c.y - 3.0f);
             juce::PathStrokeType(1.5f).createStrokedPath(p, outline);
+            break;
+        }
+        case Icon::Chip: // a chip: its body, a notch at the top, three pins each side
+        {
+            const auto c = box.getCentre();
+            p.addRoundedRectangle(c.x - 4.5f, c.y - 6.0f, 9.0f, 12.0f, 1.0f);
+            for (int k = 0; k < 3; ++k)
+            {
+                const float y = c.y - 4.0f + static_cast<float>(k) * 3.25f;
+                p.addRectangle(c.x - 7.5f, y, 2.5f, 1.5f);
+                p.addRectangle(c.x + 5.0f, y, 2.5f, 1.5f);
+            }
+            p.setUsingNonZeroWinding(false);
+            p.addEllipse(c.x - 1.5f, c.y - 7.5f, 3.0f, 3.0f); // the notch, cut out
+            break;
+        }
+        case Icon::Loop: // a loop: a rounded band, an arrow head on each run
+        {
+            const auto c = box.getCentre();
+            juce::Path band;
+            band.addRoundedRectangle(c.x - 6.5f, c.y - 4.5f, 13.0f, 9.0f, 4.0f);
+            juce::PathStrokeType(1.5f).createStrokedPath(p, band);
+            p.addTriangle(c.x - 0.5f, c.y - 8.0f, c.x - 0.5f, c.y - 1.0f, c.x + 3.5f, c.y - 4.5f);
+            p.addTriangle(c.x + 0.5f, c.y + 1.0f, c.x + 0.5f, c.y + 8.0f, c.x - 3.5f, c.y + 4.5f);
             break;
         }
         case Icon::Home: // a house
@@ -294,9 +476,9 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     open_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
-    rewind_.setTooltip("Rewind (Return)");
+    rewind_.setTooltip("Rewind to the start (Return)");
     play_.setTooltip("Play (Space)");
-    stop_.setTooltip("Stop (Space)");
+    stop_.setTooltip("Stop (Space); again to return to the start");
     open_.setTooltip("Open (Cmd+O)");
     rewind_.onClick = [this] { rewind(); };
     play_.onClick = [this] { model_.play(); };
@@ -310,23 +492,69 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (onOpen)
             onOpen();
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &open_ })
+    json_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    json_.setTooltip("Export or import the project as JSON");
+    json_.onClick = [this] {
+        if (onJson)
+            onJson();
+    };
+    new_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    new_.setTooltip("New song (Cmd+N)");
+    new_.onClick = [this] {
+        if (onNew)
+            onNew();
+    };
+    save_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    save_.setTooltip("Save the project (Cmd+S)");
+    save_.onClick = [this] {
+        if (onSave)
+            onSave();
+    };
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &new_, &open_, &save_, &json_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
     }
 }
 
+TopBar::~TopBar()
+{
+    // The tempo callout follows the model, so it goes first.
+    delete tempo_.getComponent();
+}
+
 juce::String TopBar::getTooltip()
 {
-    return model_.hasTune() && fileArea_.contains(getMouseXYRelative()) ? model_.file().getFullPathName() : juce::String();
+    if (model_.hasTune() && bpmArea_.contains(getMouseXYRelative()))
+        return "Tempo and beats per bar";
+    return model_.hasTune() && fileArea_.contains(getMouseXYRelative()) && model_.file() != juce::File() ? model_.file().getFullPathName() : juce::String();
+}
+
+void TopBar::showTempo()
+{
+    if (!model_.hasTune() || tempo_ != nullptr)
+        return;
+    auto& box = juce::CallOutBox::launchAsynchronously(std::make_unique<TempoEditor>(model_), bpmArea_ + getScreenPosition(), nullptr);
+    box.setLookAndFeel(&getLookAndFeel());
+    tempo_ = &box;
+}
+
+void TopBar::mouseDown(const juce::MouseEvent& e)
+{
+    if (bpmArea_.contains(e.getPosition()))
+        showTempo();
+}
+
+void TopBar::mouseMove(const juce::MouseEvent& e)
+{
+    setMouseCursor(model_.hasTune() && bpmArea_.contains(e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
 void TopBar::rewind()
 {
     model_.setPosition(0);
     if (model_.hasTune())
-        view_.setViewStart(model_.tune().source().firstBeat - model_.tune().source().beatLength);
+        view_.setViewStart(model_.tune().firstBeat() - model_.tune().beatLength());
 }
 
 void TopBar::resized()
@@ -339,7 +567,13 @@ void TopBar::resized()
     r.removeFromLeft(6);
     stop_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(14);
+    json_.setBounds(r.removeFromRight(70));
+    r.removeFromRight(8);
     open_.setBounds(r.removeFromRight(70));
+    r.removeFromRight(8);
+    save_.setBounds(r.removeFromRight(70));
+    r.removeFromRight(8);
+    new_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
     counters_ = r;
 }
@@ -366,24 +600,29 @@ void TopBar::paint(juce::Graphics& g)
     auto c = counters_;
     if (model_.hasTune())
     {
-        const VgmSong& song = model_.tune().source();
+        const Tune& tune = model_.tune();
         const double p = model_.displayPosition();
-        drawLed(g, c.removeFromLeft(130), "BAR.BEAT", barBeat(song, p), theme::orange);
+        drawLed(g, c.removeFromLeft(130), "BAR.BEAT", barBeat(tune, p), theme::orange);
         c.removeFromLeft(6);
         drawLed(g, c.removeFromLeft(120), "TIME", clock(p), theme::cyan);
         c.removeFromLeft(6);
-        drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
+        // The tempo heard, and the meter; a click sets them.
+        bpmArea_ = c.removeFromLeft(80);
+        drawLed(g, bpmArea_, "BPM " + juce::String(tune.beatsPerBar()) + "/4", juce::String(tune.tempo() * model_.speed(), 1), theme::magenta);
         c.removeFromLeft(10);
         g.setFont(theme::mono(13.0f, true));
         g.setColour(theme::text);
         fileArea_ = c;
-        g.drawText(model_.file().getFileName(), c.withTrimmedBottom(c.getHeight() / 2), juce::Justification::bottomLeft, true);
+        g.drawText(model_.file() != juce::File() ? model_.file().getFileName() : model_.name(), c.withTrimmedBottom(c.getHeight() / 2), juce::Justification::bottomLeft, true);
         g.setFont(theme::mono(12.0f));
         g.setColour(theme::dim);
-        g.drawText("length " + clock(song.length), c.withTrimmedTop(c.getHeight() / 2 + 2), juce::Justification::topLeft, true);
+        g.drawText("length " + clock(static_cast<double>(model_.tune().length())), c.withTrimmedTop(c.getHeight() / 2 + 2), juce::Justification::topLeft, true);
     }
     else
+    {
         drawLed(g, c.removeFromLeft(130), "BAR.BEAT", "---.-.-", theme::faint);
+        bpmArea_ = {};
+    }
 }
 
 // JogWheel --------------------------------------------------------------------
@@ -510,26 +749,38 @@ void GridPicker::mouseDown(const juce::MouseEvent& e)
 ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
 {
     snap_.setSelected(5); // 1/16
-    snap_.setTooltip("Snap grid");
+    snap_.setTooltip("Snap grid: a bar, or a note value");
     snap_.onChange = [this] {
-        static constexpr int kDivision[] = { 0, 1, 2, 4, 8, 16 }; // bars split this many ways; 0 is off
+        // A bar, or a note: a whole one is four beats, as the beat is a quarter note.
+        static constexpr int kDivision[] = { 0, 1, 2, 4, 8, 16 }; // 0 is off
         const int division = kDivision[snap_.selected()];
-        const double bar = model_.hasTune() ? model_.tune().source().beatLength * 4 : 0;
-        view_.setSnap(division > 0 ? bar / division : 0);
+        if (!model_.hasTune() || division == 0)
+            view_.setSnap(0);
+        else
+            view_.setSnap(division == 1 ? model_.tune().barLength() : model_.tune().beatLength() * 4 / division);
     };
     addAndMakeVisible(snap_);
 
     keepPlayhead_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     keepPlayhead_.setClickingTogglesState(true);
     keepPlayhead_.setTooltip("Keep playhead");
-    keepPlayhead_.onClick = [this] { view_.setKeepPlayhead(keepPlayhead_.getToggleState()); };
+    keepPlayhead_.onClick = [this] { setKeepPlayhead(keepPlayhead_.getToggleState()); };
+    loop_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    loop_.setTooltip("Loop (Cmd+Shift+L); Shift-drag on the ruler to set it");
+    loop_.onClick = [this] {
+        if (onLoop)
+            onLoop();
+    };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {
         if (model_.hasTune())
             model_.edit("Reset mix", [](Tune& tune) {
                 // Every track as the game played it: heard, at 0 dB.
                 for (auto& tr : tune.tracks)
-                    tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
+                {
+                    tr.mute = tr.solo = false, tr.mutedVoices = tr.soloedVoices = 0, tr.volume = 0.0f;
+                    tr.voiceVolume.fill(0.0f);
+                }
             });
     };
     instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
@@ -538,6 +789,12 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     drums_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     drums_.setTooltip("Only drums");
     drums_.onClick = [this] { soloOnly(Only::Drums); };
+    chip_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    chip_.setTooltip("Chip: the LFO and noise every voice shares");
+    chip_.onClick = [this] {
+        if (onChip)
+            onChip();
+    };
     fitTracks_.setTooltip("Fit tracks");
     fitTracks_.onClick = [this] { view_.fitTracks(); };
     fitTime_.setTooltip("Fit time");
@@ -545,12 +802,8 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     fitBoth_.setTooltip("Fit both");
     fitBoth_.onClick = [this] { view_.fitTracks(), view_.fitTime(); };
     zoomHome_.setTooltip("Default zoom");
-    zoomHome_.onClick = [this] {
-        for (auto* slider : { &heightZoom_, &timeZoom_ })
-            if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
-                slider->setValue(home, juce::sendNotificationSync);
-    };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &reset_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    zoomHome_.onClick = [this] { defaultZoom(); };
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &loop_, &reset_, &instruments_, &drums_, &chip_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -584,7 +837,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             from = model_.displayPosition();
             model_.stop();
         }
-        model_.scrub(std::max(0.0, from + turns * model_.tune().source().beatLength * 4));
+        model_.scrub(std::max(0.0, from + turns * model_.tune().barLength()));
         view_.reveal(model_.position());
     };
     addAndMakeVisible(jog_);
@@ -609,6 +862,19 @@ void ToolBar::songOpened()
     timeZoom_.setHome(-std::log2(view_.samplesPerPixel()));
     syncZoom();
     refresh();
+}
+
+void ToolBar::defaultZoom()
+{
+    for (auto* slider : { &heightZoom_, &timeZoom_ })
+        if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
+            slider->setValue(home, juce::sendNotificationSync);
+}
+
+void ToolBar::setKeepPlayhead(bool keep)
+{
+    keepPlayhead_.setToggleState(keep, juce::dontSendNotification);
+    view_.setKeepPlayhead(keep);
 }
 
 void ToolBar::syncZoom()
@@ -642,12 +908,17 @@ void ToolBar::soloOnly(Only chosen)
     const bool off = soloed() == chosen;
     model_.edit(off ? "Solo none" : chosen == Only::Instruments ? "Solo instruments" : "Solo drums", [off, chosen](Tune& tune) {
         for (auto& tr : tune.tracks)
+        {
             tr.solo = !off && (tr.kind == TuneTrack::Kind::Drum) == (chosen == Only::Drums);
+            tr.soloedVoices = 0;
+        }
     });
 }
 
 void ToolBar::refresh()
 {
+    snap_.onChange(); // the grid may have changed
+    loop_.setToggleState(model_.hasTune() && model_.loop().active(), juce::dontSendNotification);
     const Only only = soloed();
     instruments_.setToggleState(only == Only::Instruments, juce::dontSendNotification);
     drums_.setToggleState(only == Only::Drums, juce::dontSendNotification);
@@ -667,10 +938,13 @@ void ToolBar::resized()
         slider.setBounds(g);
     };
     button(keepPlayhead_);
+    button(loop_);
     r.removeFromLeft(10);
     button(reset_);
     button(instruments_);
     button(drums_);
+    r.removeFromLeft(10);
+    button(chip_);
     r.removeFromLeft(10);
     group(speed_, speedCaption_, r.removeFromLeft(140));
     r.removeFromLeft(8);
@@ -776,6 +1050,13 @@ void SlidingStrip::mouseDrag(const juce::MouseEvent& e)
         contentDrag(e);
 }
 
+void SlidingStrip::mouseUp(const juce::MouseEvent& e)
+{
+    if (!resizing_)
+        contentUp(e);
+    resizing_ = false;
+}
+
 float SlidingStrip::contentAlpha() const
 {
     return juce::jlimit(0.0f, 1.0f, static_cast<float>(getHeight() - kClosedHeight) / static_cast<float>(std::max(1, openHeight - kClosedHeight)));
@@ -838,7 +1119,7 @@ void OverviewStrip::changeListenerCallback(juce::ChangeBroadcaster* source)
 
 double OverviewStrip::songLength() const
 {
-    return model_.hasTune() ? std::max(1.0, static_cast<double>(model_.tune().source().length)) : 1.0;
+    return model_.hasTune() ? std::max(1.0, static_cast<double>(model_.tune().length())) : 1.0;
 }
 
 juce::Rectangle<float> OverviewStrip::lanes() const
@@ -951,6 +1232,76 @@ void PianoStrip::updateRange()
     high_ = std::clamp(high / 12 * 12 + 11 + 12, low_ + 47, 127);
 }
 
+juce::Rectangle<float> PianoStrip::keysArea() const
+{
+    return content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
+}
+
+int PianoStrip::keyAt(juce::Point<float> p) const
+{
+    const auto area = keysArea();
+    int whites = 0;
+    for (int k = low_; k <= high_; ++k)
+        whites += isBlackKey(k) ? 0 : 1;
+    if (whites == 0 || !area.contains(p))
+        return -1;
+    const float keyWidth = area.getWidth() / static_cast<float>(whites);
+    // A black key first, as it lies over the white ones; it sits on the line
+    // after the white keys before it.
+    int before = 0;
+    for (int k = low_; k <= high_; ++k)
+    {
+        if (!isBlackKey(k))
+        {
+            ++before;
+            continue;
+        }
+        const float x = area.getX() + keyWidth * static_cast<float>(before);
+        if (juce::Rectangle<float>(x - keyWidth * 0.32f, area.getY(), keyWidth * 0.64f, area.getHeight() * 0.6f).contains(p))
+            return k;
+    }
+    const int white = std::min(whites - 1, static_cast<int>((p.x - area.getX()) / keyWidth));
+    for (int k = low_, n = 0; k <= high_; ++k)
+        if (!isBlackKey(k) && n++ == white)
+            return k;
+    return -1;
+}
+
+void PianoStrip::hold(int key)
+{
+    if (key == held_)
+        return;
+    if (held_ >= 0)
+        model_.previewKey(held_, false);
+    held_ = -1;
+    if (const int track = key >= 0 && !model_.playing() && previewTrack ? previewTrack() : -1; track >= 0)
+    {
+        held_ = key;
+        model_.previewPatch(model_.editedPatch(track), track);
+        model_.previewKey(held_, true);
+    }
+    repaint();
+}
+
+void PianoStrip::contentDown(const juce::MouseEvent& e)
+{
+    if (model_.hasTune() && !model_.playing())
+        hold(keyAt(e.position));
+}
+
+void PianoStrip::contentDrag(const juce::MouseEvent& e)
+{
+    // Off the keys, the key down stays down until the pointer reaches another.
+    if (held_ >= 0)
+        if (const int key = keyAt(e.position); key >= 0)
+            hold(key);
+}
+
+void PianoStrip::contentUp(const juce::MouseEvent&)
+{
+    hold(-1);
+}
+
 void PianoStrip::paint(juce::Graphics& g)
 {
     paintBar(g, theme::magenta);
@@ -984,19 +1335,21 @@ void PianoStrip::paint(juce::Graphics& g)
                 }
             }
         }
+    // And the key the mouse holds down.
+    if (held_ >= 0 && held_ < 128)
+        on[static_cast<size_t>(held_)] = true, lit[static_cast<size_t>(held_)] = theme::pitchColour(held_);
 
-    auto isBlack = [](int key) { const int pc = key % 12; return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; };
     int whites = 0;
     for (int k = low_; k <= high_; ++k)
-        whites += isBlack(k) ? 0 : 1;
-    const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
+        whites += isBlackKey(k) ? 0 : 1;
+    const auto area = keysArea();
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
 
     // White keys, then black keys over them.
     float x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        if (isBlack(k))
+        if (isBlackKey(k))
             continue;
         const auto key = juce::Rectangle<float>(x, area.getY(), keyWidth, area.getHeight()).reduced(0.5f, 0.0f);
         const bool down = on[static_cast<size_t>(k)];
@@ -1019,7 +1372,7 @@ void PianoStrip::paint(juce::Graphics& g)
     x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        if (!isBlack(k))
+        if (!isBlackKey(k))
         {
             x += keyWidth;
             continue;
@@ -1037,7 +1390,7 @@ void PianoStrip::paint(juce::Graphics& g)
     x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        const bool black = isBlack(k);
+        const bool black = isBlackKey(k);
         const float centre = black ? x : x + keyWidth * 0.5f;
         if (!black)
             x += keyWidth;
@@ -1063,13 +1416,26 @@ void PianoStrip::paint(juce::Graphics& g)
 
 MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
 {
+    juce::PropertiesFile::Options options;
+    options.applicationName = "OPM86 Tracker";
+    options.filenameSuffix = ".settings";
+    options.osxLibrarySubFolder = "Application Support";
+    settings_.setStorageParameters(options);
     setLookAndFeel(look_.get());
     addAndMakeVisible(top_);
     addAndMakeVisible(tools_);
     addAndMakeVisible(view_);
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
-    top_.onOpen = [this] { openDialog(); };
+    top_.onNew = [this] { whenSaved([this] { newSong(); }); };
+    top_.onJson = [this] {
+        juce::PopupMenu menu;
+        menu.addCommandItem(&commands_, command::exportJson);
+        menu.addCommandItem(&commands_, command::importJson);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&top_.jsonButton()));
+    };
+    top_.onOpen = [this] { whenSaved([this] { openDialog(); }); };
+    top_.onSave = [this] { save(); };
     overview_.onHeight = [this](int height) {
         overviewHeight_ = std::clamp(height, kOverviewHeight, 2 * kPianoHeight); // as tall as the keys can go
         overview_.openHeight = overviewHeight_;
@@ -1090,13 +1456,74 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     piano_.onSlide = [this] { piano_.setOpen(!piano_.isOpen()); };
     overview_.onSlide = [this] { overview_.setOpen(!overview_.isOpen()); };
     juce::Desktop::getInstance().addGlobalMouseListener(&activity_);
+    view_.onOpenPatch = [this](int track) {
+        // One patch window at a time: a gear replaces what it shows. It
+        // opens where it was last.
+        closePatch();
+        patch_ = std::make_unique<PatchWindow>(model_, track, look_.get(), commands_);
+        patchTrack_ = track;
+        patchName_ = model_.tune().tracks[static_cast<size_t>(track)].name;
+        // Its place only: its size depends on the instrument's voices.
+        const auto place = juce::StringArray::fromTokens(settings_.getUserSettings()->getValue("patchWindow"), " ", "");
+        if (place.size() >= 2)
+            patch_->setTopLeftPosition(place[0].getIntValue(), place[1].getIntValue());
+        patch_->onClose = [this] { juce::MessageManager::callAsync([this] { closePatch(); }); };
+        patch_->onChip = [this] { openChip(); };
+    };
+    view_.onOpenSample = [this](int track) {
+        // One sample window at a time, beside the patch window: a drum
+        // track's gear replaces what it shows. It opens where it was last.
+        closeSample();
+        sample_ = std::make_unique<SampleWindow>(model_, track, look_.get(), commands_);
+        sampleTrack_ = track;
+        sampleName_ = model_.tune().tracks[static_cast<size_t>(track)].name;
+        const auto place = juce::StringArray::fromTokens(settings_.getUserSettings()->getValue("sampleWindow"), " ", "");
+        if (place.size() >= 2)
+            sample_->setTopLeftPosition(place[0].getIntValue(), place[1].getIntValue());
+        sample_->onClose = [this] { juce::MessageManager::callAsync([this] { closeSample(); }); };
+    };
+    // The KEYS strip plays the instrument of the patch window's track, else
+    // the selected notes' track's, else the first FM track's.
+    piano_.previewTrack = [this] {
+        if (!model_.hasTune())
+            return -1;
+        const auto& tracks = model_.tune().tracks;
+        auto fm = [&tracks](int t) { return t >= 0 && static_cast<size_t>(t) < tracks.size() && tracks[static_cast<size_t>(t)].kind == TuneTrack::Kind::Fm; };
+        if (patch_ && fm(patchTrack_))
+            return patchTrack_;
+        if (const int t = view_.selectedTrack(); fm(t))
+            return t;
+        for (size_t t = 0; t < tracks.size(); ++t)
+            if (fm(static_cast<int>(t)))
+                return static_cast<int>(t);
+        return -1;
+    };
+    tools_.onChip = [this] { commands_.invokeDirectly(command::chip, false); };
+    tools_.onLoop = [this] { commands_.invokeDirectly(command::loop, false); };
+    model_.onNotice = [this](const juce::String& notice) {
+        status_ = notice;
+        repaint();
+    };
     model_.addChangeListener(this);
+    // Every command comes here, from the menus and from the keys in this
+    // window and in the patch window.
+    commands_.registerAllCommandsForTarget(this);
+    commands_.setFirstCommandTarget(this);
+    addKeyListener(commands_.getKeyMappings());
+    setApplicationCommandManagerToWatch(&commands_);
     setWantsKeyboardFocus(true);
     setSize(1400, 820);
 }
 
 MainComponent::~MainComponent()
 {
+    closePatch(); // where it was, for next time
+    closeSample();
+    closeChip();
+    shortcuts_.reset();
+    setApplicationCommandManagerToWatch(nullptr);
+    removeKeyListener(commands_.getKeyMappings());
+    commands_.setFirstCommandTarget(nullptr);
     juce::Desktop::getInstance().removeGlobalMouseListener(&activity_);
     model_.removeChangeListener(this);
     setLookAndFeel(nullptr);
@@ -1105,27 +1532,278 @@ MainComponent::~MainComponent()
 bool MainComponent::open(const juce::File& file)
 {
     juce::String error;
-    if (!model_.open(file, error))
+    const bool project = file.hasFileExtension(project::kExtension) || file.hasFileExtension(".json");
+    if (!(project ? model_.openProject(file, error) : model_.open(file, error)))
     {
         status_ = "Could not open " + file.getFileName() + ": " + error;
         repaint();
         return false;
     }
+    opened();
+    // The next Open dialog starts in this file's folder.
+    settings_.getUserSettings()->setValue("lastFolder", file.getParentDirectory().getFullPathName());
+    return true;
+}
+
+void MainComponent::exportJson()
+{
+    // Beside the project, named after it.
+    const juce::File folder(settings_.getUserSettings()->getValue("lastFolder"));
+    const juce::File start = model_.projectFile() != juce::File() ? model_.projectFile().withFileExtension(".json")
+                                                                  : folder.getChildFile(juce::File::createLegalFileName(model_.name())).withFileExtension(".json");
+    chooser_ = std::make_unique<juce::FileChooser>("Export the project as JSON", start, "*.json");
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this](const juce::FileChooser& c) {
+                              if (c.getResult() == juce::File())
+                                  return;
+                              juce::String error;
+                              const juce::File to = c.getResult().withFileExtension(".json");
+                              status_ = model_.exportJson(to, error) ? "Exported " + to.getFileName() : error;
+                              repaint();
+                          });
+}
+
+juce::File MainComponent::exportTarget(const juce::String& extension)
+{
+    if (model_.projectFile() != juce::File())
+        return model_.projectFile().withFileExtension(extension);
+    const juce::File last(settings_.getUserSettings()->getValue("lastFolder"));
+    const auto folder = last.isDirectory() ? last : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    return folder.getChildFile(juce::File::createLegalFileName(model_.title())).withFileExtension(extension);
+}
+
+void MainComponent::exportVgm()
+{
+    if (!model_.hasTune())
+        return;
+    chooser_ = std::make_unique<juce::FileChooser>("Export the song as VGM", exportTarget(".vgz"), "*.vgz;*.vgm");
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this](const juce::FileChooser& c) {
+                              if (c.getResult() == juce::File())
+                                  return;
+                              // A .vgm stays as it is; any other name becomes a gzipped .vgz.
+                              const juce::File to = c.getResult().hasFileExtension(".vgm") ? c.getResult() : c.getResult().withFileExtension(".vgz");
+                              juce::String error;
+                              status_ = model_.exportVgm(to, error) ? "Exported " + to.getFileName() : error;
+                              repaint();
+                          });
+}
+
+void MainComponent::exportMidi()
+{
+    if (!model_.hasTune())
+        return;
+    chooser_ = std::make_unique<juce::FileChooser>("Export the notes as MIDI", exportTarget(".mid"), "*.mid");
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this](const juce::FileChooser& c) {
+                              if (c.getResult() == juce::File())
+                                  return;
+                              const juce::File to = c.getResult().withFileExtension(".mid");
+                              juce::String error;
+                              status_ = model_.exportMidi(to, error) ? "Exported " + to.getFileName() + ": the notes, without the FM sound" : error;
+                              repaint();
+                          });
+}
+
+void MainComponent::exportWav()
+{
+    if (!model_.hasTune() || model_.exporting())
+        return;
+    // First how to render it: the rate, the sample size, and the whole song
+    // or only the loop, as chosen last time.
+    auto& saved = *settings_.getUserSettings();
+    auto* window = new juce::AlertWindow("Export WAV", "The song as it sounds here, from its start to the end of its releases.",
+                                         juce::MessageBoxIconType::NoIcon, this);
+    window->addComboBox("rate", { "44100 Hz", "48000 Hz", "96000 Hz" }, "Sample rate");
+    window->addComboBox("bits", { "16-bit", "24-bit" }, "Sample size");
+    window->getComboBoxComponent("rate")->setSelectedItemIndex(saved.getIntValue("wavRate", 0));
+    window->getComboBoxComponent("bits")->setSelectedItemIndex(saved.getIntValue("wavBits", 0));
+    auto onlyLoop = std::make_shared<juce::ToggleButton>("Only the loop, once");
+    onlyLoop->setSize(280, 28);
+    onlyLoop->setEnabled(model_.loop().active());
+    onlyLoop->setToggleState(model_.loop().active() && saved.getBoolValue("wavLoop", false), juce::dontSendNotification);
+    window->addCustomComponent(onlyLoop.get());
+    window->addButton("Export...", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    window->enterModalState(true, juce::ModalCallbackFunction::create([this, window, onlyLoop](int result) {
+                                if (result != 1)
+                                    return;
+                                const int rate = window->getComboBoxComponent("rate")->getSelectedItemIndex();
+                                const int bits = window->getComboBoxComponent("bits")->getSelectedItemIndex();
+                                auto& settings = *settings_.getUserSettings();
+                                settings.setValue("wavRate", rate);
+                                settings.setValue("wavBits", bits);
+                                if (onlyLoop->isEnabled())
+                                    settings.setValue("wavLoop", onlyLoop->getToggleState());
+                                AppModel::WavOptions options;
+                                options.rate = rate == 1 ? 48000.0 : rate == 2 ? 96000.0 : 44100.0;
+                                options.bits = bits == 1 ? 24 : 16;
+                                options.loopOnly = onlyLoop->getToggleState();
+                                chooser_ = std::make_unique<juce::FileChooser>("Export the song as WAV", exportTarget(".wav"), "*.wav");
+                                chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                                          | juce::FileBrowserComponent::warnAboutOverwriting,
+                                                      [this, options](const juce::FileChooser& c) {
+                                                          if (c.getResult() == juce::File())
+                                                              return;
+                                                          model_.exportWav(c.getResult().withFileExtension(".wav"), options);
+                                                          exportPercent_ = -1;
+                                                          commands_.commandStatusChanged();
+                                                          repaint();
+                                                      });
+                            }),
+                            true);
+}
+
+void MainComponent::importJson()
+{
+    const juce::File last(settings_.getUserSettings()->getValue("lastFolder"));
+    const auto folder = last.isDirectory() ? last : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    chooser_ = std::make_unique<juce::FileChooser>("Import a project's JSON", folder, "*.json");
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this](const juce::FileChooser& c) {
+                              if (c.getResult().existsAsFile())
+                                  open(c.getResult());
+                          });
+}
+
+void MainComponent::newSong()
+{
+    model_.newProject();
+    opened();
+}
+
+void MainComponent::opened()
+{
+    closePatch(); // its track belonged to the song before
+    closeSample();
     // Start on the first bar, eight bars across.
-    const double bar = model_.tune().source().beatLength * 4;
+    const double bar = model_.tune().barLength();
     const double width = std::max(200, view_.getWidth() - view_.headerWidth());
     view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
-    view_.setViewStart(model_.tune().source().firstBeat - bar * 0.25);
+    view_.setViewStart(model_.tune().firstBeat() - bar * 0.25);
     tools_.songOpened();
     view_.grabKeyboardFocus();
     updateTitle();
-    return true;
+}
+
+void MainComponent::closePatch()
+{
+    if (patch_)
+        settings_.getUserSettings()->setValue("patchWindow", juce::String(patch_->getX()) + " " + juce::String(patch_->getY()));
+    patch_.reset();
+}
+
+void MainComponent::closeSample()
+{
+    if (sample_)
+        settings_.getUserSettings()->setValue("sampleWindow", juce::String(sample_->getX()) + " " + juce::String(sample_->getY()));
+    sample_.reset();
+}
+
+void MainComponent::openChip()
+{
+    // One chip window: asked again, it comes to the front. It opens where it was last.
+    if (chip_)
+    {
+        chip_->toFront(true);
+        return;
+    }
+    chip_ = std::make_unique<ChipWindow>(model_, look_.get(), commands_);
+    const auto place = juce::StringArray::fromTokens(settings_.getUserSettings()->getValue("chipWindow"), " ", "");
+    if (place.size() >= 2)
+        chip_->setTopLeftPosition(place[0].getIntValue(), place[1].getIntValue());
+    chip_->onClose = [this] { juce::MessageManager::callAsync([this] { closeChip(); }); };
+    tools_.setChipOpen(true);
+    commands_.commandStatusChanged();
+}
+
+void MainComponent::closeChip()
+{
+    if (chip_)
+        settings_.getUserSettings()->setValue("chipWindow", juce::String(chip_->getX()) + " " + juce::String(chip_->getY()));
+    chip_.reset();
+    tools_.setChipOpen(false);
+    commands_.commandStatusChanged();
+}
+
+void MainComponent::save(std::function<void()> then)
+{
+    if (!model_.hasTune())
+        return;
+    if (model_.projectFile() == juce::File())
+        return saveAs(std::move(then));
+    juce::String error;
+    if (!model_.saveProject(model_.projectFile(), error))
+    {
+        status_ = error;
+        repaint();
+        return;
+    }
+    updateTitle();
+    if (then)
+        then();
+}
+
+void MainComponent::saveAs(std::function<void()> then)
+{
+    if (!model_.hasTune())
+        return;
+    // Beside the rip, named after it, the first time; else where the project
+    // is. A song written from empty starts as Untitled, in the last folder.
+    const juce::File folder(settings_.getUserSettings()->getValue("lastFolder"));
+    const juce::File start = model_.projectFile() != juce::File() ? model_.projectFile()
+                             : model_.imported() != juce::File() ? model_.imported().withFileExtension(project::kExtension)
+                             : model_.file() != juce::File()      ? model_.file().withFileExtension(project::kExtension)
+                                                                  : folder.getChildFile(juce::String("Untitled") + project::kExtension);
+    chooser_ = std::make_unique<juce::FileChooser>("Save the project", start, juce::String("*") + project::kExtension);
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this, then](const juce::FileChooser& c) {
+                              if (c.getResult() == juce::File())
+                                  return;
+                              juce::String error;
+                              if (!model_.saveProject(c.getResult().withFileExtension(project::kExtension), error))
+                              {
+                                  status_ = error;
+                                  repaint();
+                                  return;
+                              }
+                              updateTitle();
+                              if (then)
+                                  then();
+                          });
+}
+
+void MainComponent::whenSaved(std::function<void()> then)
+{
+    if (!model_.unsaved())
+        return then();
+    const juce::String name = model_.name();
+    juce::AlertWindow::showAsync(juce::MessageBoxOptions()
+                                     .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                                     .withTitle("Save changes?")
+                                     .withMessage("The changes to " + name + " are not saved.")
+                                     .withButton("Save")
+                                     .withButton("Don't Save")
+                                     .withButton("Cancel")
+                                     .withAssociatedComponent(this),
+                                 [this, then](int result) {
+                                     if (result == 1)
+                                         save(then);
+                                     else if (result == 2)
+                                         then();
+                                 });
 }
 
 void MainComponent::openDialog()
 {
-    chooser_ = std::make_unique<juce::FileChooser>("Open a VGM rip", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                   "*.vgz;*.vgm");
+    // In the folder of the last file opened, or the home folder the first time.
+    const juce::File last(settings_.getUserSettings()->getValue("lastFolder"));
+    const auto folder = last.isDirectory() ? last : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    chooser_ = std::make_unique<juce::FileChooser>("Open a VGM rip or a project", folder, "*.vgz;*.vgm;*.opm86;*.json");
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this](const juce::FileChooser& c) {
                               if (c.getResult().existsAsFile())
@@ -1154,13 +1832,17 @@ void MainComponent::paint(juce::Graphics& g)
     r = r.reduced(14, 0);
     g.setFont(theme::mono(14.0f, true));
     juce::String left = status_;
-    if (left.isEmpty() && model_.hasTune())
+    if (model_.exporting())
+        left = "Rendering " + model_.exportFile().getFileName() + " " + juce::String(juce::roundToInt(model_.exportProgress() * 100.0)) + "%"
+               + theme::dot() + "Cmd+. cancels";
+    else if (left.isEmpty() && model_.hasTune())
     {
         size_t notes = 0;
         for (const auto& t : model_.tune().tracks)
             notes += t.notes.size();
-        left = juce::String(model_.tune().tracks.size()) + " tracks" + theme::dot() + juce::String(notes) + " notes" + theme::dot()
-               + (model_.ready() ? "exact replay ready" : "building...");
+        const size_t tracks = model_.tune().tracks.size();
+        left = juce::String(tracks) + (tracks == 1 ? " track" : " tracks") + theme::dot() + juce::String(notes)
+               + (notes == 1 ? " note" : " notes") + theme::dot() + (model_.ready() ? "exact replay ready" : "building...");
     }
     g.setColour(theme::text.withAlpha(0.85f));
     g.drawText(left, r, juce::Justification::centredLeft, true);
@@ -1206,33 +1888,33 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
 {
+    // The commands take their keys first; one greyed out uses its key up
+    // quietly, so the system does not beep.
     view_.wake();
-    if (key == juce::KeyPress::spaceKey)
-    {
-        if (model_.playing())
-            model_.stop();
-        else
-            model_.play();
+    if (commands_.getKeyMappings()->findCommandForKeyPress(key) != 0)
         return true;
-    }
-    if (key == juce::KeyPress('o', juce::ModifierKeys::commandModifier, 0))
-        return openDialog(), true;
-    if (key == juce::KeyPress::returnKey || key == juce::KeyPress::homeKey)
-        return top_.rewind(), true;
-    if (key == juce::KeyPress('=', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0))
-        return view_.zoomLanes(1.3, TrackerView::kRulerHeight), true;
-    if (key == juce::KeyPress('-', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0))
-        return view_.zoomLanes(1 / 1.3, TrackerView::kRulerHeight), true;
-    if (key == juce::KeyPress('=', juce::ModifierKeys::commandModifier, 0))
-        return view_.zoomAround(1.5, view_.middle()), true;
-    if (key == juce::KeyPress('-', juce::ModifierKeys::commandModifier, 0))
-        return view_.zoomAround(1 / 1.5, view_.middle()), true;
-    return false;
+    // The arrows with modifiers no command takes act as the plain ones, as
+    // the tracker has always taken them; only Shift on Up or Down means an
+    // octave. Option on Up or Down fine tunes, and Cmd+Option sets the
+    // velocity: those are commands of their own.
+    const int code = key.getKeyCode();
+    const bool octave = key.getModifiers().isShiftDown();
+    const juce::CommandID id = code == juce::KeyPress::leftKey    ? command::back
+                               : code == juce::KeyPress::rightKey ? command::forward
+                               : code == juce::KeyPress::upKey    ? (octave ? command::octaveUp : command::up)
+                               : code == juce::KeyPress::downKey  ? (octave ? command::octaveDown : command::down)
+                                                                  : 0;
+    if (id == 0)
+        return false;
+    commands_.invokeDirectly(id, false);
+    return true;
 }
 
 bool MainComponent::isInterestedInFileDrag(const juce::StringArray& files)
 {
-    const bool ok = files.size() == 1 && (files[0].endsWithIgnoreCase(".vgz") || files[0].endsWithIgnoreCase(".vgm"));
+    const bool ok = files.size() == 1
+                    && (files[0].endsWithIgnoreCase(".vgz") || files[0].endsWithIgnoreCase(".vgm") || files[0].endsWithIgnoreCase(project::kExtension)
+                       || files[0].endsWithIgnoreCase(".json"));
     dragOver_ = ok;
     repaint();
     return ok;
@@ -1242,13 +1924,18 @@ void MainComponent::filesDropped(const juce::StringArray& files, int, int)
 {
     dragOver_ = false;
     repaint();
-    open(juce::File(files[0]));
+    const juce::File file(files[0]);
+    whenSaved([this, file] { open(file); });
 }
 
 void MainComponent::updateTitle()
 {
+    // The project, or the rip opened alone, with a star while changes are not saved.
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
-        window->setName(model_.hasTune() ? model_.file().getFileName() + juce::String::fromUTF8(" \xe2\x80\x94 OPM86 Tracker") : "OPM86 Tracker");
+    {
+        window->setName(model_.hasTune() ? model_.name() + (model_.unsaved() ? "*" : "") + juce::String::fromUTF8(" \xe2\x80\x94 OPM86 Tracker")
+                                         : "OPM86 Tracker");
+    }
 }
 
 void MainComponent::parentHierarchyChanged()
@@ -1283,9 +1970,27 @@ void MainComponent::frame(double timestamp)
         resized();
     view_.followPlayhead();
     view_.updateMeters(seconds);
+    // The song took over from a key held: it no longer sounds, so it goes up.
+    if (model_.playing())
+        piano_.letGo();
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
     tools_.syncZoom();
+    // A WAV render under way shows its progress, and what came of it when it ends.
+    if (model_.exporting())
+    {
+        if (const auto result = model_.takeExportResult())
+        {
+            status_ = *result;
+            commands_.commandStatusChanged();
+            repaint();
+        }
+        else if (const int percent = juce::roundToInt(model_.exportProgress() * 100.0); percent != exportPercent_)
+        {
+            exportPercent_ = percent;
+            repaint(getLocalBounds().removeFromBottom(kStatusHeight));
+        }
+    }
     if (model_.playing() || model_.hasTune())
     {
         view_.repaint();
@@ -1298,8 +2003,592 @@ void MainComponent::frame(double timestamp)
 void MainComponent::changeListenerCallback(juce::ChangeBroadcaster*)
 {
     tools_.refresh();
+    commands_.commandStatusChanged(); // undo, save and the rest, greyed out or not
+    // A removed track takes its patch window with it, and so does one that
+    // a removal moved to another place.
+    if (patch_ && (!model_.hasTune() || patchTrack_ >= static_cast<int>(model_.tune().tracks.size())
+                   || model_.tune().tracks[static_cast<size_t>(patchTrack_)].name != patchName_))
+        closePatch();
+    if (sample_ && (!model_.hasTune() || sampleTrack_ >= static_cast<int>(model_.tune().tracks.size())
+                    || model_.tune().tracks[static_cast<size_t>(sampleTrack_)].name != sampleName_))
+        closeSample();
     status_.clear();
+    updateTitle();
     repaint();
+}
+
+// Commands --------------------------------------------------------------------
+
+void MainComponent::getAllCommands(juce::Array<juce::CommandID>& ids)
+{
+    // In the order the menus and the shortcut sheet list them.
+    ids.addArray({ command::newSong, command::open, command::save, command::saveAs, command::exportJson, command::importJson,
+                   command::exportVgm, command::exportWav, command::exportMidi, command::cancelExport,
+                   command::undo, command::redo, command::cut, command::copy, command::paste, command::deleteNotes,
+                   command::duplicate, command::selectAll, command::up, command::down, command::octaveUp, command::octaveDown,
+                   command::fineUp, command::fineDown, command::fineUpEighth, command::fineDownEighth, command::louder, command::quieter,
+                   command::deselect, command::moveConflicts, command::setTempo, command::barOne,
+                   command::play, command::rewind, command::back, command::forward, command::loopSelection, command::loop,
+                   command::clearLoop, command::zoomIn, command::zoomOut, command::taller, command::shorter,
+                   command::fitTracks, command::fitTime, command::fitBoth, command::defaultZoom, command::keepPlayhead,
+                   command::showKeys, command::showOverview, command::showExpression, command::chip, command::shortcuts });
+}
+
+void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandInfo& info)
+{
+    constexpr int cmd = juce::ModifierKeys::commandModifier, shift = juce::ModifierKeys::shiftModifier, alt = juce::ModifierKeys::altModifier;
+    const bool song = model_.hasTune(), selected = view_.hasSelection();
+    // While a dialog is up, every command waits. The menu bar's items then
+    // leave their keys to the dialog, as a file chooser's name box needs the
+    // arrows and Space, and a second dialog cannot open over the first.
+    const bool dialog = juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0;
+    switch (id)
+    {
+        case command::newSong:
+            info.setInfo("New", "An empty song to write", "File", 0);
+            info.addDefaultKeypress('n', cmd);
+            break;
+        case command::open:
+            info.setInfo("Open...", "A VGM rip or a project", "File", 0);
+            info.addDefaultKeypress('o', cmd);
+            break;
+        case command::save:
+            info.setInfo("Save", "The project, where it was, or asked the first time", "File", 0);
+            info.addDefaultKeypress('s', cmd);
+            info.setActive(song);
+            break;
+        case command::saveAs:
+            info.setInfo("Save As...", "The project, somewhere new", "File", 0);
+            info.addDefaultKeypress('s', cmd | shift);
+            info.setActive(song);
+            break;
+        case command::exportJson:
+            info.setInfo("Export as JSON...", "The project as JSON", "File", 0);
+            info.setActive(song);
+            break;
+        case command::importJson:
+            info.setInfo("Import JSON...", "A project's JSON", "File", 0);
+            break;
+        case command::exportVgm:
+            info.setInfo("Export VGM...", "The song as it sounds here, edits and mix in its writes, for any VGM player", "File", 0);
+            info.setActive(song);
+            break;
+        case command::exportWav:
+            info.setInfo("Export WAV...", "The song as it sounds here, rendered as audio", "File", 0);
+            info.setActive(song && !model_.exporting());
+            break;
+        case command::exportMidi:
+            info.setInfo("Export MIDI...", "The notes, for a music program; MIDI does not carry the FM sound", "File", 0);
+            info.setActive(song);
+            break;
+        case command::cancelExport:
+            info.setInfo("Cancel Export", "Stops the WAV render under way", "File", 0);
+            info.addDefaultKeypress('.', cmd);
+            info.setActive(model_.exporting());
+            break;
+        case command::undo:
+            info.setInfo("Undo", "The last edit", "Edit", 0);
+            info.addDefaultKeypress('z', cmd);
+            info.setActive(model_.undo().canUndo());
+            if (model_.undo().canUndo())
+                info.shortName = "Undo " + model_.undo().getUndoDescription();
+            break;
+        case command::redo:
+            info.setInfo("Redo", "The last edit undone", "Edit", 0);
+            info.addDefaultKeypress('z', cmd | shift);
+            info.setActive(model_.undo().canRedo());
+            if (model_.undo().canRedo())
+                info.shortName = "Redo " + model_.undo().getRedoDescription();
+            break;
+        case command::cut:
+            info.setInfo("Cut", "The selected notes, to paste elsewhere", "Edit", 0);
+            info.addDefaultKeypress('x', cmd);
+            info.setActive(selected);
+            break;
+        case command::copy:
+            info.setInfo("Copy", "The selected notes, with their tracks and voices", "Edit", 0);
+            info.addDefaultKeypress('c', cmd);
+            info.setActive(selected);
+            break;
+        case command::paste:
+            info.setInfo("Paste", "The copied notes at the playhead, in their tracks or the row clicked", "Edit", 0);
+            info.addDefaultKeypress('v', cmd);
+            info.setActive(view_.canPaste());
+            break;
+        case command::deleteNotes:
+            info.setInfo("Delete Notes", "The selected notes", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+            info.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
+            info.setActive(selected);
+            break;
+        case command::duplicate:
+            info.setInfo("Duplicate", "The selected notes, after them", "Edit", 0);
+            info.addDefaultKeypress('d', cmd);
+            info.setActive(selected);
+            break;
+        case command::selectAll:
+            info.setInfo("Select All", "Every note", "Edit", 0);
+            info.addDefaultKeypress('a', cmd);
+            info.setActive(song);
+            break;
+        case command::up:
+            info.setInfo("Transpose Up", "The selected notes, a semitone", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::upKey, 0);
+            info.setActive(selected);
+            break;
+        case command::down:
+            info.setInfo("Transpose Down", "The selected notes, a semitone", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::downKey, 0);
+            info.setActive(selected);
+            break;
+        case command::octaveUp:
+            info.setInfo("Transpose Up an Octave", "The selected notes", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::upKey, shift);
+            info.setActive(selected);
+            break;
+        case command::octaveDown:
+            info.setInfo("Transpose Down an Octave", "The selected notes", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::downKey, shift);
+            info.setActive(selected);
+            break;
+        case command::fineUp:
+        case command::fineDown:
+        case command::fineUpEighth:
+        case command::fineDownEighth:
+        {
+            const bool up = id == command::fineUp || id == command::fineUpEighth;
+            const bool eighth = id == command::fineUpEighth || id == command::fineDownEighth;
+            info.setInfo(juce::String("Fine Tune ") + (up ? "Up" : "Down") + (eighth ? " an Eighth" : ""),
+                         eighth ? "The selected notes, an eighth of a semitone" : "The selected notes, a 64th of a semitone", "Edit", 0);
+            info.addDefaultKeypress(up ? juce::KeyPress::upKey : juce::KeyPress::downKey, eighth ? alt | shift : alt);
+            info.setActive(selected);
+            break;
+        }
+        case command::louder:
+            info.setInfo("Louder", "The selected notes' velocity, 0.75 dB up", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::upKey, cmd | alt);
+            info.setActive(selected);
+            break;
+        case command::quieter:
+            info.setInfo("Quieter", "The selected notes' velocity, 0.75 dB down", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::downKey, cmd | alt);
+            info.setActive(selected);
+            break;
+        case command::deselect:
+            info.setInfo("Deselect", "No note selected", "Edit", 0);
+            info.addDefaultKeypress(juce::KeyPress::escapeKey, 0);
+            info.setActive(selected);
+            break;
+        case command::moveConflicts:
+            info.setInfo("Move Conflicts to Free Voices", "Each note whose voice is busy, to the free voice it plays on", "Edit", 0);
+            info.setActive(song);
+            break;
+        case command::setTempo:
+            info.setInfo("Set Tempo...", "The tempo and beats per bar, from the BPM counter", "Song", 0);
+            info.setActive(song);
+            break;
+        case command::barOne:
+            info.setInfo("Bar 1 Here", "Bar 1 starts at the playhead", "Song", 0);
+            info.setActive(song);
+            break;
+        case command::play:
+            info.setInfo("Play/Stop", "Plays from the playhead, or stops", "Transport", 0);
+            info.addDefaultKeypress(juce::KeyPress::spaceKey, 0);
+            info.setActive(song);
+            break;
+        case command::rewind:
+            info.setInfo("Rewind", "Back to the song's start", "Transport", 0);
+            info.addDefaultKeypress(juce::KeyPress::returnKey, 0);
+            info.addDefaultKeypress(juce::KeyPress::homeKey, 0);
+            info.setActive(song);
+            break;
+        case command::back:
+        case command::forward:
+        {
+            // With notes selected, the arrows move them instead.
+            const bool back = id == command::back;
+            info.setInfo(back ? "Back a Step" : "Forward a Step", "The playhead one snap step; with notes selected, the notes", "Transport", 0);
+            if (selected)
+                info.shortName = back ? "Move Notes Back a Step" : "Move Notes Forward a Step";
+            info.addDefaultKeypress(back ? juce::KeyPress::leftKey : juce::KeyPress::rightKey, 0);
+            info.setActive(song);
+            break;
+        }
+        case command::loopSelection:
+            info.setInfo("Loop Selection", "The selected notes' span, out to the snap grid", "Transport", 0);
+            info.addDefaultKeypress('l', cmd);
+            info.setActive(selected);
+            break;
+        case command::loop:
+            info.setInfo("Loop", "Playback repeats the loop; with none, the selection's or the bar's at the playhead", "Transport", 0);
+            info.addDefaultKeypress('l', cmd | shift);
+            info.setTicked(song && model_.loop().active());
+            info.setActive(song);
+            break;
+        case command::clearLoop:
+            info.setInfo("Clear Loop", "No loop", "Transport", 0);
+            info.setActive(song && model_.loop().valid());
+            break;
+        case command::zoomIn:
+            info.setInfo("Zoom In", "Time, around the middle", "View", 0);
+            info.addDefaultKeypress('=', cmd);
+            info.setActive(song);
+            break;
+        case command::zoomOut:
+            info.setInfo("Zoom Out", "Time, around the middle", "View", 0);
+            info.addDefaultKeypress('-', cmd);
+            info.setActive(song);
+            break;
+        case command::taller:
+            info.setInfo("Taller Tracks", "Every lane", "View", 0);
+            info.addDefaultKeypress('=', cmd | alt);
+            info.setActive(song);
+            break;
+        case command::shorter:
+            info.setInfo("Shorter Tracks", "Every lane", "View", 0);
+            info.addDefaultKeypress('-', cmd | alt);
+            info.setActive(song);
+            break;
+        case command::fitTracks:
+            info.setInfo("Fit Tracks", "Every track down", "View", 0);
+            info.setActive(song);
+            break;
+        case command::fitTime:
+            info.setInfo("Fit Time", "The whole song across", "View", 0);
+            info.setActive(song);
+            break;
+        case command::fitBoth:
+            info.setInfo("Fit Both", "Every track and the whole song", "View", 0);
+            info.setActive(song);
+            break;
+        case command::defaultZoom:
+            info.setInfo("Default Zoom", "Both zooms back to their homes", "View", 0);
+            info.setActive(song);
+            break;
+        case command::keepPlayhead:
+            info.setInfo("Keep Playhead", "The playhead never fades", "View", 0);
+            info.setTicked(tools_.keepsPlayhead());
+            break;
+        case command::showKeys:
+            info.setInfo("Show Keys", "The keyboard under the tracks", "View", 0);
+            info.setTicked(piano_.isOpen());
+            break;
+        case command::showOverview:
+            info.setInfo("Show Overview", "The whole song under the keys", "View", 0);
+            info.setTicked(overview_.isOpen());
+            break;
+        case command::showExpression:
+            info.setInfo("Show Note Expression", "Each ripped note's pitch line and level shading", "View", 0);
+            info.setTicked(view_.showsExpression());
+            break;
+        case command::chip:
+            info.setInfo("Chip", "The LFO and noise every voice shares", "View", 0);
+            info.setTicked(chip_ != nullptr);
+            info.setActive(song);
+            break;
+        case command::shortcuts:
+            info.setInfo("Keyboard Shortcuts", "Every command and its keys", "Help", 0);
+            info.addDefaultKeypress('?', shift);
+            break;
+        default:
+            break;
+    }
+    if (dialog)
+        info.setActive(false);
+}
+
+bool MainComponent::perform(const InvocationInfo& info)
+{
+    view_.wake();
+    switch (info.commandID)
+    {
+        case command::newSong: whenSaved([this] { newSong(); }); break;
+        case command::open: whenSaved([this] { openDialog(); }); break;
+        case command::save: save(); break;
+        case command::saveAs: saveAs(); break;
+        case command::exportJson: exportJson(); break;
+        case command::importJson: whenSaved([this] { importJson(); }); break;
+        case command::exportVgm: exportVgm(); break;
+        case command::exportWav: exportWav(); break;
+        case command::exportMidi: exportMidi(); break;
+        case command::cancelExport: model_.cancelExport(); break;
+        case command::undo: model_.undoStep(); break;
+        case command::redo: model_.undoStep(true); break;
+        case command::cut: view_.cutSelection(); break;
+        case command::copy: view_.copySelection(); break;
+        case command::paste: view_.paste(); break;
+        case command::deleteNotes: view_.deleteSelection(); break;
+        case command::duplicate: view_.duplicateSelection(); break;
+        case command::selectAll: view_.selectAll(); break;
+        case command::up: view_.transposeSelection(1); break;
+        case command::down: view_.transposeSelection(-1); break;
+        case command::octaveUp: view_.transposeSelection(12); break;
+        case command::octaveDown: view_.transposeSelection(-12); break;
+        case command::fineUp: view_.fineTuneSelection(1); break;
+        case command::fineDown: view_.fineTuneSelection(-1); break;
+        case command::fineUpEighth: view_.fineTuneSelection(8); break;
+        case command::fineDownEighth: view_.fineTuneSelection(-8); break;
+        case command::louder: view_.changeVelocity(1); break;
+        case command::quieter: view_.changeVelocity(-1); break;
+        case command::deselect: view_.deselect(); break;
+        case command::moveConflicts: view_.moveConflicts(); break;
+        case command::play:
+            if (model_.playing())
+                model_.stop();
+            else
+                model_.play();
+            break;
+        case command::rewind: top_.rewind(); break;
+        case command::setTempo: top_.showTempo(); break;
+        case command::barOne: model_.barOneHere(); break;
+        case command::loopSelection:
+            if (const LoopRegion loop = view_.selectionLoop(); loop.valid())
+                model_.setLoop(loop);
+            break;
+        case command::loop:
+            if (model_.hasTune())
+                model_.setLoop(toggledLoop());
+            break;
+        case command::clearLoop:
+            if (model_.hasTune())
+                model_.setLoop({});
+            break;
+        case command::back: view_.step(-1); break;
+        case command::forward: view_.step(1); break;
+        case command::zoomIn: view_.zoomAround(1.5, view_.middle()); break;
+        case command::zoomOut: view_.zoomAround(1 / 1.5, view_.middle()); break;
+        case command::taller: view_.zoomLanes(1.3, TrackerView::kRulerHeight); break;
+        case command::shorter: view_.zoomLanes(1 / 1.3, TrackerView::kRulerHeight); break;
+        case command::fitTracks: view_.fitTracks(); break;
+        case command::fitTime: view_.fitTime(); break;
+        case command::fitBoth: view_.fitTracks(), view_.fitTime(); break;
+        case command::defaultZoom: tools_.defaultZoom(); break;
+        case command::keepPlayhead: tools_.setKeepPlayhead(!tools_.keepsPlayhead()); break;
+        case command::showKeys: piano_.setOpen(!piano_.isOpen()); break;
+        case command::showOverview: overview_.setOpen(!overview_.isOpen()); break;
+        case command::showExpression: view_.setShowExpression(!view_.showsExpression()); break;
+        case command::chip:
+            if (chip_)
+                closeChip();
+            else if (model_.hasTune())
+                openChip();
+            break;
+        case command::shortcuts: showShortcuts(); break;
+        default: return false;
+    }
+    commands_.commandStatusChanged(); // a selection, a toggle or a strip changed
+    return true;
+}
+
+LoopRegion MainComponent::toggledLoop() const
+{
+    LoopRegion loop = model_.loop();
+    if (loop.valid())
+    {
+        loop.on = !loop.on;
+        return loop;
+    }
+    // With none yet, the selection's span, else the bar the playhead is in.
+    loop = view_.selectionLoop();
+    if (loop.valid())
+        return loop;
+    const Tune& tune = model_.tune();
+    const double bar = tune.barLength();
+    const double start = tune.firstBeat() + std::floor((model_.position() - tune.firstBeat()) / bar) * bar;
+    loop.start = std::max<int64_t>(0, std::llround(start));
+    loop.end = std::llround(start + bar);
+    loop.on = loop.valid();
+    return loop;
+}
+
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { "File", "Edit", "Song", "Transport", "View", "Help" };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex(int index, const juce::String&)
+{
+    // Each menu its category's commands, in groups.
+    using Group = std::vector<juce::CommandID>;
+    static const std::vector<std::vector<Group>> menus = {
+        { { command::newSong, command::open }, { command::save, command::saveAs }, { command::exportJson, command::importJson } },
+        { { command::undo, command::redo },
+          { command::cut, command::copy, command::paste },
+          { command::deleteNotes, command::duplicate, command::selectAll, command::deselect },
+          { command::up, command::down, command::octaveUp, command::octaveDown },
+          { command::fineUp, command::fineDown, command::fineUpEighth, command::fineDownEighth, command::louder, command::quieter },
+          { command::moveConflicts } },
+        { { command::setTempo, command::barOne } },
+        { { command::play, command::rewind }, { command::back, command::forward }, { command::loopSelection, command::loop, command::clearLoop } },
+        { { command::zoomIn, command::zoomOut, command::taller, command::shorter },
+          { command::fitTracks, command::fitTime, command::fitBoth, command::defaultZoom },
+          { command::keepPlayhead, command::showKeys, command::showOverview, command::showExpression },
+          { command::chip } },
+        { { command::shortcuts } },
+    };
+    juce::PopupMenu menu;
+    if (index < 0 || index >= static_cast<int>(menus.size()))
+        return menu;
+    const auto& groups = menus[static_cast<size_t>(index)];
+    for (size_t g = 0; g < groups.size(); ++g)
+    {
+        if (menu.getNumItems() > 0)
+            menu.addSeparator();
+        for (const juce::CommandID id : groups[g])
+            menu.addCommandItem(&commands_, id);
+        // The File menu's exports, in a menu of their own after saving.
+        if (index == 0 && g == 1)
+        {
+            juce::PopupMenu exports;
+            exports.addCommandItem(&commands_, command::exportVgm, "VGM...");
+            exports.addCommandItem(&commands_, command::exportWav, "WAV...");
+            exports.addCommandItem(&commands_, command::exportMidi, "MIDI...");
+            exports.addSeparator();
+            exports.addCommandItem(&commands_, command::cancelExport);
+            menu.addSeparator();
+            menu.addSubMenu("Export", exports, model_.hasTune());
+        }
+    }
+    return menu;
+}
+
+void MainComponent::showShortcuts()
+{
+    // Made again each time, from the keys as they are now.
+    if (shortcuts_ && shortcuts_->isVisible())
+        return shortcuts_->toFront(true);
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Keyboard Shortcuts";
+    options.dialogBackgroundColour = theme::panel;
+    options.content.setOwned(new ShortcutSheet(commands_));
+    options.componentToCentreAround = this;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    shortcuts_.reset(options.create());
+    shortcuts_->setLookAndFeel(look_.get());
+    shortcuts_->setVisible(true);
+}
+
+// ShortcutSheet ---------------------------------------------------------------
+
+namespace
+{
+constexpr int kSheetPad = 20, kSheetColumn = 330, kSheetGap = 24;
+constexpr int kSheetTitle = 30, kSheetRow = 24, kSheetSpace = 14; // a category's title, each command, and the gap after it
+} // namespace
+
+ShortcutSheet::ShortcutSheet(juce::ApplicationCommandManager& commands) : commands_(commands)
+{
+    // The categories in three columns of about one height: the longest first
+    // into the shortest column, then each column in the commands' order.
+    const auto categories = commands_.getCommandCategories();
+    std::vector<int> order(static_cast<size_t>(categories.size()));
+    std::iota(order.begin(), order.end(), 0);
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return categoryHeight(categories[a]) > categoryHeight(categories[b]); });
+    columns_.resize(static_cast<size_t>(std::min(3, categories.size())));
+    std::vector<std::vector<int>> placed(columns_.size());
+    for (const int c : order)
+    {
+        auto shortest = std::min_element(columns_.begin(), columns_.end(), [](const Column& a, const Column& b) { return a.height < b.height; });
+        shortest->height += categoryHeight(categories[c]);
+        placed[static_cast<size_t>(shortest - columns_.begin())].push_back(c);
+    }
+    for (size_t k = 0; k < columns_.size(); ++k)
+    {
+        std::sort(placed[k].begin(), placed[k].end());
+        for (const int c : placed[k])
+            columns_[k].categories.add(categories[c]);
+    }
+    // Columns in the order of their first category.
+    std::sort(columns_.begin(), columns_.end(), [&](const Column& a, const Column& b) {
+        return categories.indexOf(a.categories[0]) < categories.indexOf(b.categories[0]);
+    });
+    int tallest = 0;
+    for (const auto& column : columns_)
+        tallest = std::max(tallest, column.height);
+    const int count = static_cast<int>(columns_.size());
+    setSize(2 * kSheetPad + count * kSheetColumn + (count - 1) * kSheetGap, 2 * kSheetPad + tallest - kSheetSpace);
+}
+
+int ShortcutSheet::categoryHeight(const juce::String& category) const
+{
+    return kSheetTitle + static_cast<int>(commands_.getCommandsInCategory(category).size()) * kSheetRow + kSheetSpace;
+}
+
+juce::String ShortcutSheet::describe(const juce::KeyPress& key)
+{
+    const auto mods = key.getModifiers();
+    const int code = key.getKeyCode();
+    juce::String text;
+    if (mods.isCommandDown())
+        text << "Cmd+";
+    if (mods.isCtrlDown() && !mods.isCommandDown())
+        text << "Ctrl+";
+    if (mods.isAltDown())
+        text << "Option+";
+    // Shift that only makes a sign, as for "?", goes without saying.
+    const bool sign = code < 128 && juce::CharacterFunctions::isPrintable(static_cast<juce::juce_wchar>(code))
+                      && !juce::CharacterFunctions::isLetterOrDigit(static_cast<juce::juce_wchar>(code));
+    if (mods.isShiftDown() && !sign)
+        text << "Shift+";
+    using Named = std::pair<int, const char*>;
+    for (const auto& [special, name] : { Named { juce::KeyPress::spaceKey, "Space" }, Named { juce::KeyPress::returnKey, "Return" },
+                                         Named { juce::KeyPress::homeKey, "Home" }, Named { juce::KeyPress::deleteKey, "Delete" },
+                                         Named { juce::KeyPress::backspaceKey, "Backspace" }, Named { juce::KeyPress::escapeKey, "Escape" },
+                                         Named { juce::KeyPress::leftKey, "Left" }, Named { juce::KeyPress::rightKey, "Right" },
+                                         Named { juce::KeyPress::upKey, "Up" }, Named { juce::KeyPress::downKey, "Down" } })
+        if (code == special)
+            return text + name;
+    return text + juce::String::charToString(static_cast<juce::juce_wchar>(code)).toUpperCase();
+}
+
+void ShortcutSheet::paint(juce::Graphics& g)
+{
+    g.fillAll(theme::panel);
+    static const juce::Colour accents[] = { theme::orange, theme::magenta, theme::cyan };
+    int x = kSheetPad;
+    int colour = 0;
+    for (const auto& column : columns_)
+    {
+        int y = kSheetPad;
+        for (const auto& category : column.categories)
+        {
+            // The category's title in the pixel font, a line under it, then
+            // a row per command: its name, and its keys as key caps at the right.
+            g.setColour(accents[colour++ % 3]);
+            g.setFont(theme::pixel(9.0f));
+            g.drawText(category.toUpperCase(), x, y, kSheetColumn, kSheetTitle - 10, juce::Justification::centredLeft, false);
+            g.setColour(theme::grid);
+            g.fillRect(x, y + kSheetTitle - 7, kSheetColumn, 1);
+            y += kSheetTitle;
+            for (const juce::CommandID id : commands_.getCommandsInCategory(category))
+            {
+                auto row = juce::Rectangle<int>(x, y, kSheetColumn, kSheetRow);
+                const auto keys = commands_.getKeyMappings()->getKeyPressesAssignedToCommand(id);
+                for (int k = keys.size(); --k >= 0;)
+                {
+                    const juce::String label = describe(keys[k]);
+                    const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), label) + 12;
+                    const auto cap = row.removeFromRight(w).withSizeKeepingCentre(w, 18).toFloat();
+                    row.removeFromRight(4);
+                    g.setColour(theme::background);
+                    g.fillRoundedRectangle(cap, 4.0f);
+                    g.setColour(theme::gridBar);
+                    g.drawRoundedRectangle(cap.reduced(0.5f), 4.0f, 1.0f);
+                    g.setColour(theme::text);
+                    g.setFont(theme::mono(12.0f, true));
+                    g.drawText(label, cap, juce::Justification::centred, false);
+                }
+                g.setColour(keys.isEmpty() ? theme::dim : theme::text);
+                g.setFont(theme::mono(13.0f, true));
+                g.drawText(commands_.getNameOfCommand(id), row, juce::Justification::centredLeft, true);
+                y += kSheetRow;
+            }
+            y += kSheetSpace;
+        }
+        x += kSheetColumn + kSheetGap;
+    }
 }
 
 } // namespace opm86

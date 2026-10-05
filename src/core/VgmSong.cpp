@@ -37,8 +37,13 @@ public:
         }
     }
 
-    void pcmRom(const uint8_t* data, size_t size, uint32_t, uint32_t start) override
+    void pcmRom(const uint8_t* data, size_t size, uint32_t romSize, uint32_t start) override
     {
+        // A board with more than 512 KB of samples, as its header's banking
+        // reaches, keeps them all, up to the chip's 16 MB address space.
+        const size_t wanted = std::min<size_t>(std::max<size_t>(romSize, start + size), kMaxRom);
+        if (song_.rom.size() < wanted)
+            song_.rom.resize(wanted, 0x80);
         for (size_t i = 0; i < size && start + i < song_.rom.size(); ++i)
             song_.rom[start + i] = data[i];
     }
@@ -47,6 +52,7 @@ public:
     std::vector<uint32_t> onsets;
 
 private:
+    static constexpr size_t kMaxRom = 0x1000000;
     VgmSong& song_;
     uint32_t time_ = 0;
 };

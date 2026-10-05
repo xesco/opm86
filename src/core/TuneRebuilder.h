@@ -20,6 +20,20 @@ namespace opm86
 // silent when the note is not heard.
 std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report);
 
+// When each FM chip channel plays one track's notes, over time, as the
+// report has the build put them: gain 1 from the start of each of its notes
+// and 0 from the start of any other track's, for a display that follows one
+// track (SongPlayer::setProbe).
+std::shared_ptr<ChannelMix> ownerOf(const Tune& tune, const BuildReport& report, int track);
+
+// The tune's edited instruments, for the player (SongPlayer::setPatchEdits):
+// which track each FM channel plays when, as the report has the build put
+// the notes, each edited track's patch against the one imported, and the
+// chip's edited LFO and noise. With mutedTrack, that track's operators in
+// muted are left out of its key ons to audition the others (see
+// PatchEdits::muted). None when nothing is edited or muted.
+std::shared_ptr<PatchEdits> patchEditsOf(const Tune& tune, const BuildReport& report, int mutedTrack = -1, uint8_t muted = 0);
+
 // A built version of a tune, ready for the player.
 struct TuneVersion
 {

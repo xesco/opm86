@@ -57,7 +57,7 @@ void Engine::setBank(std::shared_ptr<const PcmBank> bank)
         return;
     bank_ = std::move(bank);
     pcm_.reset();
-    pcm_.setRom(bank_->rom.data());
+    pcm_.setRom(bank_->rom.data(), bank_->rom.size());
 }
 
 void Engine::handleMidi(const uint8_t* data, int size)

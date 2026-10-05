@@ -191,6 +191,29 @@ tempo 127.19 BPM; set the project to 127 BPM
   Drums
 ```
 
+### export
+
+The `export` command writes a song as the tracker app plays it, with the instruments you
+edited and the volume, mute and solo of each track. The command reads a project that the
+tracker app saved, as a binary `.opm86` file or as JSON. The command also reads a VGM file
+alone, and then writes the song as the game plays it. The extension of the output file
+chooses what the command writes:
+
+| Extension | What the file holds |
+| --- | --- |
+| `.vgz` or `.vgm` | The chips' commands with every edit in them, so any VGM player plays the song; a `.vgz` file is compressed |
+| `.wav` | The sound of the song, rendered as the tracker app plays it |
+| `.mid` | The notes of the song, without the FM sound of the edited instruments |
+
+An exported VGM file can differ slightly from what the tracker app plays, because the chips
+set a volume only in steps of 0.75dB. A WAV file has no such difference, because the
+command renders the WAV file with the tracker app's own player.
+
+```sh
+$ opm86 export shower.opm86 shower.wav
+wrote shower.wav: 5:58, 16-bit, 44100 Hz
+```
+
 ### patches
 
 The `patches` command lists the patches and the drum pads with the options applied. A
@@ -232,8 +255,9 @@ worst error 1.4 cents
 ### Options
 
 These options apply to `play`, `render`, `demo` and `patches`, and none of them is
-required. The `vgmplay` command takes only `--rate` and `--tail`, `songtrack` takes only
-`--mix`, and `vgm2mid` takes none.
+required. The `vgmplay` command takes only `--rate` and `--tail`, `export` takes only
+`--rate`, `--bits` and `--loop`, `songtrack` takes only `--mix`, and `vgm2mid` takes none.
+The `export` command uses these three options only when the output is a WAV file.
 
 | Option | What it does | Default |
 | --- | --- | --- |
@@ -241,7 +265,9 @@ required. The `vgmplay` command takes only `--rate` and `--tail`, `songtrack` ta
 | `--vgm FILE` | Imports patches and drum samples from a VGM file (see [Import sounds from a VGM file](#import-sounds-from-a-vgm-file)) | None |
 | `--pad NOTE=FILE` | Puts an audio file, such as WAV, AIFF or FLAC, on the pad for NOTE, from 36 to 51; repeat it for more pads | The built-in kit |
 | `--drum-channel N` | Plays drums on MIDI channel N, on every channel when N is `all`, or on no channel when N is 0 | 10 |
-| `--rate HZ` | Sets the sample rate of `render`, `demo` and `vgmplay` | 48000 |
+| `--rate HZ` | Sets the sample rate of `render`, `demo`, `vgmplay` and `export` | 48000, and 44100 for `export` |
+| `--bits N` | Sets the sample size of the WAV file that `export` writes, 16 or 24 bits | 16 |
+| `--loop` | Makes `export` write only the part of the song that the project's loop marks, played once, when the loop is on | The whole song |
 | `--tail SECONDS` | Sets how long `render`, `demo` and `vgmplay` continue after the last event | 2 |
 | `--song FILE` | Makes `render` play a song track, with the song in FILE | None |
 | `--mix` | Makes `songtrack` write one track for the whole song instead of one per stem | One track per stem |

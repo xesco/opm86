@@ -76,11 +76,13 @@ struct PatchEntry
 struct SampleEntry
 {
     uint32_t romOffset = 0;
+    uint8_t bank = 0; // the flags' bank bits that select romOffset
     uint32_t start = 0;
     uint32_t end = 0;
     bool loop = false;
     uint32_t loopStart = 0;
     std::map<uint8_t, int> steps;
+    std::map<std::pair<uint8_t, uint8_t>, int> volumes; // left and right at each trigger
     int uses = 0;
 };
 
@@ -131,10 +133,8 @@ public:
         // The game's notes sound at the real clock, which differs from the
         // 3.579545 MHz the key codes are defined for.
         clockShift_ = header.ym2151Clock ? 12.0 * std::log2(header.ym2151Clock / 3579545.0) : 0.0;
-        // Same decoding as MAME: low byte is the bank shift, bits 16-23 extend the mask.
-        const uint32_t pcmInterface = header.segaPcmInterface;
-        shift_ = pcmInterface ? pcmInterface & 0xFF : 12;
-        mask_ = 0x70 | ((pcmInterface >> 16) & 0xFC);
+        // The banks as the chip decodes them, so a sample is cut from where it plays.
+        banking_ = SegaPcm::banking(header.segaPcmInterface);
     }
 
     bool started() const { return started_; }
@@ -322,6 +322,13 @@ public:
                 pad.data.resize(kMaxSampleBytes);
             pad.step = std::max_element(s.steps.begin(), s.steps.end(),
                                         [](auto& a, auto& b) { return a.second < b.second; })->first;
+            const auto volume = std::max_element(s.volumes.begin(), s.volumes.end(),
+                                                 [](auto& a, auto& b) { return a.second < b.second; })->first;
+            pad.left = volume.first;
+            pad.right = volume.second;
+            pad.romOffset = s.romOffset;
+            pad.bank = s.bank;
+            pad.address = static_cast<uint16_t>(s.start);
             pad.loop = s.loop && s.loopStart >= s.start && s.loopStart < s.end;
             pad.loopStart = pad.loop ? s.loopStart - s.start : 0;
             out.samples.push_back(std::move(pad));
@@ -567,7 +574,7 @@ private:
     {
         const uint8_t* r = &pcm_[ch * 8];
         const uint8_t flags = r[0x86];
-        const uint32_t romOffset = static_cast<uint32_t>(flags & mask_) << shift_;
+        const uint32_t romOffset = banking_.offset(flags);
         const uint32_t start = static_cast<uint32_t>(r[0x85]) << 8 | r[0x84];
         uint32_t end = (static_cast<uint32_t>(r[0x06]) + 1) << 8;
         if (end <= start)
@@ -576,11 +583,13 @@ private:
         const SampleKey key { romOffset, start };
         SampleEntry& s = samples_[key];
         s.romOffset = romOffset;
+        s.bank = static_cast<uint8_t>(flags & banking_.mask);
         s.start = start;
         s.end = std::max(s.end, end);
         s.loop = !(flags & 0x02);
         s.loopStart = static_cast<uint32_t>(r[0x05]) << 8 | r[0x04];
         ++s.steps[r[0x07]];
+        ++s.volumes[{ static_cast<uint8_t>(r[0x02] & 0x7F), static_cast<uint8_t>(r[0x03] & 0x7F) }];
         ++s.uses;
         return key;
     }
@@ -594,7 +603,7 @@ private:
     uint8_t amd_ = 0, pmd_ = 0;
     std::array<uint8_t, 256> pcm_ {};
     std::vector<uint8_t> rom_;
-    uint32_t shift_ = 12, mask_ = 0x70;
+    SegaPcm::Banking banking_;
     std::vector<PatchEntry> patches_;
     std::map<SampleKey, SampleEntry> samples_;
     std::vector<RawNote> notes_;

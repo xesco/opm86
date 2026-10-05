@@ -24,6 +24,14 @@ struct PadSample
     uint8_t step = 0x80;    // chip step that plays the sample at its own pitch
     bool loop = false;
     uint32_t loopStart = 0; // byte offset into data
+    // Where a sample imported from a song sits in that song's ROM: its bank's
+    // offset, the bank bits of the channel flags (register 0x86) that select
+    // it, and its start address in the bank (registers 0x84 and 0x85). The
+    // data runs from there. The game's usual volumes for it, 0-127.
+    uint32_t romOffset = 0;
+    uint8_t bank = 0;
+    uint16_t address = 0;
+    uint8_t left = 127, right = 127;
 };
 
 using PadSet = std::array<PadSample, kPads>;

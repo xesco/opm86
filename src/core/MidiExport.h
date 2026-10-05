@@ -37,10 +37,11 @@ struct MidiExport
 // One track per instrument: an FM patch, whose notes keep their YM2151
 // channel's MIDI channel when free, or one drum sound on MIDI channel 10,
 // whose notes play its pad (36 + sound). The file runs at the song's tempo
-// with a bar of lead-in, so the notes sit on a music program's beats. A
-// note's level is its velocity, at the synth's default velocity sensitivity;
-// slides, panning and later level changes are controllers. Each track sets,
-// with RPN 0, a pitch bend range wide enough for the song's widest slide.
+// and meter with a bar of lead-in, so the notes sit on a music program's
+// beats. A note's level is its velocity, at the synth's default velocity
+// sensitivity; slides, panning and later level changes are controllers. Each
+// track sets, with RPN 0, a pitch bend range wide enough for the song's
+// widest slide.
 MidiExport exportMidi(const VgmImport& song, const std::string& title);
 MidiExport exportMidi(const Arrangement& arrangement);
 
