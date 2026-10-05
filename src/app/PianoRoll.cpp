@@ -61,6 +61,7 @@ void TrackerView::setPianoRoll(int track)
         return;
     if (track == rollTrack_)
         return;
+    const bool opening = rollTrack_ < 0;
     holdKey(-1);
     drag_ = Drag::None;
     hover_ = {};
@@ -77,6 +78,9 @@ void TrackerView::setPianoRoll(int track)
     setTooltip({});
     repaint();
     sendChangeMessage();
+    // Only on opening or closing, not on moving to another track.
+    if (onPianoRoll && opening != (track < 0))
+        onPianoRoll(track >= 0);
 }
 
 void TrackerView::songOpened()

@@ -39,6 +39,7 @@ public:
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
     std::function<void(int track)> onOpenPatch;  // an FM track's gear was clicked
     std::function<void(int track)> onOpenSample; // a drum track's gear was clicked
+    std::function<void(bool open)> onPianoRoll;  // the piano roll opened or closed
     void wake(); // a mouse or key event anywhere: shows the playhead, which hides after a second without one
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
     // Each ripped note's own pitch and level moves, drawn inside its block (see Tune::expression).

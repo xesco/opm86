@@ -1474,7 +1474,24 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     overview_.openHeight = overviewHeight_;
     pianoShown_ = pianoHeight_;
     overviewShown_ = overviewHeight_;
-    piano_.onSlide = [this] { piano_.setOpen(!piano_.isOpen()); };
+    piano_.onSlide = [this] {
+        keysByRoll_ = false;
+        piano_.setOpen(!piano_.isOpen());
+    };
+    // The piano roll has its own keyboard, so the KEYS strip slides away
+    // while it is open and comes back as it was, unless it was moved meanwhile.
+    view_.onPianoRoll = [this](bool open) {
+        if (open)
+        {
+            keysByRoll_ = piano_.isOpen();
+            piano_.setOpen(false);
+        }
+        else if (keysByRoll_)
+        {
+            keysByRoll_ = false;
+            piano_.setOpen(true);
+        }
+    };
     overview_.onSlide = [this] { overview_.setOpen(!overview_.isOpen()); };
     juce::Desktop::getInstance().addGlobalMouseListener(&activity_);
     view_.onOpenPatch = [this](int track) {
@@ -2410,7 +2427,10 @@ bool MainComponent::perform(const InvocationInfo& info)
         case command::fitBoth: view_.fitTracks(), view_.fitTime(); break;
         case command::defaultZoom: tools_.defaultZoom(); break;
         case command::keepPlayhead: tools_.setKeepPlayhead(!tools_.keepsPlayhead()); break;
-        case command::showKeys: piano_.setOpen(!piano_.isOpen()); break;
+        case command::showKeys:
+            keysByRoll_ = false;
+            piano_.setOpen(!piano_.isOpen());
+            break;
         case command::showOverview: overview_.setOpen(!overview_.isOpen()); break;
         case command::showExpression: view_.setShowExpression(!view_.showsExpression()); break;
         case command::pianoRoll: view_.setPianoRoll(view_.inPianoRoll() ? -1 : view_.pianoRollTarget()); break;

@@ -381,6 +381,7 @@ private:
     int exportPercent_ = -1; // the WAV render's progress the status line shows
     bool dragOver_ = false;
     int pianoHeight_ = 66, overviewHeight_ = 54; // dragged from their first size up to twice the keys' first size
+    bool keysByRoll_ = false; // the piano roll closed the KEYS strip, to open again when the roll closes
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
     Activity activity_ { view_ };
     double lastFrame_ = 0;
