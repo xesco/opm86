@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -101,6 +101,7 @@ private:
     IconButton keepPlayhead_ { IconButton::Icon::Playhead }; // on, the playhead never fades
     IconButton follow_ { IconButton::Icon::Follow };         // on, the view follows the playhead
     IconButton loop_ { IconButton::Icon::Loop };             // on, the selection or the song plays over and over
+    IconButton order_ { IconButton::Icon::Order };           // on, the tracks go by patch, FM 1 first; off, by voice
     IconButton reset_ { IconButton::Icon::Reset }, invert_ { IconButton::Icon::Invert }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes
@@ -190,6 +191,7 @@ private:
     juce::Image density_; // drawn once per edit
     int densityRevision_ = -1;
     int colourRevision_ = -1; // the pitch colours the density was drawn with
+    bool byPatch_ = false;    // and the track order
     double grabOffset_ = 0;
     bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release

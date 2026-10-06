@@ -215,6 +215,16 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(x0 + 0.5f, y1, x0 + 4.5f, y1 - 3.0f, x0 + 4.5f, y1 + 3.0f);
             break;
         }
+        case Icon::Order: // lines of falling length, and an arrow down: sorted
+        {
+            const float x0 = box.getX() - 1.0f, y0 = box.getY() + 1.0f;
+            for (int k = 0; k < 4; ++k)
+                p.addRoundedRectangle(x0, y0 + static_cast<float>(k) * 3.6f, 10.0f - static_cast<float>(k) * 2.2f, 1.8f, 0.6f);
+            const float ax = box.getRight() - 2.0f;
+            p.addRectangle(ax - 0.75f, y0, 1.5f, 9.0f);
+            p.addTriangle(ax - 3.5f, y0 + 8.5f, ax + 3.5f, y0 + 8.5f, ax, y0 + 13.0f);
+            break;
+        }
         case Icon::Follow: // the playhead held between the view's two edges
         {
             const float x0 = box.getX() - 1.0f, x1 = box.getRight() + 1.0f, y0 = box.getY(), y1 = box.getBottom();
@@ -590,6 +600,10 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     loop_.setClickingTogglesState(true);
     loop_.setTooltip("Loop the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
+    order_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    order_.setClickingTogglesState(true);
+    order_.setTooltip("Order by patch");
+    order_.onClick = [this] { view_.setOrderByPatch(order_.getToggleState()); };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {
         if (model_.hasTune())
@@ -632,7 +646,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -816,6 +830,7 @@ void ToolBar::resized()
     button(keepPlayhead_);
     button(follow_);
     button(loop_);
+    button(order_);
     r.removeFromLeft(10);
     button(reset_);
     button(invert_);
@@ -1023,12 +1038,13 @@ void OverviewStrip::paint(juce::Graphics& g)
     // Each track a thin row; each note a tick in its pitch colour.
     if (density_.isNull() || density_.getWidth() != static_cast<int>(area.getWidth())
         || density_.getHeight() != static_cast<int>(area.getHeight()) || densityRevision_ != model_.revision()
-        || colourRevision_ != theme::pitchColoursRevision())
+        || colourRevision_ != theme::pitchColoursRevision() || byPatch_ != view_.orderByPatch())
     {
         density_ = juce::Image(juce::Image::ARGB, std::max(1, static_cast<int>(area.getWidth())),
                                std::max(1, static_cast<int>(area.getHeight())), true);
         densityRevision_ = model_.revision();
         colourRevision_ = theme::pitchColoursRevision();
+        byPatch_ = view_.orderByPatch();
         juce::Graphics d(density_);
         const float rowHeight = static_cast<float>(density_.getHeight()) / static_cast<float>(std::max<size_t>(1, tracks.size()));
         for (size_t t = 0; t < tracks.size(); ++t)
@@ -1041,7 +1057,7 @@ void OverviewStrip::paint(juce::Graphics& g)
                 const juce::Colour c = tracks[t].kind == TuneTrack::Kind::Drum ? theme::instrumentColour(static_cast<int>(t))
                                                                                : theme::pitchColour(model_.tune().pitch(tracks[t], n));
                 d.setColour(c.withAlpha(audible ? 0.75f : 0.15f));
-                d.fillRect(x0, static_cast<float>(t) * rowHeight, w, std::max(1.0f, rowHeight - 0.5f));
+                d.fillRect(x0, static_cast<float>(view_.position(static_cast<int>(t))) * rowHeight, w, std::max(1.0f, rowHeight - 0.5f));
             }
         }
     }

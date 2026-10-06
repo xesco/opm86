@@ -41,6 +41,11 @@ public:
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
     double idleSeconds() const { return (juce::Time::getMillisecondCounterHiRes() - lastActivity_) / 1000.0; } // since the last wake()
     void setFollow(bool follow) { follow_ = follow; } // off, the view stays where it is put while playing
+    // On, the FM tracks go in patch order, FM 1 first, and each header names
+    // the patch first and the voice after; off, in voice order, voice first.
+    void setOrderByPatch(bool byPatch);
+    bool orderByPatch() const { return byPatch_; }
+    int position(int track) const { return layout().position[static_cast<size_t>(track)]; } // its place top down
     bool follow() const { return follow_; }
 
     // Vertical zoom: the height of every lane, kept around the pointer.
@@ -95,6 +100,7 @@ private:
         std::vector<std::vector<int>> voices;  // per track: chip channels, one row each, when more than one
         std::vector<int> shown;                // per track: rows high, 1 for a collapsed chord part
         std::vector<int> firstRow;             // per track: rows above it; each row is one lane high
+        std::vector<int> position;             // per track: its place top down, in the order shown
         int totalRows = 0;
         int nameEnd = 0;        // the names' shared column ends here
         int knobX = 0;          // the knobs' column, right after the widest name line
@@ -145,6 +151,7 @@ private:
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
     bool follow_ = true;
+    bool byPatch_ = false;
     double head_ = 0; // the playhead when this frame began
 
     std::set<int> collapsed_; // chord parts drawn in one lane

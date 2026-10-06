@@ -14,7 +14,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
-        setResizeLimits(1160, 560, 10000, 10000); // the tool bar's controls side by side
+        setResizeLimits(1200, 560, 10000, 10000); // the tool bar's controls side by side
         setContentOwned(content.release(), true);
         centreWithSize(getWidth(), getHeight());
         setVisible(true);

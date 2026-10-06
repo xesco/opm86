@@ -13,12 +13,22 @@ namespace opm86
 namespace
 {
 
-// The width an FM part's instrument takes after solo, gap included; 0 for drums.
-int instrumentWidth(const TuneTrack& t)
+// A header's name and the tag after solo: the voice, V1 · 2, and the patch,
+// FM 6; in patch order the other way round. Drums have their name alone.
+juce::String headName(const TuneTrack& t, bool byPatch)
 {
-    return t.kind == TuneTrack::Kind::Fm
-               ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), "FM " + juce::String(t.instrument + 1))
-               : 0;
+    return byPatch && t.kind == TuneTrack::Kind::Fm ? "FM " + juce::String(t.instrument + 1) : juce::String(t.name).toUpperCase();
+}
+
+juce::String tagName(const TuneTrack& t, bool byPatch)
+{
+    return t.kind != TuneTrack::Kind::Fm ? juce::String() : byPatch ? juce::String(t.name).toUpperCase() : "FM " + juce::String(t.instrument + 1);
+}
+
+// The width an FM part's tag takes after solo, gap included; 0 for drums.
+int instrumentWidth(const TuneTrack& t, bool byPatch)
+{
+    return t.kind == TuneTrack::Kind::Fm ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), tagName(t, byPatch)) : 0;
 }
 
 // Header layout; see the comment before voicePill.
@@ -109,7 +119,6 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.voices.push_back(std::move(voices));
         const bool collapsed = layout_.rows.back() > 1 && collapsed_.count(static_cast<int>(layout_.shown.size())) > 0;
         layout_.shown.push_back(collapsed ? 1 : layout_.rows.back());
-        layout_.firstRow.push_back(layout_.totalRows);
         layout_.totalRows += layout_.shown.back();
         layout_.longest.push_back(longest);
         layout_.index.push_back(std::move(index));
@@ -117,9 +126,32 @@ const TrackerView::Layout& TrackerView::layout() const
         // The names share a column as wide as the widest, so mute, solo
         // and the instrument line up; the knobs go after the widest of those.
         const int left = kChipColumn + (layout_.rows.back() > 1 ? 28 : 14);
-        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), juce::String(t.name).toUpperCase()) + 2, 96);
+        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch_)) + 2, 96);
         layout_.nameEnd = std::max(layout_.nameEnd, left + name);
-        instrument = std::max(instrument, instrumentWidth(t));
+        instrument = std::max(instrument, instrumentWidth(t, byPatch_));
+    }
+    // The order shown: voice order as the tune has it, or with the FM tracks
+    // by patch, then by their voice and number; drums stay last.
+    std::vector<int> order(tracks.size());
+    for (size_t t = 0; t < order.size(); ++t)
+        order[t] = static_cast<int>(t);
+    if (byPatch_)
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            const TuneTrack &x = tracks[static_cast<size_t>(a)], &y = tracks[static_cast<size_t>(b)];
+            const bool xd = x.kind == TuneTrack::Kind::Drum, yd = y.kind == TuneTrack::Kind::Drum;
+            if (xd || yd)
+                return !xd && yd;
+            return x.instrument < y.instrument;
+        });
+    layout_.firstRow.assign(tracks.size(), 0);
+    layout_.position.assign(tracks.size(), 0);
+    int rowsAbove = 0;
+    for (size_t k = 0; k < order.size(); ++k)
+    {
+        const auto t = static_cast<size_t>(order[k]);
+        layout_.position[t] = static_cast<int>(k);
+        layout_.firstRow[t] = rowsAbove;
+        rowsAbove += layout_.shown[t];
     }
     layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + instrument + 8;
     // The header ends past the knobs' column and the dB under them, with
@@ -272,10 +304,10 @@ int TrackerView::yToTrack(float y) const
     if (y < kRulerHeight || !model_.hasTune())
         return -1;
     const int row = static_cast<int>((y - static_cast<float>(kRulerHeight - scrollY_)) / static_cast<float>(laneHeight_));
-    const auto& first = layout().firstRow;
-    if (row >= layout().totalRows)
-        return -1;
-    return static_cast<int>(std::upper_bound(first.begin(), first.end(), row) - first.begin()) - 1;
+    for (size_t t = 0; t < layout().firstRow.size(); ++t)
+        if (row >= layout().firstRow[t] && row < layout().firstRow[t] + layout().shown[t])
+            return static_cast<int>(t);
+    return -1;
 }
 
 int TrackerView::trackTop(int track) const
@@ -286,6 +318,14 @@ int TrackerView::trackTop(int track) const
 int TrackerView::trackHeight(int track) const
 {
     return layout().shown[static_cast<size_t>(track)] * laneHeight_;
+}
+
+void TrackerView::setOrderByPatch(bool byPatch)
+{
+    byPatch_ = byPatch;
+    layoutRevision_ = -1;
+    setScrollY(scrollY_);
+    sendChangeMessage(); // the overview follows the order
 }
 
 void TrackerView::setCollapsed(int track, bool collapsed)
@@ -462,7 +502,7 @@ juce::Rectangle<int> TrackerView::nameBounds(int track) const
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
     const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
-    const int room = right - left - 2 * (pillWidth() + 3) - 5 - (minimal() ? 0 : instrumentWidth(tr));
+    const int room = right - left - 2 * (pillWidth() + 3) - 5 - (minimal() ? 0 : instrumentWidth(tr, byPatch_));
     const int width = std::min(layout().nameEnd - left, std::max(24, room));
     const int height = minimal() ? laneHeight_ - 6 : 17;
     return { left, trackTop(track) + (laneHeight_ - (compact() ? height : kBlock)) / 2, width, height };
@@ -627,7 +667,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
         const int y = trackTop(static_cast<int>(t)), h = trackHeight(static_cast<int>(t));
         if (y > getHeight() || y + h < kRulerHeight)
             continue;
-        g.setColour(t % 2 ? theme::lane : theme::laneAlt);
+        g.setColour(layout().position[t] % 2 ? theme::lane : theme::laneAlt);
         g.fillRect(headerWidth(), y, getWidth() - headerWidth(), h);
         // Faint lines between a chord part's voices.
         g.setColour(theme::grid.withAlpha(0.3f));
@@ -804,7 +844,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         if (y > getHeight() || y + trackHeight(static_cast<int>(t)) < kRulerHeight)
             continue;
         const auto row = juce::Rectangle<int>(0, y, headerWidth() - 1, trackHeight(static_cast<int>(t)));
-        g.setColour(t % 2 ? theme::panel : theme::panelLight);
+        g.setColour(layout().position[t] % 2 ? theme::panel : theme::panelLight);
         g.fillRect(row);
 
         // The chip that plays the track, in its own column, drawn as a chip
@@ -885,16 +925,15 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         }
         g.setColour(audible ? theme::text : theme::faint);
         g.setFont(theme::mono(minimal() ? 11.0f : 13.0f, true));
-        g.drawText(juce::String(tr.name).toUpperCase(), nameBounds(ti),
-                   juce::Justification::centredLeft, true);
+        g.drawText(headName(tr, byPatch_), nameBounds(ti), juce::Justification::centredLeft, true);
         drawToggle(mute, "M", tr.mute, theme::orange);
         drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
         if (tr.kind == TuneTrack::Kind::Fm && !minimal())
         {
-            // Which instrument the voice plays.
+            // The patch the voice plays, or in patch order the voice.
             g.setColour(audible ? theme::dim : theme::faint);
             g.setFont(theme::mono(12.0f, true));
-            g.drawText("FM " + juce::String(tr.instrument + 1), juce::Rectangle<int>(pill(ti, 1).getRight() + 8, mute.getY(), 50, mute.getHeight()),
+            g.drawText(tagName(tr, byPatch_), juce::Rectangle<int>(pill(ti, 1).getRight() + 8, mute.getY(), 70, mute.getHeight()),
                        juce::Justification::centredLeft, false);
         }
 
