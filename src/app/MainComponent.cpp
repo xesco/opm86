@@ -12,7 +12,7 @@ namespace
 
 constexpr int kTopHeight = 64;
 constexpr int kToolHeight = 44;
-constexpr int kOverviewHeight = 54; // the overview's least height; it opens at 92
+constexpr int kOverviewHeight = 54; // the overview's least height; it opens at 100, as the keys do
 constexpr int kPianoHeight = 66; // the keys' least height; they open at 100
 constexpr int kStatusHeight = 30;
 
