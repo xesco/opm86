@@ -430,13 +430,18 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
                     tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
             });
     };
-    invert_.setTooltip("Invert mute and solo");
+    invert_.setTooltip("Invert solo, or mute");
     invert_.onClick = [this] {
-        if (model_.hasTune())
+        if (!model_.hasTune())
+            return;
+        const auto& tracks = model_.tune().tracks;
+        if (std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& tr) { return tr.solo || tr.mute; }))
             model_.edit("Invert mute and solo", [](Tune& tune) {
-                // Every mute and every solo button flips, each on its own.
+                // With solos, the solos flip, so the rest is heard; else the
+                // mutes flip. A second press goes back. Mutes stay with solos.
+                const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo; });
                 for (auto& tr : tune.tracks)
-                    tr.mute = !tr.mute, tr.solo = !tr.solo;
+                    (anySolo ? tr.solo : tr.mute) = !(anySolo ? tr.solo : tr.mute);
             });
     };
     instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
