@@ -916,10 +916,11 @@ PianoStrip::PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model)
 void PianoStrip::resized()
 {
     SlidingStrip::resized();
-    // At the right of the header column, level with the keys' bottom edge.
+    // Right-aligned with the chevron, level with the keys' bottom edge.
     const int bottom = content().reduced(8, 6).getBottom();
-    fewer_.setBounds(headerWidth() - 62, bottom - 22, 26, 22);
-    more_.setBounds(headerWidth() - 34, bottom - 22, 26, 22);
+    const int right = headerWidth() - 12; // the chevron's right edge
+    more_.setBounds(right - 26, bottom - 22, 26, 22);
+    fewer_.setBounds(right - 26 - 2 - 26, bottom - 22, 26, 22);
 }
 
 void PianoStrip::setOctaves(int octaves)
