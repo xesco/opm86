@@ -851,6 +851,7 @@ void OverviewStrip::contentDown(const juce::MouseEvent& e)
         grabOffset_ = view_.visibleSamples() * 0.5;
         view_.setViewStart(t - grabOffset_);
     }
+    centrePlayhead();
 }
 
 void OverviewStrip::contentDrag(const juce::MouseEvent& e)
@@ -860,6 +861,13 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
     view_.setViewStart(t - grabOffset_);
+    centrePlayhead();
+}
+
+void OverviewStrip::centrePlayhead()
+{
+    // The playhead goes to the middle of the view; playback goes on from there.
+    model_.setPosition(view_.viewStart() + view_.visibleSamples() * 0.5);
 }
 
 // PianoStrip ------------------------------------------------------------------

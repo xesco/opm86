@@ -161,7 +161,7 @@ void TrackerView::zoomAround(double factor, float x)
 
 void TrackerView::followPlayhead()
 {
-    if (model_.playing())
+    if (model_.playing() && drag_ != Drag::Pan)
         reveal(model_.displayPosition());
 }
 
@@ -941,7 +941,10 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // A click moves the playhead there; held and dragged, the hand moves the view.
     drag_ = Drag::Lanes;
+    panFrom_ = viewStart_;
+    setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
 void TrackerView::mouseDrag(const juce::MouseEvent& e)
@@ -962,15 +965,21 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
+    if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
+        drag_ = Drag::Pan;
+    if (drag_ == Drag::Pan)
+        setViewStart(panFrom_ - (p.x - dragFrom_.x) * samplesPerPixel_);
 }
 
 void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
-    // A click on the lanes puts the stopped playhead there.
-    if (finished == Drag::Lanes && e.mouseWasClicked() && !model_.playing())
+    // A click on the lanes puts the playhead there; playing goes on from it.
+    if (finished == Drag::Lanes)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
+    if (finished == Drag::Lanes || finished == Drag::Pan)
+        mouseMove(e);
     repaint();
 }
 

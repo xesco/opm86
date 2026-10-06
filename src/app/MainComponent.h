@@ -166,6 +166,7 @@ private:
     void contentDrag(const juce::MouseEvent&) override;
     juce::MouseCursor contentCursor() const override { return juce::MouseCursor::DraggingHandCursor; }
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
+    void centrePlayhead();
     double songLength() const;
     juce::Rectangle<float> lanes() const;
 

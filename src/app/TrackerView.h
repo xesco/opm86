@@ -123,7 +123,7 @@ private:
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
 
-    enum class Drag { None, Lanes, Ruler, Knob };
+    enum class Drag { None, Lanes, Pan, Ruler, Knob };
 
     AppModel& model_;
     mutable Layout layout_;
@@ -139,6 +139,7 @@ private:
     std::set<int> collapsed_; // chord parts drawn in one lane
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
+    double panFrom_ = 0;                   // the view's start when the hand took it
     int dragTrack_ = -1;                   // the track whose knob is turned
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
