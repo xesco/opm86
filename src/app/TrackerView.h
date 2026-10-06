@@ -41,6 +41,7 @@ public:
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
     void setFollow(bool follow) { follow_ = follow; } // off, the view stays where it is put while playing
     bool follow() const { return follow_; }
+    void setMagnet(bool on) { magnet_ = on; } // selection edges snap to notes' ends
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
@@ -148,6 +149,12 @@ private:
     double panFrom_ = 0;                   // the view's start when the hand took it
     double selectFrom_ = 0;                // song time where a selection drag began, or the edge held still
     int selectionEdgeAt(juce::Point<float> p) const; // 0 start, 1 end, -1 neither: within a few pixels of one
+    // With the magnet on, a note's start or end near x, and the one held:
+    // caught within kCatch pixels, let go past kRelease.
+    double attract(double songTime, float x);
+    static constexpr float kCatch = 7.0f, kRelease = 16.0f;
+    bool magnet_ = true;
+    double held_ = -1; // the note edge a dragged selection edge is held on, -1 none
     static constexpr double kGlideFrom = 60;  // pixels: a follow jump longer than this glides
     static constexpr double kGlideMs = 350;   // and takes this long
     bool gliding_ = false;
