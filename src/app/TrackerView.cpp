@@ -505,7 +505,7 @@ juce::Rectangle<int> TrackerView::nameBounds(int track) const
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
     const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
-    const int room = right - left - 2 * (pillWidth() + 3) - 5 - (minimal() ? 0 : instrumentWidth(tr, byPatch_));
+    const int room = right - left - 2 * (pillWidth() + 3) - 5 - (minimal() && !byPatch_ ? 0 : instrumentWidth(tr, byPatch_));
     const int width = std::min(layout().nameEnd - left, std::max(24, room));
     const int height = minimal() ? laneHeight_ - 6 : 17;
     return { left, trackTop(track) + (laneHeight_ - (compact() ? height : kBlock)) / 2, width, height };
@@ -931,7 +931,8 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         g.drawText(headName(tr, byPatch_), nameBounds(ti), juce::Justification::centredLeft, true);
         drawToggle(mute, "M", tr.mute, theme::orange);
         drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
-        if (tr.kind == TuneTrack::Kind::Fm && !minimal())
+        // In patch order the tag is the voice, so it stays in the smallest lanes too.
+        if (tr.kind == TuneTrack::Kind::Fm && (!minimal() || byPatch_))
         {
             // The patch the voice plays, or in patch order the voice.
             g.setColour(audible ? theme::dim : theme::faint);
