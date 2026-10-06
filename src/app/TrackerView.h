@@ -146,8 +146,8 @@ private:
     double viewStart_ = 0;
     double samplesPerPixel_ = 120;
     int scrollY_ = 0;
-    int laneHeight_ = 66;
-    double laneHeightExact_ = 66; // the zoom, unrounded, so small pinch steps add up
+    int laneHeight_ = kCompactHeight; // the smallest lanes that keep the meters
+    double laneHeightExact_ = kCompactHeight; // the zoom, unrounded, so small pinch steps add up
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
     bool follow_ = true;
