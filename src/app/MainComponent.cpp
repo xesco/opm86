@@ -957,6 +957,7 @@ void PianoStrip::paint(juce::Graphics& g)
     // Names grow with the keys: the octave on each C, and the notes sounding.
     const float octaveSize = juce::jlimit(7.0f, 24.0f, std::min(keyWidth * 0.5f, area.getHeight() * 0.32f));
     const float nameSize = juce::jlimit(13.0f, 32.0f, std::min(keyWidth * 0.6f, area.getHeight() * 0.42f));
+    const float blackNameSize = std::max(11.0f, nameSize * 0.75f); // the black keys are smaller
 
     // White keys, then black keys over them.
     float x = area.getX();
@@ -1011,14 +1012,15 @@ void PianoStrip::paint(juce::Graphics& g)
         if (!on[static_cast<size_t>(k)])
             continue;
         const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
+        const float size = black ? blackNameSize : nameSize;
         juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(theme::mono(nameSize, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
+        glyphs.addLineOfText(theme::mono(size, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
         const auto bounds = glyphs.getBoundingBox(0, -1, true);
         glyphs.moveRangeOfGlyphs(0, -1, centre - bounds.getCentreX(), bottom - bounds.getBottom());
         juce::Path text;
         glyphs.createPath(text);
         g.setColour(theme::background.withAlpha(0.85f));
-        g.strokePath(text, juce::PathStrokeType(std::max(3.0f, nameSize * 0.2f), juce::PathStrokeType::curved));
+        g.strokePath(text, juce::PathStrokeType(std::max(3.0f, size * 0.2f), juce::PathStrokeType::curved));
         g.setColour(juce::Colours::white);
         g.fillPath(text);
     }
