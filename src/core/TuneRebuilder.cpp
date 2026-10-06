@@ -37,8 +37,15 @@ std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report)
             if (ch < 0)
                 ch = tune.originalChannel(track, note);
             const size_t slot = static_cast<size_t>(ch + (drum ? 8 : 0));
+            // An FM note also takes its voice's own volume, by the channel the game played it on.
+            float gain = volume;
+            if (!drum)
+            {
+                const float voice = track.voiceVolume[static_cast<size_t>(tune.originalChannel(track, note) & 7)];
+                gain = voice <= TuneTrack::kSilent ? 0.0f : gain * std::pow(10.0f, std::min(voice, TuneTrack::kMaxVolume) / 20.0f);
+            }
             if (slot < mix->changes.size())
-                mix->changes[slot].push_back({ static_cast<double>(note.start), tune.audible(track, note) ? volume : 0.0f });
+                mix->changes[slot].push_back({ static_cast<double>(note.start), tune.audible(track, note) ? gain : 0.0f });
         }
     }
     for (auto& v : mix->changes)

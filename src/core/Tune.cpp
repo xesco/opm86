@@ -231,17 +231,28 @@ int Tune::newNoteId() const
     return id;
 }
 
+// A muted track or voice is silent, soloed or not. Otherwise, while any
+// track or voice is soloed, only the soloed ones play; a soloed track plays
+// all its voices but the muted ones.
 bool Tune::audible(const TuneTrack& track) const
 {
-    const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo; });
-    return !track.mute && (!anySolo || track.solo); // a mute wins over a solo
+    if (track.mute)
+        return false;
+    const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo || t.soloedVoices != 0; });
+    return !anySolo || track.solo || track.soloedVoices != 0;
 }
 
 bool Tune::audible(const TuneTrack& track, const TuneNote& note) const
 {
     if (!audible(track))
         return false;
-    return track.kind != TuneTrack::Kind::Fm || ((track.mutedVoices >> originalChannel(track, note)) & 1) == 0;
+    if (track.kind != TuneTrack::Kind::Fm)
+        return true;
+    const int voice = originalChannel(track, note);
+    if ((track.mutedVoices >> voice) & 1)
+        return false;
+    // A track heard for its soloed voices plays only those.
+    return track.solo || track.soloedVoices == 0 || ((track.soloedVoices >> voice) & 1);
 }
 
 std::vector<int> Tune::voices(const TuneTrack& track) const
