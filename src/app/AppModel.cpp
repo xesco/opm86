@@ -75,6 +75,8 @@ bool AppModel::open(const juce::File& file, juce::String& error)
     built_ = nullptr;
     report_ = {};
     position_.store(0.0);
+    selectionStart_.store(0.0);
+    selectionEnd_.store(0.0);
     rebuild();
     sendMix();
     sendChangeMessage();
@@ -176,9 +178,25 @@ double AppModel::displayPosition() const
     return p + elapsed * speed_.load() * kVgmRate / 1000.0;
 }
 
+void AppModel::setSelection(double start, double end)
+{
+    selectionStart_.store(std::max(0.0, std::min(start, end)));
+    selectionEnd_.store(std::max(start, end));
+    setPosition(selectionStart_.load());
+}
+
+void AppModel::clearSelection()
+{
+    selectionStart_.store(0.0);
+    selectionEnd_.store(0.0);
+    sendChangeMessage();
+}
+
 void AppModel::setPosition(double songTime)
 {
     position_.store(std::max(0.0, songTime));
+    if (hasSelection() && (position_.load() < selectionStart_.load() || position_.load() > selectionEnd_.load()))
+        selectionStart_.store(0.0), selectionEnd_.store(0.0);
     if (playing_.load())
     {
         const juce::SpinLock::ScopedLockType lock(commandLock_);
@@ -318,8 +336,29 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             position_.store(player_.position());
             positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
         }
+        // At the selection's end, or the song's with loop on: back to the
+        // start, playing on with loop and stopping there without.
+        const VgmSong* song = player_.song();
+        const bool selected = selectionEnd_.load() > selectionStart_.load();
+        if (song && playing_.load() && (selected || loop_.load()))
+        {
+            const double from = selected ? selectionStart_.load() : 0.0;
+            const double to = selected ? selectionEnd_.load() : songEnd(*song);
+            if (player_.position() >= to)
+            {
+                if (loop_.load())
+                    player_.play(from);
+                else
+                {
+                    player_.stop();
+                    playing_.store(false);
+                }
+                position_.store(from);
+                positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
+            }
+        }
         // Stop after the song's end and its releases.
-        if (const VgmSong* song = player_.song(); song && player_.position() > songEnd(*song))
+        if (song && player_.position() > songEnd(*song))
         {
             player_.stop();
             playing_.store(false);

@@ -558,6 +558,19 @@ void TrackerView::paintRuler(juce::Graphics& g)
     g.fillRect(area);
     g.setColour(theme::gridBar);
     g.fillRect(area.getX(), area.getBottom() - 1, area.getWidth(), 1);
+    // The selection, a bar along the ruler's foot.
+    if (model_.hasSelection())
+    {
+        const float x0 = std::max(static_cast<float>(area.getX()), timeToX(model_.selectionStart()));
+        const float x1 = timeToX(model_.selectionEnd());
+        if (x1 > x0)
+        {
+            g.setColour(theme::cyan.withAlpha(0.25f));
+            g.fillRect(x0, 0.0f, x1 - x0, static_cast<float>(kRulerHeight));
+            g.setColour(theme::cyan);
+            g.fillRect(x0, static_cast<float>(kRulerHeight) - 4.0f, x1 - x0, 3.0f);
+        }
+    }
 
     const VgmSong& song = model_.tune().source();
     const double beat = song.beatLength;
@@ -637,6 +650,17 @@ void TrackerView::paintLanes(juce::Graphics& g)
                 g.setColour(theme::grid.withAlpha(0.45f));
                 g.fillRect(timeToX(t0 + s * beat / 4), static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight()));
             }
+    }
+
+    // The selection, a band across every lane, edged.
+    if (model_.hasSelection())
+    {
+        const float x0 = timeToX(model_.selectionStart()), x1 = timeToX(model_.selectionEnd());
+        g.setColour(theme::cyan.withAlpha(0.10f));
+        g.fillRect(x0, static_cast<float>(kRulerHeight), x1 - x0, static_cast<float>(getHeight() - kRulerHeight));
+        g.setColour(theme::cyan.withAlpha(0.6f));
+        g.fillRect(x0, static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight() - kRulerHeight));
+        g.fillRect(x1 - 1.0f, static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight() - kRulerHeight));
     }
 
     // Notes in view.
@@ -1040,7 +1064,15 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // A click moves the playhead there; held and dragged, the hand moves the view.
+    // Stopped, a drag selects a section, and a click moves the playhead there.
+    if (!model_.playing() && !e.mods.isShiftDown())
+    {
+        drag_ = Drag::Select;
+        selectFrom_ = std::max(0.0, xToTime(p.x));
+        return;
+    }
+    // Playing, or with Shift: a click moves the playhead there; held and
+    // dragged, the hand moves the view.
     drag_ = Drag::Lanes;
     panFrom_ = viewStart_;
     setMouseCursor(juce::MouseCursor::DraggingHandCursor);
@@ -1064,6 +1096,11 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
+    if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
+    {
+        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
+        return;
+    }
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
         drag_ = Drag::Pan;
     if (drag_ == Drag::Pan)
@@ -1074,9 +1111,14 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
-    // A click on the lanes puts the playhead there; playing goes on from it.
-    if (finished == Drag::Lanes)
+    // A click on the lanes puts the playhead there, and playing goes on
+    // from it; stopped, it also drops the selection.
+    if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
+    {
+        if (finished == Drag::Select)
+            model_.clearSelection();
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
+    }
     if (finished == Drag::Lanes || finished == Drag::Pan)
         mouseMove(e);
     repaint();
@@ -1169,6 +1211,8 @@ bool TrackerView::keyPressed(const juce::KeyPress& key)
         return model_.undo().undo(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
+    if (key == juce::KeyPress::escapeKey && model_.hasSelection())
+        return model_.clearSelection(), true;
     return false;
 }
 

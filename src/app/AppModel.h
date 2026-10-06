@@ -58,6 +58,18 @@ public:
     void setSpeed(double speed) { speed_.store(speed); } // tempo, 1 as made; the pitch stays
     double speed() const { return speed_.load(); }
 
+    // A section of the song, in VGM samples: the playhead goes to its start,
+    // and playing from inside it stops at its end, or loops. Moving the
+    // playhead out of it clears it.
+    void setSelection(double start, double end);
+    void clearSelection();
+    bool hasSelection() const { return selectionEnd_.load() > selectionStart_.load(); }
+    double selectionStart() const { return selectionStart_.load(); }
+    double selectionEnd() const { return selectionEnd_.load(); }
+    // Loop: the selection over and over, or the whole song without one.
+    void setLoop(bool on) { loop_.store(on); }
+    bool loop() const { return loop_.load(); }
+
 private:
     class TracksChange;
     friend class TracksChange;
@@ -81,6 +93,8 @@ private:
     BuildReport report_;
     int reportRevision_ = 0;
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
+    std::atomic<double> selectionStart_ { 0.0 }, selectionEnd_ { 0.0 }; // empty when the end is not past the start
+    std::atomic<bool> loop_ { false };
     std::deque<TuneVersion> keep_;          // recent versions, freed here, never on the audio thread
     std::deque<std::shared_ptr<const ChannelMix>> mixes_; // and recent mixes
 

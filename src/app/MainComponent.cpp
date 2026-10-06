@@ -190,6 +190,23 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(box.getCentreX() - 5.0f, box.getY(), box.getCentreX() + 5.0f, box.getY(), box.getCentreX(), box.getY() + 6.0f);
             p.addRectangle(box.getCentreX() - 1.0f, box.getY(), 2.0f, box.getHeight());
             break;
+        case Icon::Loop: // two arrows chasing each other round
+        {
+            const float x0 = box.getX(), x1 = box.getRight(), y0 = box.getY() + 2.5f, y1 = box.getBottom() - 2.5f;
+            juce::Path round;
+            round.startNewSubPath(x0, box.getCentreY() + 1.0f);
+            round.lineTo(x0, y0 + 3.0f);
+            round.quadraticTo(x0, y0, x0 + 3.0f, y0);
+            round.lineTo(x1 - 4.0f, y0);
+            round.startNewSubPath(x1, box.getCentreY() - 1.0f);
+            round.lineTo(x1, y1 - 3.0f);
+            round.quadraticTo(x1, y1, x1 - 3.0f, y1);
+            round.lineTo(x0 + 4.0f, y1);
+            juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, round);
+            p.addTriangle(x1 - 0.5f, y0, x1 - 4.5f, y0 - 3.0f, x1 - 4.5f, y0 + 3.0f);
+            p.addTriangle(x0 + 0.5f, y1, x0 + 4.5f, y1 - 3.0f, x0 + 4.5f, y1 + 3.0f);
+            break;
+        }
         case Icon::Follow: // the playhead held between the view's two edges
         {
             const float x0 = box.getX() - 1.0f, x1 = box.getRight() + 1.0f, y0 = box.getY(), y1 = box.getBottom();
@@ -441,6 +458,10 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     follow_.setToggleState(true, juce::dontSendNotification);
     follow_.setTooltip("Follow playhead");
     follow_.onClick = [this] { view_.setFollow(follow_.getToggleState()); };
+    loop_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    loop_.setClickingTogglesState(true);
+    loop_.setTooltip("Loop the selection, or the song");
+    loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {
         if (model_.hasTune())
@@ -482,7 +503,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -583,6 +604,7 @@ void ToolBar::resized()
     };
     button(keepPlayhead_);
     button(follow_);
+    button(loop_);
     r.removeFromLeft(10);
     button(reset_);
     button(invert_);
