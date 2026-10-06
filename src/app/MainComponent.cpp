@@ -953,7 +953,7 @@ void PianoStrip::paint(juce::Graphics& g)
         whites += isBlack(k) ? 0 : 1;
     const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
-    const float blackWidth = keyWidth * 0.5f, blackHeight = area.getHeight() * 0.55f; // a black key, against a white one
+    const float blackWidth = keyWidth * 0.57f, blackHeight = area.getHeight() * 0.58f; // a black key, against a white one
 
     // White keys, then black keys over them.
     float x = area.getX();
