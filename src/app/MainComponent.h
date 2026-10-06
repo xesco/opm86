@@ -189,6 +189,7 @@ private:
     TrackerView& view_;
     juce::Image density_; // drawn once per edit
     int densityRevision_ = -1;
+    int colourRevision_ = -1; // the pitch colours the density was drawn with
     double grabOffset_ = 0;
     bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release
@@ -225,12 +226,15 @@ public:
     bool open(const juce::File& file);
     void openDialog();
     std::function<void(const juce::File&)> onOpened; // a file was opened
+    std::function<void()> onColoursChanged;            // a pitch colour was chosen or reset
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }
 
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
     bool keyPressed(const juce::KeyPress&) override;
     void parentHierarchyChanged() override;
 
@@ -273,6 +277,11 @@ private:
     std::unique_ptr<juce::FileChooser> chooser_;
     juce::String status_;
     bool dragOver_ = false;
+    // The pitch colours' legend in the status bar: a swatch per pitch class,
+    // which opens the colours to choose from, and Reset; empty when hidden.
+    std::array<juce::Rectangle<int>, 12> swatches_ {};
+    juce::Rectangle<int> resetColours_;
+    void coloursChanged();
     bool cursorHidden_ = false; // the pointer is hidden, playing without activity
     int pianoHeight_ = 92, overviewHeight_ = 92; // 70% of the greatest height, dragged between their least and greatest
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed

@@ -1022,11 +1022,13 @@ void OverviewStrip::paint(juce::Graphics& g)
     const auto& tracks = model_.tune().tracks;
     // Each track a thin row; each note a tick in its pitch colour.
     if (density_.isNull() || density_.getWidth() != static_cast<int>(area.getWidth())
-        || density_.getHeight() != static_cast<int>(area.getHeight()) || densityRevision_ != model_.revision())
+        || density_.getHeight() != static_cast<int>(area.getHeight()) || densityRevision_ != model_.revision()
+        || colourRevision_ != theme::pitchColoursRevision())
     {
         density_ = juce::Image(juce::Image::ARGB, std::max(1, static_cast<int>(area.getWidth())),
                                std::max(1, static_cast<int>(area.getHeight())), true);
         densityRevision_ = model_.revision();
+        colourRevision_ = theme::pitchColoursRevision();
         juce::Graphics d(density_);
         const float rowHeight = static_cast<float>(density_.getHeight()) / static_cast<float>(std::max<size_t>(1, tracks.size()));
         for (size_t t = 0; t < tracks.size(); ++t)
@@ -1447,9 +1449,11 @@ void MainComponent::paint(juce::Graphics& g)
         const juce::String right = conflicts ? juce::String(conflicts) + " notes have no free voice (red)" : "8 FM voices" + theme::dot() + "16 PCM voices";
         g.drawText(right, r, juce::Justification::centredRight, true);
 
-        // The pitch colours' legend in the middle, C to B, when it fits
-        // between the two texts.
-        constexpr int kSwatch = 26, kGap = 3, kWidth = 12 * kSwatch + 11 * kGap;
+        // The pitch colours' legend in the middle, C to B, and Reset after
+        // it, when they fit between the two texts.
+        constexpr int kSwatch = 26, kGap = 3, kReset = 54, kWidth = 12 * kSwatch + 11 * kGap + 8 + kReset;
+        swatches_ = {};
+        resetColours_ = {};
         const int leftEnd = r.getX() + juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), left) + 16;
         const int rightStart = r.getRight() - juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), right) - 16;
         const int x0 = std::clamp(r.getCentreX() - kWidth / 2, leftEnd, std::max(leftEnd, rightStart - kWidth));
@@ -1458,14 +1462,111 @@ void MainComponent::paint(juce::Graphics& g)
             g.setFont(theme::mono(11.0f, true));
             for (int pc = 0; pc < 12; ++pc)
             {
-                const auto swatch = juce::Rectangle<int>(x0 + pc * (kSwatch + kGap), r.getCentreY() - 8, kSwatch, 16).toFloat();
+                swatches_[static_cast<size_t>(pc)] = juce::Rectangle<int>(x0 + pc * (kSwatch + kGap), r.getCentreY() - 8, kSwatch, 16);
+                const auto swatch = swatches_[static_cast<size_t>(pc)].toFloat();
                 g.setColour(theme::pitchColour(pc));
                 g.fillRoundedRectangle(swatch, 3.0f);
                 g.setColour(theme::background);
                 g.drawText(theme::noteName(60 + pc).removeCharacters("-").dropLastCharacters(1), swatch, juce::Justification::centred);
             }
+            resetColours_ = juce::Rectangle<int>(swatches_[11].getRight() + 8, r.getCentreY() - 8, kReset, 16);
+            const bool over = resetColours_.contains(getMouseXYRelative()) && isMouseOver();
+            g.setColour(over ? theme::panelLight : theme::background);
+            g.fillRoundedRectangle(resetColours_.toFloat(), 3.0f);
+            g.setColour(theme::gridBar);
+            g.drawRoundedRectangle(resetColours_.toFloat().reduced(0.5f), 3.0f, 1.0f);
+            g.setColour(over ? theme::text : theme::dim);
+            g.drawText("RESET", resetColours_, juce::Justification::centred);
         }
     }
+}
+
+namespace
+{
+// The colours a pitch class can take, in rows of twelve; the one it has now
+// is ringed, and a click picks one and closes the box.
+class ColourGrid : public juce::Component
+{
+public:
+    ColourGrid(juce::Colour current, std::function<void(juce::Colour)> pick) : current_(current), pick_(std::move(pick))
+    {
+        setSize(12 * kCell + 2 * kPad, 3 * kCell + 2 * kPad);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto& palette = theme::pitchPalette();
+        for (size_t k = 0; k < palette.size(); ++k)
+        {
+            const auto cell = bounds(static_cast<int>(k)).toFloat();
+            g.setColour(palette[k]);
+            g.fillRoundedRectangle(cell.reduced(2.0f), 3.0f);
+            if (palette[k] == current_ || cell.contains(getMouseXYRelative().toFloat()))
+            {
+                g.setColour(palette[k] == current_ ? juce::Colours::white : theme::text.withAlpha(0.5f));
+                g.drawRoundedRectangle(cell.reduced(0.75f), 4.0f, 1.5f);
+            }
+        }
+    }
+
+    void mouseMove(const juce::MouseEvent&) override { repaint(); }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        const auto& palette = theme::pitchPalette();
+        for (size_t k = 0; k < palette.size(); ++k)
+            if (bounds(static_cast<int>(k)).contains(e.getPosition()))
+            {
+                pick_(palette[k]);
+                if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                    box->dismiss();
+                return;
+            }
+    }
+
+private:
+    static constexpr int kCell = 24, kPad = 6;
+    juce::Rectangle<int> bounds(int k) const { return { kPad + (k % 12) * kCell, kPad + (k / 12) * kCell, kCell, kCell }; }
+    juce::Colour current_;
+    std::function<void(juce::Colour)> pick_;
+};
+} // namespace
+
+void MainComponent::mouseDown(const juce::MouseEvent& e)
+{
+    // A legend swatch opens the colours for its pitch; Reset puts back the defaults.
+    for (int pc = 0; pc < 12; ++pc)
+        if (swatches_[static_cast<size_t>(pc)].contains(e.getPosition()))
+        {
+            auto grid = std::make_unique<ColourGrid>(theme::pitchColour(pc), [this, pc](juce::Colour c) {
+                theme::setPitchColour(pc, c);
+                coloursChanged();
+            });
+            juce::CallOutBox::launchAsynchronously(std::move(grid), swatches_[static_cast<size_t>(pc)] + getScreenPosition(), nullptr);
+            return;
+        }
+    if (resetColours_.contains(e.getPosition()))
+    {
+        theme::resetPitchColours();
+        coloursChanged();
+    }
+}
+
+void MainComponent::mouseMove(const juce::MouseEvent& e)
+{
+    const bool overLegend = resetColours_.contains(e.getPosition())
+                            || std::any_of(swatches_.begin(), swatches_.end(), [&](const auto& s) { return s.contains(e.getPosition()); });
+    setMouseCursor(overLegend ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    repaint(resetColours_);
+}
+
+void MainComponent::coloursChanged()
+{
+    repaint();
+    view_.repaint();
+    overview_.repaint();
+    piano_.repaint();
+    if (onColoursChanged)
+        onColoursChanged();
 }
 
 void MainComponent::paintOverChildren(juce::Graphics& g)

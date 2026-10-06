@@ -65,10 +65,16 @@ public:
         options.filenameSuffix = "settings";
         options.osxLibrarySubFolder = "Application Support";
         settings_.setStorageParameters(options);
+        if (auto* user = settings_.getUserSettings())
+            theme::setPitchColoursText(user->getValue("pitchColours")); // as chosen last time
         auto content = std::make_unique<MainComponent>();
         content->onOpened = [this](const juce::File& file) {
             if (auto* user = settings_.getUserSettings())
                 user->setValue("lastFile", file.getFullPathName()), user->saveIfNeeded();
+        };
+        content->onColoursChanged = [this] {
+            if (auto* user = settings_.getUserSettings())
+                user->setValue("pitchColours", theme::pitchColoursText()), user->saveIfNeeded();
         };
         const juce::File last(settings_.getUserSettings() ? settings_.getUserSettings()->getValue("lastFile") : juce::String());
         if (args.size() == 1 && juce::File(args[0].unquoted()).existsAsFile())
