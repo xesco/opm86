@@ -21,6 +21,22 @@ public:
     }
 
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+
+    // Keys with nothing focused, as before the first click, still play and
+    // stop; and the window coming to the front gives the view the keys.
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (auto* c = dynamic_cast<MainComponent*>(getContentComponent()))
+            return c->keyPressed(key);
+        return false;
+    }
+
+    void activeWindowStatusChanged() override
+    {
+        if (isActiveWindow() && juce::Component::getCurrentlyFocusedComponent() == nullptr)
+            if (auto* c = dynamic_cast<MainComponent*>(getContentComponent()))
+                c->view().grabKeyboardFocus();
+    }
 };
 
 class TrackerApplication : public juce::JUCEApplication
@@ -59,10 +75,7 @@ public:
             content->open(juce::File(args[0].unquoted()));
         else if (last.existsAsFile())
             content->open(last);
-        auto* shown = content.get();
         window_ = std::make_unique<MainWindow>(std::move(content));
-        // Keys reach the view only once it shows; a file opened before has not had them.
-        shown->view().grabKeyboardFocus();
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override
