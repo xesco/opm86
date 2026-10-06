@@ -1117,7 +1117,10 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     }
     if (drag_ == Drag::SelectEdge)
     {
-        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)), true);
+        // Stopped, the playhead goes with the edge while it is the start;
+        // playing, it stays unless it falls outside.
+        const double t = std::max(0.0, xToTime(p.x));
+        model_.setSelection(selectFrom_, t, model_.playing() || t > selectFrom_);
         return;
     }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
