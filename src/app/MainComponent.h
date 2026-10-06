@@ -227,7 +227,14 @@ private:
     {
         explicit Activity(TrackerView& v) : view(v) {}
         void mouseMove(const juce::MouseEvent&) override { view.wake(); }
-        void mouseDown(const juce::MouseEvent&) override { view.wake(); }
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            view.wake();
+            // A click outside a field being typed in hands the keys back to the view.
+            auto* typing = dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent());
+            if (typing != nullptr && e.originalComponent != typing && !typing->isParentOf(e.originalComponent))
+                view.grabKeyboardFocus();
+        }
         void mouseDrag(const juce::MouseEvent&) override { view.wake(); }
         void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override { view.wake(); }
         void mouseMagnify(const juce::MouseEvent&, float) override { view.wake(); }

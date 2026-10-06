@@ -1254,6 +1254,19 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     overviewShown_ = overviewHeight_;
     piano_.onSlide = [this] { piano_.setOpen(!piano_.isOpen()); };
     overview_.onSlide = [this] { overview_.setOpen(!overview_.isOpen()); };
+
+    // A click on a bar, a slider or a button keeps the keyboard where it is;
+    // otherwise it would go to the first field that takes it, the selection's start.
+    std::function<void(juce::Component&)> keepFocus = [&keepFocus](juce::Component& c) {
+        if (dynamic_cast<juce::TextEditor*>(&c) != nullptr)
+            return;
+        c.setMouseClickGrabsKeyboardFocus(false);
+        for (auto* child : c.getChildren())
+            keepFocus(*child);
+    };
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &top_, &tools_, &piano_, &overview_ })
+        keepFocus(*c);
+    setMouseClickGrabsKeyboardFocus(false);
     juce::Desktop::getInstance().addGlobalMouseListener(&activity_);
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
