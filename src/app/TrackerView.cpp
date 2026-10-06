@@ -25,7 +25,7 @@ int instrumentWidth(const TuneTrack& t)
 constexpr int kVoiceColumn = 44; // width of the voice toggles' column
 constexpr int kChipColumn = 24;  // width of the chip's column, at the left edge
 constexpr int kKnobColumn = 48;  // width of the dB under the knob
-constexpr int kKnob = 26;        // the knob's size
+constexpr int kKnob = 32;        // the knob's size
 constexpr int kBlock = 44;       // height of the name and meter block
 constexpr int kMinHeaderWidth = 150; // room for TRACKS and the strips' names and chevrons
 constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
@@ -909,7 +909,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
             g.setFont(theme::mono(10.0f, true));
             const auto knob = knobBounds(ti);
-            g.drawText(db, juce::Rectangle<int>(knob.getCentreX() - kKnobColumn / 2, knob.getBottom(), kKnobColumn, 13), juce::Justification::centred);
+            g.drawText(db, juce::Rectangle<int>(knob.getCentreX() - kKnobColumn / 2, knob.getBottom() - 1, kKnobColumn, 13), juce::Justification::centred);
         }
 
         // The meter: a dark groove of cells, always showing dimmed and lit up
