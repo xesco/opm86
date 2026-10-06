@@ -52,26 +52,8 @@ private:
     juce::Rectangle<int> counters_, fileArea_;
 };
 
-// A jog wheel: turning it, by dragging round or with the scroll wheel,
-// reports how far in turns, clockwise forward; with Shift, a quarter as far.
-class JogWheel : public juce::Component, public juce::SettableTooltipClient
-{
-public:
-    std::function<void(double turns)> onTurn;
-
-    void paint(juce::Graphics&) override;
-    void mouseDown(const juce::MouseEvent&) override;
-    void mouseDrag(const juce::MouseEvent&) override;
-    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-
-private:
-    void turn(double turns, bool fine);
-    float angleAt(juce::Point<float> p) const;
-    float angle_ = 0, lastAngle_ = 0; // radians: the wheel's, and the pointer's at the last drag
-};
-
 // The tool bar under the top bar: the playhead and follow toggles, the tracks'
-// M/S shortcuts, speed and the jog wheel, the fit buttons and the zoom sliders.
+// M/S shortcuts, speed, the fit buttons and the zoom sliders.
 class ToolBar : public juce::Component
 {
 public:
@@ -97,7 +79,6 @@ private:
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::Home }; // both zoom sliders back to their homes
     SnapSlider speed_, heightZoom_, timeZoom_;
-    JogWheel jog_;
     juce::Rectangle<int> speedCaption_, heightCaption_, timeCaption_; // labels over the sliders
 };
 

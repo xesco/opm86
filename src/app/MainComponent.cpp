@@ -397,73 +397,6 @@ void TopBar::paint(juce::Graphics& g)
         drawLed(g, c.removeFromLeft(130), "BAR.BEAT", "---.-.-", theme::faint);
 }
 
-// JogWheel --------------------------------------------------------------------
-
-float JogWheel::angleAt(juce::Point<float> p) const
-{
-    const auto c = getLocalBounds().toFloat().getCentre();
-    return std::atan2(p.y - c.y, p.x - c.x);
-}
-
-void JogWheel::turn(double turns, bool fine)
-{
-    turns *= fine ? 0.25 : 1.0;
-    angle_ += static_cast<float>(turns * juce::MathConstants<double>::twoPi);
-    repaint();
-    if (onTurn)
-        onTurn(turns);
-}
-
-void JogWheel::mouseDown(const juce::MouseEvent& e)
-{
-    lastAngle_ = angleAt(e.position);
-}
-
-void JogWheel::mouseDrag(const juce::MouseEvent& e)
-{
-    // Round the centre, by the change in the pointer's angle.
-    const float a = angleAt(e.position);
-    float d = a - lastAngle_;
-    if (d > juce::MathConstants<float>::pi)
-        d -= juce::MathConstants<float>::twoPi;
-    else if (d < -juce::MathConstants<float>::pi)
-        d += juce::MathConstants<float>::twoPi;
-    lastAngle_ = a;
-    turn(d / juce::MathConstants<float>::twoPi, e.mods.isShiftDown());
-}
-
-void JogWheel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
-{
-    // Scrolling down or right goes forward, a quarter turn for a full flick.
-    const float delta = std::abs(w.deltaX) > std::abs(w.deltaY) ? w.deltaX : -w.deltaY;
-    turn(delta * 0.25, e.mods.isShiftDown());
-}
-
-void JogWheel::paint(juce::Graphics& g)
-{
-    // A round, lit-from-above wheel with finger dimples and a cyan mark.
-    const auto box = getLocalBounds().toFloat().reduced(1.0f);
-    const float size = std::min(box.getWidth(), box.getHeight());
-    const auto face = juce::Rectangle<float>(size, size).withCentre(box.getCentre());
-    const auto c = face.getCentre();
-    const bool over = isMouseOverOrDragging();
-    g.setColour(juce::Colours::black.withAlpha(0.5f));
-    g.fillEllipse(face.translated(0.0f, 1.5f));
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff4f5378), face.getX(), face.getY(), juce::Colour(0xff23263a), face.getX(),
-                                           face.getBottom(), false));
-    g.fillEllipse(face);
-    g.setColour(over ? theme::cyan : theme::gridBar.brighter(0.3f));
-    g.drawEllipse(face.reduced(0.5f), 1.0f);
-    for (int k = 0; k < 8; ++k)
-    {
-        const auto dimple = c.getPointOnCircumference(size * 0.32f, angle_ + static_cast<float>(k) * juce::MathConstants<float>::pi / 4.0f);
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
-        g.fillEllipse(juce::Rectangle<float>(3.0f, 3.0f).withCentre(dimple));
-    }
-    g.setColour(theme::cyan);
-    g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(c.getPointOnCircumference(size * 0.32f, angle_)));
-}
-
 // ToolBar ---------------------------------------------------------------------
 
 ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
@@ -526,22 +459,6 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         model_.setSpeed(std::exp2(speed_.getValue()));
         repaint();
     };
-    jog_.setTooltip("Jog");
-    jog_.onTurn = [this](double turns) {
-        // A turn is a bar. The wheel takes over from playback, which waits
-        // for Play, and lets each place it reaches sound; the view follows.
-        if (!model_.hasTune())
-            return;
-        double from = model_.position();
-        if (model_.playing())
-        {
-            from = model_.displayPosition();
-            model_.stop();
-        }
-        model_.scrub(std::max(0.0, from + turns * model_.tune().source().beatLength * 4));
-        view_.reveal(model_.position());
-    };
-    addAndMakeVisible(jog_);
 
     // Zoom. Time goes on a log scale, right zooming in.
     timeZoom_.setRange(-std::log2(TrackerView::kMaxSamplesPerPixel), -std::log2(TrackerView::kMinSamplesPerPixel));
@@ -627,8 +544,6 @@ void ToolBar::resized()
     button(drums_);
     r.removeFromLeft(10);
     group(speed_, speedCaption_, r.removeFromLeft(140));
-    r.removeFromLeft(8);
-    jog_.setBounds(r.removeFromLeft(34).withSizeKeepingCentre(34, 34));
 
     group(timeZoom_, timeCaption_, r.removeFromRight(130));
     r.removeFromRight(14);
@@ -888,7 +803,7 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
     view_.setViewStart(t - grabOffset_);
-    // Taken from playback, each place it moves to sounds, as the jog wheel's do.
+    // Taken from playback, each place it moves to sounds for a moment.
     const double middle = view_.viewStart() + view_.visibleSamples() * 0.5;
     if (resume_)
         model_.scrub(middle);

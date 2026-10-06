@@ -51,8 +51,8 @@ public:
     // The position now, between audio blocks, for a playhead that moves smoothly.
     double displayPosition() const;
     void setPosition(double songTime);
-    // Stopped, move to a song time and let a moment of it sound, as a jog
-    // wheel does; a run of these sounds on while they come.
+    // Stopped, move to a song time and let a moment of it sound; a run of
+    // these sounds on while they come.
     void scrub(double songTime);
     void setMonitor(bool on) { monitor_.store(on); } // off: plays and meters, but outputs silence
     void setSpeed(double speed) { speed_.store(speed); } // tempo, 1 as made; the pitch stays
