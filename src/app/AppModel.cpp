@@ -1,7 +1,5 @@
 #include "AppModel.h"
 
-#include <utility>
-
 namespace opm86
 {
 
@@ -151,12 +149,8 @@ void AppModel::rebuild()
 
 void AppModel::play()
 {
-    // Before the first build is done, playing waits for it.
     if (!built_)
-    {
-        playWhenBuilt_ = true;
         return;
-    }
     const juce::SpinLock::ScopedLockType lock(commandLock_);
     commands_.play = true;
     commands_.stop = commands_.scrub = false;
@@ -165,7 +159,6 @@ void AppModel::play()
 
 void AppModel::stop()
 {
-    playWhenBuilt_ = false;
     // Stopped from now on for everyone here, while the audio thread fades out.
     playing_.store(false);
     const juce::SpinLock::ScopedLockType lock(commandLock_);
@@ -230,8 +223,6 @@ void AppModel::timerCallback()
         commands_.sameSong = same;
     }
     built_ = version->song;
-    if (std::exchange(playWhenBuilt_, false))
-        play();
     keep_.push_back(std::move(*version));
     sendMix(); // the build may have moved notes to other channels
     while (keep_.size() > 8)
@@ -292,14 +283,10 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             }
             else if (c.play)
             {
-                // Until the snapshots reach the place, as just after opening,
-                // the play waits here and is tried again each block.
                 scrubLeft_ = 0;
                 if (player_.play(c.playAt))
-                {
                     playing_.store(true);
-                    c.play = false;
-                }
+                c.play = false;
             }
         }
     }

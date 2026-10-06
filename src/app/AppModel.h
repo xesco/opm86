@@ -81,7 +81,6 @@ private:
     BuildReport report_;
     int reportRevision_ = 0;
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
-    bool playWhenBuilt_ = false;            // play was asked for before the first build
     std::deque<TuneVersion> keep_;          // recent versions, freed here, never on the audio thread
     std::deque<std::shared_ptr<const ChannelMix>> mixes_; // and recent mixes
 
