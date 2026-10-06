@@ -285,6 +285,14 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
                 p.addRectangle(board.getX() + w * static_cast<float>(k) - w * 0.3f, board.getY(), w * 0.6f, board.getHeight() * 0.6f);
             break;
         }
+        case Icon::NoteNames: // a note's name, "C4"
+        {
+            juce::GlyphArrangement glyphs;
+            glyphs.addFittedText(theme::mono(15.0f, true), "C4", 0.0f, 0.0f, static_cast<float>(getWidth()), static_cast<float>(getHeight()),
+                                 juce::Justification::centred, 1, 1.0f);
+            glyphs.createPath(p);
+            break;
+        }
         case Icon::ZoomHome: // "1:1", the zoom as it was
         {
             juce::GlyphArrangement glyphs;
@@ -1023,9 +1031,14 @@ PianoStrip::PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model)
 {
     fewer_.setTooltip("Fewer octaves");
     more_.setTooltip("More octaves");
+    names_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    names_.setClickingTogglesState(true);
+    names_.setToggleState(true, juce::dontSendNotification);
+    names_.setTooltip("Note names");
+    names_.onClick = [this] { repaint(); };
     fewer_.onClick = [this] { setOctaves(octaves_ - 1); };
     more_.onClick = [this] { setOctaves(octaves_ + 1); };
-    for (auto* b : { &fewer_, &more_ })
+    for (auto* b : { &names_, &fewer_, &more_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -1041,6 +1054,7 @@ void PianoStrip::resized()
     const int right = headerWidth() - 12; // the chevron's right edge
     more_.setBounds(right - 40, bottom - 32, 40, 32);
     fewer_.setBounds(right - 40 - 2 - 40, bottom - 32, 40, 32);
+    names_.setBounds(right - 3 * 40 - 2 * 2 - 6, bottom - 32, 40, 32);
 }
 
 void PianoStrip::setOctaves(int octaves)
@@ -1187,7 +1201,7 @@ void PianoStrip::paint(juce::Graphics& g)
         const float centre = black ? x : x + keyWidth * 0.5f;
         if (!black)
             x += keyWidth;
-        if (!on[static_cast<size_t>(k)])
+        if (!on[static_cast<size_t>(k)] || !names_.getToggleState())
             continue;
         const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
         const float size = black ? blackNameSize : nameSize;

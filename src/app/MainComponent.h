@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -191,6 +191,7 @@ private:
     int revision_ = -1;
     int octaves_ = 5;                // octaves shown, round the song's notes; fewer make bigger keys
     IconButton fewer_ { IconButton::Icon::FewerKeys }, more_ { IconButton::Icon::MoreKeys };
+    IconButton names_ { IconButton::Icon::NoteNames }; // on, the notes sounding are named under their keys
     int low_ = 36, high_ = 95; // MIDI keys shown, whole octaves C to B
 };
 
