@@ -866,7 +866,7 @@ void OverviewStrip::contentDown(const juce::MouseEvent& e)
         return;
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
-    // Playing pauses while the window is held.
+    // Playing pauses while the window is held, and its moves scrub.
     resume_ = model_.playing();
     if (resume_)
         model_.stop();
@@ -888,7 +888,12 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
     view_.setViewStart(t - grabOffset_);
-    centrePlayhead();
+    // Taken from playback, each place it moves to sounds, as the jog wheel's do.
+    const double middle = view_.viewStart() + view_.visibleSamples() * 0.5;
+    if (resume_)
+        model_.scrub(middle);
+    else
+        model_.setPosition(middle);
 }
 
 void OverviewStrip::contentUp(const juce::MouseEvent&)
