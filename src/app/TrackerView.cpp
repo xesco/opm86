@@ -161,8 +161,43 @@ void TrackerView::zoomAround(double factor, float x)
 
 void TrackerView::followPlayhead()
 {
-    if (model_.playing() && drag_ != Drag::Pan)
-        reveal(model_.displayPosition());
+    if (!model_.playing() || drag_ == Drag::Pan || !model_.hasTune())
+    {
+        gliding_ = false;
+        return;
+    }
+    // Where reveal would put the view; a jump further than kGlideFrom pixels,
+    // after a click ahead or a pan, glides there instead of cutting.
+    const double p = model_.displayPosition();
+    const double before = viewStart_;
+    reveal(p);
+    const double target = viewStart_;
+    viewStart_ = before;
+    const bool moves = std::abs(target - before) > 0.5;
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (!gliding_ && std::abs(target - before) > kGlideFrom * samplesPerPixel_)
+    {
+        gliding_ = true;
+        glideFrom_ = before;
+        glideStart_ = now;
+    }
+    if (!gliding_ || !moves)
+    {
+        gliding_ = false;
+        if (moves)
+            setViewStart(target);
+        return;
+    }
+    // Ease in and out towards the target, which moves on with the playhead.
+    const double t = (now - glideStart_) / kGlideMs;
+    if (t >= 1.0)
+    {
+        gliding_ = false;
+        setViewStart(target);
+        return;
+    }
+    const double eased = t < 0.5 ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3) / 2;
+    setViewStart(glideFrom_ + (target - glideFrom_) * eased);
 }
 
 void TrackerView::reveal(double p)

@@ -140,6 +140,10 @@ private:
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
     double panFrom_ = 0;                   // the view's start when the hand took it
+    static constexpr double kGlideFrom = 60;  // pixels: a follow jump longer than this glides
+    static constexpr double kGlideMs = 350;   // and takes this long
+    bool gliding_ = false;
+    double glideFrom_ = 0, glideStart_ = 0;   // the view's start and the time, in ms, when the glide began
     int dragTrack_ = -1;                   // the track whose knob is turned
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
