@@ -273,6 +273,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser_;
     juce::String status_;
     bool dragOver_ = false;
+    bool cursorHidden_ = false; // the pointer is hidden, playing without activity
     int pianoHeight_ = 92, overviewHeight_ = 92; // 70% of the greatest height, dragged between their least and greatest
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
     Activity activity_ { view_ };

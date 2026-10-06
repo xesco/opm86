@@ -1565,6 +1565,15 @@ void MainComponent::frame(double timestamp)
     overview_.setHeaderWidth(view_.headerWidth());
     tools_.syncZoom();
     tools_.syncSelection();
+    // While playing, the pointer hides over the window after 2s without a
+    // mouse or key event, and comes back with the next one.
+    const bool hide = model_.playing() && view_.idleSeconds() > 2.0 && isMouseOver(true);
+    if (hide != cursorHidden_)
+    {
+        auto mouse = juce::Desktop::getInstance().getMainMouseSource();
+        hide ? mouse.hideCursor() : mouse.revealCursor();
+        cursorHidden_ = hide;
+    }
     if (model_.playing() || model_.hasTune())
     {
         view_.repaint();
