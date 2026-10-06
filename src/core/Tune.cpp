@@ -279,7 +279,7 @@ int Tune::newNoteId() const
 bool Tune::audible(const TuneTrack& track) const
 {
     const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo; });
-    return anySolo ? track.solo : !track.mute;
+    return !track.mute && (!anySolo || track.solo); // a mute wins over a solo
 }
 
 bool Tune::audible(const TuneTrack& track, const TuneNote& note) const

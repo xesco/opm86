@@ -95,7 +95,7 @@ struct ArrangementMidi
     size_t skippedHits = 0;                 // drum hits of sounds beyond the 16 pads
 };
 
-// audibleOnly leaves out muted tracks, or every track but the soloed ones.
+// audibleOnly leaves out muted tracks and, with solos, every track not soloed.
 ArrangementMidi arrangementMidi(const Arrangement& arrangement, bool audibleOnly);
 
 // The pads an arrangement's drums play on: its first 16 sounds.

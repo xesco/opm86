@@ -84,7 +84,7 @@ std::string shortName(const std::string& name, const std::string& song)
 bool Arrangement::audible(const ArrTrack& track) const
 {
     const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const ArrTrack& t) { return t.solo; });
-    return anySolo ? track.solo : !track.mute;
+    return !track.mute && (!anySolo || track.solo); // a mute wins over a solo
 }
 
 Arrangement arrangementFromVgm(const VgmImport& song, const std::string& name)
