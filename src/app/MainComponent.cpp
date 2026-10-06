@@ -1039,8 +1039,8 @@ void PianoStrip::resized()
     // Right-aligned with the chevron, level with the keys' bottom edge.
     const int bottom = content().reduced(8, 6).getBottom();
     const int right = headerWidth() - 12; // the chevron's right edge
-    more_.setBounds(right - 32, bottom - 26, 32, 26);
-    fewer_.setBounds(right - 32 - 2 - 32, bottom - 26, 32, 26);
+    more_.setBounds(right - 40, bottom - 32, 40, 32);
+    fewer_.setBounds(right - 40 - 2 - 40, bottom - 32, 40, 32);
 }
 
 void PianoStrip::setOctaves(int octaves)
