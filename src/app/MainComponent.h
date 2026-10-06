@@ -173,7 +173,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int kMinOctaves = 1, kMaxOctaves = 7;
+    static constexpr int kMinOctaves = 3, kMaxOctaves = 7;
 
 private:
     void updateRange();
