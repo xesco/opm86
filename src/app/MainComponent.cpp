@@ -211,6 +211,18 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(tip.x - 3.5f, tip.y - 3.0f, tip.x + 3.0f, tip.y - 3.5f, tip.x + 0.5f, tip.y + 3.0f);
             break;
         }
+        case Icon::Invert: // two arrows, one each way
+        {
+            const auto c = box.getCentre();
+            for (const float dir : { 1.0f, -1.0f })
+            {
+                const float y = c.y - dir * 3.5f;
+                const float tip = c.x + dir * 7.0f;
+                p.addRectangle(std::min(c.x - dir * 6.0f, tip - dir * 4.0f), y - 0.75f, 9.0f, 1.5f);
+                p.addTriangle(tip, y, tip - dir * 4.5f, y - 3.5f, tip - dir * 4.5f, y + 3.5f);
+            }
+            break;
+        }
         case Icon::Instruments: // a quaver
         {
             const auto c = box.getCentre();
@@ -418,6 +430,21 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
                     tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
             });
     };
+    invert_.setTooltip("Invert mute and solo");
+    invert_.onClick = [this] {
+        if (model_.hasTune())
+            model_.edit("Invert mute and solo", [](Tune& tune) {
+                // The tracks heard now mute and the silent ones play; solos
+                // become the mutes they stand for, so a second press undoes it.
+                const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo; });
+                for (auto& tr : tune.tracks)
+                {
+                    const bool heard = !tr.mute && (!anySolo || tr.solo);
+                    tr.mute = heard;
+                    tr.solo = false;
+                }
+            });
+    };
     instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     instruments_.setTooltip("Only instruments");
     instruments_.onClick = [this] { soloOnly(Only::Instruments); };
@@ -436,7 +463,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &reset_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -539,6 +566,7 @@ void ToolBar::resized()
     button(follow_);
     r.removeFromLeft(10);
     button(reset_);
+    button(invert_);
     button(instruments_);
     button(drums_);
     r.removeFromLeft(10);
