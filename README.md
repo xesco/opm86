@@ -63,10 +63,12 @@ The build writes these files:
 | `build/OPM86_artefacts/Release/Standalone/OPM86.app` | The plugin as an application, with no host needed |
 
 To build only the command-line program and put it in the repository root as `./opm86`,
-run `make`. To build the player app and put it in the repository root as
-`OPM86 Player.app`, run `make player`, then open it with `open "OPM86 Player.app"`.
-`make all` builds both. Each configures the `build` folder the first time, and `make clean`
-removes both copies.
+run `make`. OPM86 Player is a separate Mac app that plays a game's recorded song and shows
+the notes of each track as they play. To build the app and put it in the repository root
+as `OPM86 Player.app`, run `make player`, then open it with `open "OPM86 Player.app"`.
+`make all` builds both the program and the app. Each of the three commands configures the
+`build` folder the first time, and `make clean` removes both copies from the repository
+root.
 
 A host finds a plugin only in the plugin folders of your user account, so copy the plugin
 there:

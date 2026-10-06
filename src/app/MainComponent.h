@@ -54,8 +54,9 @@ private:
     juce::Rectangle<int> counters_, fileArea_;
 };
 
-// The tool bar under the top bar: the playhead and follow toggles, the tracks'
-// M/S shortcuts, speed, the fit buttons and the zoom sliders.
+// The tool bar under the top bar: the playhead, follow and loop toggles, the
+// mix buttons, speed, the selection's start and end, the fit buttons and the
+// zoom sliders.
 class ToolBar : public juce::Component
 {
 public:
@@ -172,8 +173,8 @@ private:
     bool resume_ = false; // playing when the window was taken: plays again on release
 };
 
-// A keyboard over the song's range, lighting the keys of the notes sounding
-// at the playhead in their pitch colours.
+// A keyboard of 3 to 7 octaves round the song's notes, lighting the keys of
+// the notes sounding at the playhead in their pitch colours.
 class PianoStrip : public SlidingStrip
 {
 public:

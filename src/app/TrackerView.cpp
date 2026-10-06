@@ -558,7 +558,7 @@ void TrackerView::paintRuler(juce::Graphics& g)
     g.fillRect(area);
     g.setColour(theme::gridBar);
     g.fillRect(area.getX(), area.getBottom() - 1, area.getWidth(), 1);
-    // The selection, a bar along the ruler's foot.
+    // The selection: the ruler tinted over it, with a bar along its foot.
     if (model_.hasSelection())
     {
         const float x0 = std::max(static_cast<float>(area.getX()), timeToX(model_.selectionStart()));
@@ -1268,7 +1268,8 @@ void TrackerView::mouseMagnify(const juce::MouseEvent& e, float scale)
 
 // Keys ------------------------------------------------------------------------
 
-// Undo and redo take back mute, solo and volume; the notes cannot be edited.
+// Undo and redo take back mute, solo and volume, and Escape drops the
+// selection; the notes cannot be edited.
 bool TrackerView::keyPressed(const juce::KeyPress& key)
 {
     wake();

@@ -504,8 +504,9 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         const auto& tracks = model_.tune().tracks;
         if (std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& tr) { return tr.solo || tr.mute; }))
             model_.edit("Invert mute and solo", [](Tune& tune) {
-                // With solos, the solos flip, so the rest is heard; else the
-                // mutes flip. A second press goes back. Mutes stay with solos.
+                // With solos, the solos flip, so the rest is heard, and the
+                // mutes stay as they are; without, the mutes flip. A second
+                // press goes back.
                 const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo; });
                 for (auto& tr : tune.tracks)
                     (anySolo ? tr.solo : tr.mute) = !(anySolo ? tr.solo : tr.mute);
@@ -992,7 +993,7 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     view_.setViewStart(t - grabOffset_);
     if (!held_)
         return;
-    // Taken from playback, each place it moves to sounds for a moment.
+    // Held while playing, each move sounds a moment of the song at the middle.
     const double middle = view_.viewStart() + view_.visibleSamples() * 0.5;
     if (resume_)
         model_.scrub(middle);
