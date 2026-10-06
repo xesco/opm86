@@ -957,8 +957,9 @@ void PianoStrip::paint(juce::Graphics& g)
         const bool down = on[static_cast<size_t>(k)];
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xff1b1e30));
         g.fillRoundedRectangle(key, 2.0f);
-        g.setColour(down ? juce::Colour(0xffbcbcc6) : juce::Colours::black.withAlpha(0.5f));
-        g.drawRoundedRectangle(key.reduced(0.5f), 2.0f, 1.0f);
+        // Played, a black outline, as a played white key has a light one.
+        g.setColour(down ? juce::Colours::black : juce::Colours::black.withAlpha(0.5f));
+        g.drawRoundedRectangle(key.reduced(0.5f), 2.0f, down ? 1.5f : 1.0f);
     }
 
     // The notes sounding, named under their keys: white with a dark outline,
