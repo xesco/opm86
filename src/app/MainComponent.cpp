@@ -927,6 +927,7 @@ void PianoStrip::paint(juce::Graphics& g)
     // tracks that can be heard.
     std::array<juce::Colour, 128> lit {};
     std::array<bool, 128> on {};
+    std::array<double, 128> struck {}; // when the latest note on each key began
     const double now = model_.displayPosition();
     for (const TuneTrack& t : model_.tune().tracks)
         {
@@ -941,10 +942,24 @@ void PianoStrip::paint(juce::Graphics& g)
                 if (now < static_cast<double>(it->start + it->length) && model_.tune().audible(t, *it))
                 {
                     const int p = model_.tune().pitch(t, *it);
-                    if (p >= 0 && p < 128 && !on[static_cast<size_t>(p)])
-                        on[static_cast<size_t>(p)] = true, lit[static_cast<size_t>(p)] = theme::pitchColour(p);
+                    if (p >= 0 && p < 128)
+                    {
+                        const auto key = static_cast<size_t>(p);
+                        struck[key] = on[key] ? std::max(struck[key], static_cast<double>(it->start)) : static_cast<double>(it->start);
+                        on[key] = true;
+                    }
                 }
             }
+        }
+
+    // Each note flashes its key white as it begins, fading to its colour in
+    // 150 ms, so the same note played again shows as a new strike.
+    for (size_t k = 0; k < 128; ++k)
+        if (on[k])
+        {
+            const double age = (now - struck[k]) / kVgmRate;
+            const float flash = juce::jlimit(0.0f, 1.0f, 1.0f - static_cast<float>(age / 0.15));
+            lit[k] = theme::pitchColour(static_cast<int>(k)).interpolatedWith(juce::Colours::white, flash * 0.75f);
         }
 
     auto isBlack = [](int key) { const int pc = key % 12; return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; };
