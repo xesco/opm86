@@ -292,10 +292,14 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             }
             else if (c.play)
             {
+                // Until the snapshots reach the place, as just after opening,
+                // the play waits here and is tried again each block.
                 scrubLeft_ = 0;
                 if (player_.play(c.playAt))
+                {
                     playing_.store(true);
-                c.play = false;
+                    c.play = false;
+                }
             }
         }
     }
