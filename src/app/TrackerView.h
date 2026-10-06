@@ -127,7 +127,7 @@ private:
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
     double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
-    enum class Drag { None, Lanes, Pan, Select, Ruler, Knob };
+    enum class Drag { None, Lanes, Pan, Select, SelectEdge, Ruler, Knob };
 
     AppModel& model_;
     mutable Layout layout_;
@@ -146,7 +146,8 @@ private:
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
     double panFrom_ = 0;                   // the view's start when the hand took it
-    double selectFrom_ = 0;                // song time where a selection drag began
+    double selectFrom_ = 0;                // song time where a selection drag began, or the edge held still
+    int selectionEdgeAt(juce::Point<float> p) const; // 0 start, 1 end, -1 neither: within a few pixels of one
     static constexpr double kGlideFrom = 60;  // pixels: a follow jump longer than this glides
     static constexpr double kGlideMs = 350;   // and takes this long
     bool gliding_ = false;

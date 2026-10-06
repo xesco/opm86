@@ -61,7 +61,7 @@ public:
     // A section of the song, in VGM samples: the playhead goes to its start,
     // and playing from inside it stops at its end, or loops. Moving the
     // playhead out of it clears it.
-    void setSelection(double start, double end);
+    void setSelection(double start, double end, bool keepPlayhead = false); // keepPlayhead: unless it falls outside
     void clearSelection();
     bool hasSelection() const { return selectionEnd_.load() > selectionStart_.load(); }
     double selectionStart() const { return selectionStart_.load(); }

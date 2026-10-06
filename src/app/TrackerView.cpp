@@ -1005,6 +1005,17 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
 // Mouse -----------------------------------------------------------------------
 
+int TrackerView::selectionEdgeAt(juce::Point<float> p) const
+{
+    if (!model_.hasSelection() || p.x < lanesX())
+        return -1;
+    const float start = timeToX(model_.selectionStart()), end = timeToX(model_.selectionEnd());
+    const float ds = std::abs(p.x - start), de = std::abs(p.x - end);
+    if (std::min(ds, de) > 5.0f)
+        return -1;
+    return ds < de ? 0 : 1;
+}
+
 void TrackerView::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
@@ -1012,6 +1023,14 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     const auto p = e.position;
     dragFrom_ = p;
+
+    // A selection's edge, over the ruler or the lanes, drags out or in.
+    if (const int edge = selectionEdgeAt(p); edge >= 0)
+    {
+        drag_ = Drag::SelectEdge;
+        selectFrom_ = edge == 0 ? model_.selectionEnd() : model_.selectionStart();
+        return;
+    }
 
     if (p.y < kRulerHeight && p.x >= lanesX())
     {
@@ -1096,6 +1115,11 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
+    if (drag_ == Drag::SelectEdge)
+    {
+        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)), true);
+        return;
+    }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
     {
         model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
@@ -1129,8 +1153,9 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
     if (!model_.hasTune())
         return;
     hover_ = noteAt(e.position);
-    setMouseCursor(e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
-                                                                          : juce::MouseCursor::NormalCursor);
+    setMouseCursor(selectionEdgeAt(e.position) >= 0                          ? juce::MouseCursor::LeftRightResizeCursor
+                   : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
+                                                                            : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
     {
         const int i = indexOf(hover_);

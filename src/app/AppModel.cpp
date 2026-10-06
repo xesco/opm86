@@ -178,11 +178,15 @@ double AppModel::displayPosition() const
     return p + elapsed * speed_.load() * kVgmRate / 1000.0;
 }
 
-void AppModel::setSelection(double start, double end)
+void AppModel::setSelection(double start, double end, bool keepPlayhead)
 {
     selectionStart_.store(std::max(0.0, std::min(start, end)));
     selectionEnd_.store(std::max(start, end));
-    setPosition(selectionStart_.load());
+    const double p = position_.load();
+    if (keepPlayhead && p >= selectionStart_.load() && p <= selectionEnd_.load())
+        sendChangeMessage();
+    else
+        setPosition(selectionStart_.load());
 }
 
 void AppModel::clearSelection()
