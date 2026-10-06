@@ -434,15 +434,9 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     invert_.onClick = [this] {
         if (model_.hasTune())
             model_.edit("Invert mute and solo", [](Tune& tune) {
-                // The tracks heard now mute and the silent ones play; solos
-                // become the mutes they stand for, so a second press undoes it.
-                const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo; });
+                // Every mute and every solo button flips, each on its own.
                 for (auto& tr : tune.tracks)
-                {
-                    const bool heard = !tr.mute && (!anySolo || tr.solo);
-                    tr.mute = heard;
-                    tr.solo = false;
-                }
+                    tr.mute = !tr.mute, tr.solo = !tr.solo;
             });
     };
     instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
