@@ -151,6 +151,10 @@ private:
     int selectionEdgeAt(juce::Point<float> p) const; // 0 start, 1 end, -1 neither: within a few pixels of one
     static constexpr double kGlideFrom = 60;  // pixels: a follow jump longer than this glides
     static constexpr double kGlideMs = 350;   // and takes this long
+    static constexpr double kHandsOffMs = 600; // following waits this long after the view is moved by hand
+    void movedByHand() { movedByHand_ = juce::Time::getMillisecondCounterHiRes(); pulledAway_ = true; }
+    double movedByHand_ = 0;  // ms, when the view was last dragged or scrolled
+    bool pulledAway_ = false; // moved by hand since following last caught up: the way back glides
     bool gliding_ = false;
     double glideFrom_ = 0, glideStart_ = 0;   // the view's start and the time, in ms, when the glide began
     int dragTrack_ = -1;                   // the track whose knob is turned

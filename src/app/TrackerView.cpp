@@ -177,21 +177,26 @@ void TrackerView::followPlayhead()
 {
     // One time for the frame: the view, the line and the notes lit all use it.
     head_ = model_.displayPosition();
-    if (!follow_ || !model_.playing() || drag_ == Drag::Pan || !model_.hasTune())
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    // While the view is dragged or scrolled by hand, and for a moment after,
+    // it is left alone.
+    if (!follow_ || !model_.playing() || drag_ == Drag::Pan || !model_.hasTune() || now - movedByHand_ < kHandsOffMs)
     {
         gliding_ = false;
         return;
     }
     // Where reveal would put the view; a jump further than kGlideFrom pixels,
-    // after a click ahead or a pan, glides there instead of cutting.
+    // after a click ahead, or any way back after the view was moved by hand,
+    // glides there instead of cutting.
     const double p = head_;
     const double before = viewStart_;
     reveal(p);
     const double target = viewStart_;
     viewStart_ = before;
     const bool moves = std::abs(target - before) > 0.5;
-    const double now = juce::Time::getMillisecondCounterHiRes();
-    if (!gliding_ && std::abs(target - before) > kGlideFrom * samplesPerPixel_)
+    if (!moves)
+        pulledAway_ = false;
+    if (!gliding_ && moves && (pulledAway_ || std::abs(target - before) > kGlideFrom * samplesPerPixel_))
     {
         gliding_ = true;
         glideFrom_ = before;
@@ -208,7 +213,7 @@ void TrackerView::followPlayhead()
     const double t = (now - glideStart_) / kGlideMs;
     if (t >= 1.0)
     {
-        gliding_ = false;
+        gliding_ = pulledAway_ = false;
         setViewStart(target);
         return;
     }
@@ -1167,7 +1172,10 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
         drag_ = Drag::Pan;
     if (drag_ == Drag::Pan)
+    {
         setViewStart(panFrom_ - (p.x - dragFrom_.x) * samplesPerPixel_);
+        movedByHand();
+    }
 }
 
 void TrackerView::mouseUp(const juce::MouseEvent& e)
@@ -1252,7 +1260,10 @@ void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
     const float dx = std::abs(w.deltaX) > 0 ? w.deltaX : (e.mods.isShiftDown() ? w.deltaY : 0.0f);
     const float dy = e.mods.isShiftDown() ? 0.0f : w.deltaY;
     if (std::abs(dx) > 0)
+    {
         setViewStart(viewStart_ - dx * 400.0 * samplesPerPixel_);
+        movedByHand();
+    }
     if (std::abs(dy) > 0)
         setScrollY(scrollY_ - static_cast<int>(dy * 200.0f));
 }
