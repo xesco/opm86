@@ -711,6 +711,12 @@ void SlidingStrip::mouseDrag(const juce::MouseEvent& e)
         contentDrag(e);
 }
 
+void SlidingStrip::mouseUp(const juce::MouseEvent& e)
+{
+    if (!resizing_ && open_)
+        contentUp(e);
+}
+
 float SlidingStrip::contentAlpha() const
 {
     return juce::jlimit(0.0f, 1.0f, static_cast<float>(getHeight() - kClosedHeight) / static_cast<float>(std::max(1, openHeight - kClosedHeight)));
@@ -843,6 +849,10 @@ void OverviewStrip::contentDown(const juce::MouseEvent& e)
         return;
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
+    // Playing pauses while the window is held.
+    resume_ = model_.playing();
+    if (resume_)
+        model_.stop();
     // Grab the window where it was clicked, or centre it on the click.
     if (t >= view_.viewStart() && t <= view_.viewStart() + view_.visibleSamples())
         grabOffset_ = t - view_.viewStart();
@@ -864,9 +874,16 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     centrePlayhead();
 }
 
+void OverviewStrip::contentUp(const juce::MouseEvent&)
+{
+    if (resume_)
+        model_.play();
+    resume_ = false;
+}
+
 void OverviewStrip::centrePlayhead()
 {
-    // The playhead goes to the middle of the view; playback goes on from there.
+    // The playhead goes to the middle of the view; playing resumes from there on release.
     model_.setPosition(view_.viewStart() + view_.visibleSamples() * 0.5);
 }
 

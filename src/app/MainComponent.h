@@ -122,6 +122,7 @@ public:
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
 
 protected:
@@ -132,6 +133,7 @@ protected:
     // Mouse events below the top edge, while open.
     virtual void contentDown(const juce::MouseEvent&) {}
     virtual void contentDrag(const juce::MouseEvent&) {}
+    virtual void contentUp(const juce::MouseEvent&) {}
     virtual juce::MouseCursor contentCursor() const { return juce::MouseCursor::NormalCursor; }
 
 private:
@@ -164,6 +166,7 @@ public:
 private:
     void contentDown(const juce::MouseEvent&) override;
     void contentDrag(const juce::MouseEvent&) override;
+    void contentUp(const juce::MouseEvent&) override;
     juce::MouseCursor contentCursor() const override { return juce::MouseCursor::DraggingHandCursor; }
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
     void centrePlayhead();
@@ -175,6 +178,7 @@ private:
     juce::Image density_; // drawn once per edit
     int densityRevision_ = -1;
     double grabOffset_ = 0;
+    bool resume_ = false; // playing when the window was taken: plays again on release
 };
 
 // A keyboard over the song's range, lighting the keys of the notes sounding
