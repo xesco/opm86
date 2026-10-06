@@ -58,6 +58,8 @@ public:
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify(const juce::MouseEvent&, float scale) override;
     bool keyPressed(const juce::KeyPress&) override;
+    // A note's name and length, but none while playing.
+    juce::String getTooltip() override { return model_.playing() ? juce::String() : SettableTooltipClient::getTooltip(); }
 
     static constexpr int kRulerHeight = 30;
     // Lanes under kCompactHeight drop the meter and knob for one row with the
