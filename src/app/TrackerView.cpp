@@ -652,8 +652,8 @@ void TrackerView::paintLanes(juce::Graphics& g)
             }
     }
 
-    // The selection, a tinted band across every lane between solid edges,
-    // with the song outside it darkened.
+    // The selection, a tinted band across every lane, with the song outside
+    // it darkened; its edges go over the notes, below.
     if (model_.hasSelection())
     {
         const float x0 = timeToX(model_.selectionStart()), x1 = timeToX(model_.selectionEnd());
@@ -663,9 +663,6 @@ void TrackerView::paintLanes(juce::Graphics& g)
         g.fillRect(x1, top, static_cast<float>(getWidth()) - x1, height);
         g.setColour(theme::cyan.withAlpha(0.14f));
         g.fillRect(x0, top, x1 - x0, height);
-        g.setColour(theme::cyan);
-        g.fillRect(x0 - 1.0f, top, 2.0f, height);
-        g.fillRect(x1 - 1.0f, top, 2.0f, height);
     }
 
     // Notes in view.
@@ -695,6 +692,14 @@ void TrackerView::paintLanes(juce::Graphics& g)
     // The notes sounding now go last, so their glow lies over their neighbours.
     for (const auto& [t, i, r] : sounding)
         paintNote(g, t, i, r);
+
+    // The selection's edges, over the notes.
+    if (model_.hasSelection())
+    {
+        g.setColour(theme::cyan);
+        for (const double edge : { model_.selectionStart(), model_.selectionEnd() })
+            g.fillRect(timeToX(edge) - 1.0f, static_cast<float>(kRulerHeight), 2.0f, static_cast<float>(getHeight() - kRulerHeight));
+    }
     g.restoreState();
 }
 
