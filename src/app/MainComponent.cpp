@@ -121,8 +121,9 @@ public:
 
     juce::Rectangle<int> getTooltipBounds(const juce::String& text, juce::Point<int> at, juce::Rectangle<int> parent) override
     {
-        const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + 20;
-        return juce::Rectangle<int>(at.x + 12, at.y + 18, w, 24).constrainedWithin(parent);
+        // Tight round the text: 5 pixels each side.
+        const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + 10;
+        return juce::Rectangle<int>(at.x + 12, at.y + 18, w, 20).constrainedWithin(parent);
     }
 };
 
