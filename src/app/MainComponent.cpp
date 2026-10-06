@@ -955,8 +955,8 @@ void PianoStrip::paint(juce::Graphics& g)
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
     const float blackWidth = keyWidth * 0.57f, blackHeight = area.getHeight() * 0.58f; // a black key, against a white one
     // Names grow with the keys: the octave on each C, and the notes sounding.
-    const float octaveSize = juce::jlimit(7.0f, 20.0f, std::min(keyWidth * 0.55f, area.getHeight() * 0.18f));
-    const float nameSize = juce::jlimit(13.0f, 30.0f, std::min(keyWidth * 0.55f, area.getHeight() * 0.22f));
+    const float octaveSize = juce::jlimit(7.0f, 24.0f, std::min(keyWidth * 0.5f, area.getHeight() * 0.32f));
+    const float nameSize = juce::jlimit(13.0f, 32.0f, std::min(keyWidth * 0.6f, area.getHeight() * 0.42f));
 
     // White keys, then black keys over them.
     float x = area.getX();
