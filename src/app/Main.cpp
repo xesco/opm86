@@ -59,7 +59,10 @@ public:
             content->open(juce::File(args[0].unquoted()));
         else if (last.existsAsFile())
             content->open(last);
+        auto* shown = content.get();
         window_ = std::make_unique<MainWindow>(std::move(content));
+        // Keys reach the view only once it shows; a file opened before has not had them.
+        shown->view().grabKeyboardFocus();
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override
