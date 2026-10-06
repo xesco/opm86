@@ -513,7 +513,8 @@ void TopBar::resized()
     r.removeFromRight(14);
     // The master volume: its caption and level, then the knob.
     master_.setBounds(r.removeFromRight(40).withSizeKeepingCentre(40, 40));
-    masterArea_ = r.removeFromRight(64);
+    r.removeFromRight(10);
+    masterArea_ = r.removeFromRight(80);
     r.removeFromRight(14);
     counters_ = r;
 }
@@ -537,7 +538,7 @@ void TopBar::paint(juce::Graphics& g)
     play_.setToggleState(model_.playing(), juce::dontSendNotification);
 
     // The master volume's caption and level, left of its knob.
-    g.setFont(theme::mono(11.0f, true));
+    g.setFont(theme::mono(13.0f, true));
     g.setColour(theme::dim);
     g.drawText("MASTER", masterArea_.withTrimmedBottom(masterArea_.getHeight() / 2), juce::Justification::bottomRight);
     g.setColour(theme::text);
