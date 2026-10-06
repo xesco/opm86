@@ -789,8 +789,10 @@ void OverviewStrip::contentDown(const juce::MouseEvent& e)
         return;
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
-    // Playing pauses while the window is held, and its moves scrub.
-    resume_ = model_.playing();
+    // Following the playhead, playing pauses while the window is held, and
+    // its moves scrub; not following, the window moves the view alone.
+    held_ = view_.follow();
+    resume_ = held_ && model_.playing();
     if (resume_)
         model_.stop();
     // Grab the window where it was clicked, or centre it on the click.
@@ -801,7 +803,8 @@ void OverviewStrip::contentDown(const juce::MouseEvent& e)
         grabOffset_ = view_.visibleSamples() * 0.5;
         view_.setViewStart(t - grabOffset_);
     }
-    centrePlayhead();
+    if (held_)
+        centrePlayhead();
 }
 
 void OverviewStrip::contentDrag(const juce::MouseEvent& e)
@@ -811,6 +814,8 @@ void OverviewStrip::contentDrag(const juce::MouseEvent& e)
     const auto area = lanes();
     const double t = (e.position.x - area.getX()) / area.getWidth() * songLength();
     view_.setViewStart(t - grabOffset_);
+    if (!held_)
+        return;
     // Taken from playback, each place it moves to sounds for a moment.
     const double middle = view_.viewStart() + view_.visibleSamples() * 0.5;
     if (resume_)
@@ -823,7 +828,7 @@ void OverviewStrip::contentUp(const juce::MouseEvent&)
 {
     if (resume_)
         model_.play();
-    resume_ = false;
+    resume_ = held_ = false;
 }
 
 void OverviewStrip::centrePlayhead()

@@ -160,6 +160,7 @@ private:
     juce::Image density_; // drawn once per edit
     int densityRevision_ = -1;
     double grabOffset_ = 0;
+    bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release
 };
 

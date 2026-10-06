@@ -39,6 +39,7 @@ public:
     void wake(); // a mouse or key event anywhere: shows the playhead, which hides after a second without one
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
     void setFollow(bool follow) { follow_ = follow; } // off, the view stays where it is put while playing
+    bool follow() const { return follow_; }
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
