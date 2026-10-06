@@ -383,6 +383,13 @@ juce::String TopBar::getTooltip()
 
 void TopBar::rewind()
 {
+    // To the selection's start if there is one, else the song's; the view a beat before.
+    if (model_.hasSelection())
+    {
+        model_.setPosition(model_.selectionStart());
+        view_.setViewStart(model_.selectionStart() - model_.tune().source().beatLength);
+        return;
+    }
     model_.setPosition(0);
     if (model_.hasTune())
         view_.setViewStart(model_.tune().source().firstBeat - model_.tune().source().beatLength);
