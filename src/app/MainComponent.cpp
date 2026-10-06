@@ -231,13 +231,21 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             juce::PathStrokeType(1.5f).createStrokedPath(p, outline);
             break;
         }
-        case Icon::Home: // a house
+        case Icon::ZoomHome: // a magnifying glass whose lens is an arrow going back round
         {
-            const auto c = box.getCentre();
-            p.addTriangle(c.x - 7.0f, c.y - 0.5f, c.x + 7.0f, c.y - 0.5f, c.x, c.y - 7.0f);
-            p.addRectangle(c.x - 5.0f, c.y - 0.5f, 10.0f, 7.0f);
-            p.setUsingNonZeroWinding(false);
-            p.addRectangle(c.x - 1.5f, c.y + 2.5f, 3.0f, 4.0f); // the door, cut out
+            const auto c = box.getCentre().translated(-1.5f, -1.5f);
+            const float radius = 4.5f;
+            juce::Path lens;
+            lens.addCentredArc(c.x, c.y, radius, radius, 0.0f, 0.7f, 5.7f, true);
+            juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, lens);
+            const auto tip = c.getPointOnCircumference(radius, 0.7f);
+            p.addTriangle(tip.x - 3.0f, tip.y - 2.5f, tip.x + 2.5f, tip.y - 3.0f, tip.x + 0.5f, tip.y + 2.5f);
+            juce::Path handle;
+            handle.startNewSubPath(c.getPointOnCircumference(radius + 0.5f, juce::MathConstants<float>::pi * 0.75f));
+            handle.lineTo(c.getPointOnCircumference(radius + 5.5f, juce::MathConstants<float>::pi * 0.75f));
+            juce::Path stroked;
+            juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(stroked, handle);
+            p.addPath(stroked);
             break;
         }
         case Icon::FitTracks: // arrows to the top and bottom edges

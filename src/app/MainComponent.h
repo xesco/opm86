@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, Play, Stop, Playhead, Follow, Reset, Instruments, Drums, FitTracks, FitTime, FitBoth, Home };
+    enum class Icon { Rewind, Play, Stop, Playhead, Follow, Reset, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -77,7 +77,7 @@ private:
     IconButton follow_ { IconButton::Icon::Follow };         // on, the view follows the playhead
     IconButton reset_ { IconButton::Icon::Reset }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
-    IconButton zoomHome_ { IconButton::Icon::Home }; // both zoom sliders back to their homes
+    IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes
     SnapSlider speed_, heightZoom_, timeZoom_;
     juce::Rectangle<int> speedCaption_, heightCaption_, timeCaption_; // labels over the sliders
 };
