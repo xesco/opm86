@@ -169,14 +169,20 @@ private:
 class PianoStrip : public SlidingStrip
 {
 public:
-    explicit PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model) {}
+    explicit PianoStrip(AppModel& model);
     void paint(juce::Graphics&) override;
+    void resized() override;
+
+    static constexpr int kMinOctaves = 1, kMaxOctaves = 7;
 
 private:
     void updateRange();
+    void setOctaves(int octaves);
     AppModel& model_;
     int revision_ = -1;
-    int low_ = 36, high_ = 96; // MIDI keys shown, whole octaves C to B
+    int octaves_ = 5;                // octaves shown, round the song's notes; fewer make bigger keys
+    juce::TextButton fewer_ { "-" }, more_ { "+" };
+    int low_ = 36, high_ = 95; // MIDI keys shown, whole octaves C to B
 };
 
 class MainComponent : public juce::Component, public juce::FileDragAndDropTarget, private juce::ChangeListener

@@ -858,6 +858,37 @@ void OverviewStrip::centrePlayhead()
 
 // PianoStrip ------------------------------------------------------------------
 
+PianoStrip::PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model)
+{
+    fewer_.setTooltip("Fewer octaves");
+    more_.setTooltip("More octaves");
+    fewer_.onClick = [this] { setOctaves(octaves_ - 1); };
+    more_.onClick = [this] { setOctaves(octaves_ + 1); };
+    for (auto* b : { &fewer_, &more_ })
+    {
+        b->setWantsKeyboardFocus(false);
+        addAndMakeVisible(b);
+    }
+    setOctaves(octaves_);
+}
+
+void PianoStrip::resized()
+{
+    SlidingStrip::resized();
+    // Under the chevron, at the right of the header column.
+    fewer_.setBounds(headerWidth() - 52, kClosedHeight + 4, 20, 18);
+    more_.setBounds(headerWidth() - 30, kClosedHeight + 4, 20, 18);
+}
+
+void PianoStrip::setOctaves(int octaves)
+{
+    octaves_ = std::clamp(octaves, kMinOctaves, kMaxOctaves);
+    fewer_.setEnabled(octaves_ > kMinOctaves);
+    more_.setEnabled(octaves_ < kMaxOctaves);
+    revision_ = -1;
+    repaint();
+}
+
 void PianoStrip::updateRange()
 {
     if (revision_ == model_.revision() || !model_.hasTune())
@@ -874,10 +905,12 @@ void PianoStrip::updateRange()
             }
     if (low > high)
         low = 48, high = 83;
-    // Whole octaves, at least four, and one spare below and above; the spare
-    // below stops at C1 unless a note sounds lower.
-    low_ = std::clamp(std::max(low / 12 * 12 - 12, std::min(24, low / 12 * 12)), 0, 120);
-    high_ = std::clamp(high / 12 * 12 + 11 + 12, low_ + 47, 127);
+    // As many whole octaves as chosen, centred on the octaves the notes use;
+    // a note outside them does not light.
+    const double middle = (low / 12 + high / 12 + 1) * 0.5;
+    const int first = std::clamp(static_cast<int>(std::lround(middle - octaves_ * 0.5)), 0, 10 - octaves_);
+    low_ = first * 12;
+    high_ = low_ + octaves_ * 12 - 1;
 }
 
 void PianoStrip::paint(juce::Graphics& g)
