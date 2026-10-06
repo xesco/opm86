@@ -1026,6 +1026,14 @@ int TrackerView::selectionEdgeAt(juce::Point<float> p) const
     return ds < de ? 0 : 1;
 }
 
+bool TrackerView::overSelectionBar(juce::Point<float> p) const
+{
+    if (model_.playing() || !model_.hasSelection() || p.y >= kRulerHeight || p.x < lanesX())
+        return false;
+    const double t = xToTime(p.x);
+    return t > model_.selectionStart() && t < model_.selectionEnd();
+}
+
 void TrackerView::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
@@ -1039,6 +1047,14 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     {
         drag_ = Drag::SelectEdge;
         selectFrom_ = edge == 0 ? model_.selectionEnd() : model_.selectionStart();
+        return;
+    }
+
+    // Stopped, the ruler inside the selection: a drag moves it, a click the playhead.
+    if (overSelectionBar(p))
+    {
+        drag_ = Drag::SelectMove;
+        selectFrom_ = xToTime(p.x) - model_.selectionStart();
         return;
     }
 
@@ -1125,6 +1141,16 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
+    if (drag_ == Drag::SelectMove)
+    {
+        if (e.getDistanceFromDragStart() > 3)
+        {
+            const double length = model_.selectionEnd() - model_.selectionStart();
+            const double start = std::max(0.0, xToTime(p.x) - selectFrom_);
+            model_.setSelection(start, start + length);
+        }
+        return;
+    }
     if (drag_ == Drag::SelectEdge)
     {
         // Stopped, the playhead goes with the edge while it is the start;
@@ -1150,6 +1176,8 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     drag_ = Drag::None;
     // A click on the lanes puts the playhead there, and playing goes on
     // from it; stopped, it also drops the selection.
+    if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
+        model_.setPosition(std::max(0.0, xToTime(e.position.x)));
     if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
         if (finished == Drag::Select)
@@ -1167,6 +1195,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
         return;
     hover_ = noteAt(e.position);
     setMouseCursor(selectionEdgeAt(e.position) >= 0                          ? juce::MouseCursor::LeftRightResizeCursor
+                   : overSelectionBar(e.position)                            ? juce::MouseCursor::DraggingHandCursor
                    : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
                                                                             : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
