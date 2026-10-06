@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, Play, Stop, Playhead, Follow, Loop, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -29,14 +29,15 @@ public:
     double snapValue(double attempted, DragMode) override;
 };
 
-// The transport and song display along the top: title, rewind, play and
-// stop, LED counters, the file and Open.
+// The transport and song display along the top: title, rewind, play, stop
+// and to the end, LED counters, the file and Open.
 class TopBar : public juce::Component, public juce::TooltipClient
 {
 public:
     TopBar(AppModel& model, TrackerView& view);
 
     void rewind(); // back to the song start, playing on if it was
+    void toEnd();  // to the selection's end, or the song's
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -48,6 +49,7 @@ private:
     AppModel& model_;
     TrackerView& view_;
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
+    IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
     juce::Rectangle<int> counters_, fileArea_;
 };

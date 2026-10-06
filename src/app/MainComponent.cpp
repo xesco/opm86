@@ -180,6 +180,10 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addRectangle(box.getX(), box.getY(), 3.0f, box.getHeight());
             p.addTriangle(box.getRight(), box.getY(), box.getRight(), box.getBottom(), box.getX() + 3.0f, box.getCentreY());
             break;
+        case Icon::End: // a triangle pointing right and a bar
+            p.addRectangle(box.getRight() - 3.0f, box.getY(), 3.0f, box.getHeight());
+            p.addTriangle(box.getX(), box.getY(), box.getX(), box.getBottom(), box.getRight() - 3.0f, box.getCentreY());
+            break;
         case Icon::Play:
             p.addTriangle(box.getX() + 1.0f, box.getY(), box.getX() + 1.0f, box.getBottom(), box.getRight(), box.getCentreY());
             break;
@@ -353,7 +357,10 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     open_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    end_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     rewind_.setTooltip("Rewind (Return)");
+    end_.setTooltip("To the end (End)");
+    end_.onClick = [this] { toEnd(); };
     play_.setTooltip("Play (Space)");
     stop_.setTooltip("Stop (Space)");
     open_.setTooltip("Open (Cmd+O)");
@@ -369,7 +376,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (onOpen)
             onOpen();
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &open_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &end_, &open_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -395,6 +402,16 @@ void TopBar::rewind()
         view_.setViewStart(model_.tune().source().firstBeat - model_.tune().source().beatLength);
 }
 
+void TopBar::toEnd()
+{
+    // To the selection's end if there is one, else the song's; the view up to a beat after.
+    if (!model_.hasTune())
+        return;
+    const double end = model_.hasSelection() ? model_.selectionEnd() : static_cast<double>(model_.tune().source().length);
+    model_.setPosition(end);
+    view_.setViewStart(end + model_.tune().source().beatLength - view_.visibleSamples());
+}
+
 void TopBar::resized()
 {
     auto r = getLocalBounds().reduced(14, 13);
@@ -404,6 +421,8 @@ void TopBar::resized()
     play_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(6);
     stop_.setBounds(r.removeFromLeft(44));
+    r.removeFromLeft(6);
+    end_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(14);
     open_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
@@ -1345,6 +1364,8 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
         return openDialog(), true;
     if (key == juce::KeyPress::returnKey || key == juce::KeyPress::homeKey)
         return top_.rewind(), true;
+    if (key == juce::KeyPress::endKey)
+        return top_.toEnd(), true;
     if (key == juce::KeyPress('=', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0))
         return view_.zoomLanes(1.3, TrackerView::kRulerHeight), true;
     if (key == juce::KeyPress('-', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0))
