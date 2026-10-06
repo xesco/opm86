@@ -285,12 +285,14 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
                 p.addRectangle(board.getX() + w * static_cast<float>(k) - w * 0.3f, board.getY(), w * 0.6f, board.getHeight() * 0.6f);
             break;
         }
-        case Icon::NoteNames: // a note's name, "C4"
+        case Icon::NoteNames: // a note with lines of text beside it: the note's name
         {
-            juce::GlyphArrangement glyphs;
-            glyphs.addFittedText(theme::mono(15.0f, true), "C4", 0.0f, 0.0f, static_cast<float>(getWidth()), static_cast<float>(getHeight()),
-                                 juce::Justification::centred, 1, 1.0f);
-            glyphs.createPath(p);
+            const auto c = getLocalBounds().toFloat().getCentre().translated(-5.0f, 0.0f);
+            p.addEllipse(c.x - 6.0f, c.y + 2.0f, 7.5f, 6.0f); // the head
+            p.addRectangle(c.x + 0.2f, c.y - 9.0f, 1.6f, 13.5f); // the stem
+            p.addTriangle(c.x + 1.8f, c.y - 9.0f, c.x + 6.5f, c.y - 4.5f, c.x + 1.8f, c.y - 3.5f); // the flag
+            p.addRoundedRectangle(c.x + 7.0f, c.y - 1.0f, 9.0f, 2.0f, 1.0f);
+            p.addRoundedRectangle(c.x + 7.0f, c.y + 4.0f, 6.0f, 2.0f, 1.0f);
             break;
         }
         case Icon::ZoomHome: // "1:1", the zoom as it was
