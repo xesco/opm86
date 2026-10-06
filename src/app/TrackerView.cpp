@@ -223,6 +223,13 @@ void TrackerView::fitTime()
     const double width = std::max(1.0, static_cast<double>(getWidth() - headerWidth()));
     samplesPerPixel_ = std::clamp(length * 1.04 / width, kMinSamplesPerPixel, kMaxSamplesPerPixel);
     setViewStart(-length * 0.02);
+    // Too long to fit while the view follows playback: on the playhead at
+    // once, rather than at the start and gliding back to it.
+    if (follow_ && model_.playing())
+    {
+        gliding_ = false;
+        reveal(model_.displayPosition());
+    }
 }
 
 void TrackerView::fitTracks()
