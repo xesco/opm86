@@ -124,6 +124,7 @@ private:
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
+    double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
     enum class Drag { None, Lanes, Pan, Ruler, Knob };
 
@@ -138,6 +139,7 @@ private:
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
     bool follow_ = true;
+    double head_ = 0; // the playhead when this frame began
 
     std::set<int> collapsed_; // chord parts drawn in one lane
     Drag drag_ = Drag::None;

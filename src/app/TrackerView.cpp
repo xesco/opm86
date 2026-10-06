@@ -162,6 +162,8 @@ void TrackerView::zoomAround(double factor, float x)
 
 void TrackerView::followPlayhead()
 {
+    // One time for the frame: the view, the line and the notes lit all use it.
+    head_ = model_.displayPosition();
     if (!follow_ || !model_.playing() || drag_ == Drag::Pan || !model_.hasTune())
     {
         gliding_ = false;
@@ -169,7 +171,7 @@ void TrackerView::followPlayhead()
     }
     // Where reveal would put the view; a jump further than kGlideFrom pixels,
     // after a click ahead or a pan, glides there instead of cutting.
-    const double p = model_.displayPosition();
+    const double p = head_;
     const double before = viewStart_;
     reveal(p);
     const double target = viewStart_;
@@ -228,7 +230,7 @@ void TrackerView::fitTime()
     if (follow_ && model_.playing())
     {
         gliding_ = false;
-        reveal(model_.displayPosition());
+        reveal(playhead());
     }
 }
 
@@ -521,7 +523,7 @@ void TrackerView::paint(juce::Graphics& g)
     // the next; the head on the ruler always shows.
     const double idle = (juce::Time::getMillisecondCounterHiRes() - lastActivity_) / 1000.0;
     const float shown = keepPlayhead_ ? 1.0f : juce::jlimit(0.0f, 1.0f, 1.0f - static_cast<float>(idle - 1.0) / 0.3f);
-    const float x = timeToX(model_.displayPosition());
+    const float x = timeToX(playhead());
     if (x >= lanesX() && x <= static_cast<float>(getWidth()))
     {
         if (shown > 0.0f)
@@ -661,7 +663,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
 
 bool TrackerView::isSounding(const TuneNote& n) const
 {
-    const double pos = model_.displayPosition();
+    const double pos = playhead();
     return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
 }
 
