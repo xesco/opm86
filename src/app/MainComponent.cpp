@@ -486,7 +486,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     magnet_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     magnet_.setClickingTogglesState(true);
     magnet_.setToggleState(true, juce::dontSendNotification);
-    magnet_.setTooltip("Snap the selection to notes");
+    magnet_.setTooltip("Snap the selection to the grid");
     magnet_.onClick = [this] { view_.setMagnet(magnet_.getToggleState()); };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {

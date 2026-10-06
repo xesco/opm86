@@ -1030,28 +1030,21 @@ double TrackerView::attract(double songTime, float x)
 {
     if (!magnet_ || !model_.hasTune())
         return songTime;
-    // Held until pulled far enough away, like a band snapping back.
-    if (held_ >= 0 && std::abs(x - timeToX(held_)) <= kRelease)
+    // The finest grid lines drawn: sixteenths, beats or bars, as the zoom shows them.
+    const VgmSong& song = model_.tune().source();
+    const double beatPixels = song.beatLength / samplesPerPixel_;
+    const double step = beatPixels > 64 ? song.beatLength / 4 : beatPixels > 10 ? song.beatLength : song.beatLength * 4;
+    // Held until pulled far enough away, like a band snapping back, but let
+    // go before the next line catches, so none is skipped.
+    const float release = std::min(kRelease, static_cast<float>(step / samplesPerPixel_) - kCatch);
+    if (held_ >= 0 && std::abs(x - timeToX(held_)) <= release)
         return held_;
     held_ = -1;
-    const double reach = kCatch * samplesPerPixel_;
-    double best = -1, bestDistance = reach;
-    const auto& tracks = model_.tune().tracks;
-    for (size_t t = 0; t < tracks.size(); ++t)
-    {
-        const auto& notes = tracks[t].notes;
-        const double earliest = songTime - reach - static_cast<double>(layout().longest[t]);
-        auto it = std::lower_bound(notes.begin(), notes.end(), earliest,
-                                   [](const TuneNote& n, double time) { return static_cast<double>(n.start) < time; });
-        for (; it != notes.end() && static_cast<double>(it->start) <= songTime + reach; ++it)
-            for (const double edge : { static_cast<double>(it->start), static_cast<double>(it->start + it->length) })
-                if (const double d = std::abs(edge - songTime); d <= bestDistance)
-                    best = edge, bestDistance = d;
-    }
-    if (best < 0)
+    const double nearest = song.firstBeat + std::round((songTime - song.firstBeat) / step) * step;
+    if (nearest < 0 || std::abs(timeToX(nearest) - x) > kCatch)
         return songTime;
-    held_ = best;
-    return best;
+    held_ = nearest;
+    return nearest;
 }
 
 void TrackerView::mouseDown(const juce::MouseEvent& e)
