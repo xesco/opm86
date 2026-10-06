@@ -269,7 +269,7 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
         {
             const bool more = icon_ == Icon::MoreKeys;
             const int whites = more ? 6 : 3;
-            const auto board = box.withSizeKeepingCentre(15.0f, 12.0f);
+            const auto board = getLocalBounds().toFloat().reduced(6.0f, 6.0f); // as big as the button allows
             const float w = board.getWidth() / static_cast<float>(whites);
             juce::Path outline;
             outline.addRectangle(board);
@@ -1036,8 +1036,8 @@ void PianoStrip::resized()
     // Right-aligned with the chevron, level with the keys' bottom edge.
     const int bottom = content().reduced(8, 6).getBottom();
     const int right = headerWidth() - 12; // the chevron's right edge
-    more_.setBounds(right - 26, bottom - 22, 26, 22);
-    fewer_.setBounds(right - 26 - 2 - 26, bottom - 22, 26, 22);
+    more_.setBounds(right - 32, bottom - 26, 32, 26);
+    fewer_.setBounds(right - 32 - 2 - 32, bottom - 26, 32, 26);
 }
 
 void PianoStrip::setOctaves(int octaves)
