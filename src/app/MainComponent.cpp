@@ -555,7 +555,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     selectionStart_.setTooltip("Selection start, m:ss.mmm");
     selectionEnd_.setTooltip("Selection end, m:ss.mmm");
 
-    // Speed on a log scale, 25% to 200%, home at 100%.
+    // Speed on a log scale, 25% to 200%, home at 100% in the middle.
     for (auto* slider : { &speed_, &heightZoom_, &timeZoom_ })
     {
         slider->setSliderStyle(juce::Slider::LinearHorizontal);
@@ -563,12 +563,14 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         slider->setWantsKeyboardFocus(false);
         addAndMakeVisible(slider);
     }
-    speed_.setRange(-2.0, 1.0);
+    speed_.setRange(-1.0, 1.0);
     speed_.setValue(0.0, juce::dontSendNotification);
     speed_.setHome(0.0);
     speed_.setTooltip("Speed");
     speed_.onValueChange = [this] {
-        model_.setSpeed(std::exp2(speed_.getValue()));
+        // The left half spans two octaves of speed, the right half one.
+        const double v = speed_.getValue();
+        model_.setSpeed(std::exp2(v < 0 ? 2.0 * v : v));
         repaint();
     };
 
