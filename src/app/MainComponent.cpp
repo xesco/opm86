@@ -537,7 +537,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
 
     for (auto* editor : { &selectionStart_, &selectionEnd_ })
     {
-        editor->setFont(theme::mono(12.0f, true));
+        editor->setFont(theme::mono(15.0f, true));
         editor->setJustification(juce::Justification::centred);
         editor->setColour(juce::TextEditor::backgroundColourId, theme::background);
         editor->setColour(juce::TextEditor::textColourId, theme::text);
