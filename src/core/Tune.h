@@ -38,8 +38,6 @@ struct TuneTrack
     std::string name;
     bool mute = false, solo = false;
     uint16_t mutedVoices = 0; // FM: bit c mutes the notes the game played on chip channel c
-    uint16_t soloedVoices = 0; // FM: bit c solos them, as a track's solo does
-    std::array<float, 8> voiceVolume {}; // FM: dB on top of the track's, for the notes on chip channel c; the player applies it
     // Level in dB, 0 as the game played it. The chips set it: FM carriers'
     // total level, in 0.75 dB steps, or the PCM channel volumes. A boost goes
     // as far as the chip allows: a carrier at full level or a PCM volume at
@@ -101,6 +99,7 @@ public:
     std::shared_ptr<VgmSong> build(BuildReport* report = nullptr, bool mix = true) const;
 
 private:
+    void splitParts(); // one track per FM patch and chip voice, in voice order
 
     // The registers a note needs from its channel, as the game had them at
     // its key on (FM) or trigger (drums), by register offset from the channel.

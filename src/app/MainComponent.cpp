@@ -596,10 +596,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             model_.edit("Reset mix", [](Tune& tune) {
                 // Every track as the game played it: heard, at 0 dB.
                 for (auto& tr : tune.tracks)
-                {
-                    tr.mute = tr.solo = false, tr.mutedVoices = tr.soloedVoices = 0, tr.volume = 0.0f;
-                    tr.voiceVolume.fill(0.0f);
-                }
+                    tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
             });
     };
     invert_.setTooltip("Invert solo, or mute");
@@ -607,29 +604,14 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         if (!model_.hasTune())
             return;
         const auto& tracks = model_.tune().tracks;
-        if (std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& tr) { return tr.solo || tr.soloedVoices || tr.mute; }))
+        if (std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& tr) { return tr.solo || tr.mute; }))
             model_.edit("Invert mute and solo", [](Tune& tune) {
                 // With solos, the solos flip, so the rest is heard, and the
-                // mutes stay as they are: a soloed track is soloed no more, a
-                // track with soloed voices solos its other voices, and the
-                // rest are soloed. Without solos, the mutes flip. A second
+                // mutes stay as they are; without, the mutes flip. A second
                 // press goes back.
-                const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo || tr.soloedVoices; });
+                const bool anySolo = std::any_of(tune.tracks.begin(), tune.tracks.end(), [](const TuneTrack& tr) { return tr.solo; });
                 for (auto& tr : tune.tracks)
-                {
-                    if (!anySolo)
-                        tr.mute = !tr.mute;
-                    else if (tr.soloedVoices)
-                    {
-                        uint16_t all = 0;
-                        for (const int v : tune.voices(tr))
-                            all = static_cast<uint16_t>(all | (1 << v));
-                        tr.soloedVoices = static_cast<uint16_t>(all & ~tr.soloedVoices);
-                        tr.solo = tr.soloedVoices == 0;
-                    }
-                    else
-                        tr.solo = !tr.solo;
-                }
+                    (anySolo ? tr.solo : tr.mute) = !(anySolo ? tr.solo : tr.mute);
             });
     };
     instruments_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
@@ -807,10 +789,7 @@ void ToolBar::soloOnly(Only chosen)
     const bool off = soloed() == chosen;
     model_.edit(off ? "Solo none" : chosen == Only::Instruments ? "Solo instruments" : "Solo drums", [off, chosen](Tune& tune) {
         for (auto& tr : tune.tracks)
-        {
             tr.solo = !off && (tr.kind == TuneTrack::Kind::Drum) == (chosen == Only::Drums);
-            tr.soloedVoices = 0;
-        }
     });
 }
 

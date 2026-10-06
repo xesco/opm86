@@ -189,7 +189,52 @@ std::unique_ptr<Tune> Tune::load(const std::vector<uint8_t>& file, const std::st
                                       [](const TuneTrack& t) { return t.notes.empty(); }),
                        tune->tracks.end());
     tune->data_ = data;
+    tune->splitParts();
     return tune;
+}
+
+void Tune::splitParts()
+{
+    // An FM track is one patch on one chip voice, so every line can be muted,
+    // soloed and set apart: a voice plays one note at a time. The tracks go in
+    // voice order, V1 first; a voice that plays several patches has a track for
+    // each, V1 · 1, V1 · 2, most used first. Drum tracks follow, as they were.
+    std::vector<TuneTrack> fm, drums;
+    for (TuneTrack& track : tracks)
+    {
+        if (track.kind != TuneTrack::Kind::Fm)
+        {
+            drums.push_back(std::move(track));
+            continue;
+        }
+        std::array<TuneTrack, 8> byVoice;
+        for (const TuneNote& n : track.notes)
+            byVoice[static_cast<size_t>(originalChannel(track, n))].notes.push_back(n);
+        for (size_t v = 0; v < byVoice.size(); ++v)
+            if (!byVoice[v].notes.empty())
+            {
+                byVoice[v].kind = track.kind;
+                byVoice[v].instrument = track.instrument;
+                fm.push_back(std::move(byVoice[v]));
+            }
+    }
+    auto voiceOf = [&](const TuneTrack& t) { return originalChannel(t, t.notes.front()); };
+    std::stable_sort(fm.begin(), fm.end(), [&](const TuneTrack& a, const TuneTrack& b) {
+        return voiceOf(a) != voiceOf(b) ? voiceOf(a) < voiceOf(b) : a.notes.size() > b.notes.size();
+    });
+    std::array<int, 8> count {}, seen {};
+    for (const TuneTrack& t : fm)
+        ++count[static_cast<size_t>(voiceOf(t))];
+    for (TuneTrack& t : fm)
+    {
+        const auto v = static_cast<size_t>(voiceOf(t));
+        t.name = "V" + std::to_string(v + 1);
+        if (count[v] > 1)
+            t.name += " \xc2\xb7 " + std::to_string(++seen[v]);
+    }
+    tracks = std::move(fm);
+    for (TuneTrack& t : drums)
+        tracks.push_back(std::move(t));
 }
 
 int64_t Tune::originalStart(const TuneTrack& track, const TuneNote& note) const
@@ -231,28 +276,17 @@ int Tune::newNoteId() const
     return id;
 }
 
-// A muted track or voice is silent, soloed or not. Otherwise, while any
-// track or voice is soloed, only the soloed ones play; a soloed track plays
-// all its voices but the muted ones.
 bool Tune::audible(const TuneTrack& track) const
 {
-    if (track.mute)
-        return false;
-    const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo || t.soloedVoices != 0; });
-    return !anySolo || track.solo || track.soloedVoices != 0;
+    const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo; });
+    return !track.mute && (!anySolo || track.solo); // a mute wins over a solo
 }
 
 bool Tune::audible(const TuneTrack& track, const TuneNote& note) const
 {
     if (!audible(track))
         return false;
-    if (track.kind != TuneTrack::Kind::Fm)
-        return true;
-    const int voice = originalChannel(track, note);
-    if ((track.mutedVoices >> voice) & 1)
-        return false;
-    // A track heard for its soloed voices plays only those.
-    return track.solo || track.soloedVoices == 0 || ((track.soloedVoices >> voice) & 1);
+    return track.kind != TuneTrack::Kind::Fm || ((track.mutedVoices >> originalChannel(track, note)) & 1) == 0;
 }
 
 std::vector<int> Tune::voices(const TuneTrack& track) const

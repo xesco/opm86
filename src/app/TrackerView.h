@@ -65,7 +65,6 @@ public:
     // Lanes under kCompactHeight drop the meter and knob for one row with the
     // name, mute, solo and instrument; under kMinimalHeight, only the name
     // and small mute and solo.
-    static constexpr int kLabelHeight = 22; // the strip with the name of a track opened into its voices
     static constexpr int kMinLaneHeight = 20;
     static constexpr int kMinimalHeight = 28;
     static constexpr int kCompactHeight = 46;
@@ -96,9 +95,7 @@ private:
         std::vector<std::vector<int>> voices;  // per track: chip channels, one row each, when more than one
         std::vector<int> shown;                // per track: rows high, 1 for a collapsed chord part
         std::vector<int> firstRow;             // per track: rows above it; each row is one lane high
-        std::vector<int> labelsBefore;         // per track: label strips above it
         int totalRows = 0;
-        int labels = 0;                        // label strips in all, one per track opened into its voices
         int nameEnd = 0;        // the names' shared column ends here
         int knobX = 0;          // the knobs' column, right after the widest name line
         int headerWidth = 200;  // up to the knobs' column, and the voice toggles' when a chord part shows them
@@ -116,22 +113,17 @@ private:
     void setScrollY(int y);
     int trackTop(int track) const;    // a track is as many lanes high as it has rows
     int trackHeight(int track) const;
-    // A header strip: the track's, or in a track opened into its voices, the
-    // voice's in row r.
-    bool labelled(int track) const;                                  // opened into its voices, under a label strip
-    int rowTop(int track, int row) const;                            // a row's top, under the label strip if any
-    int contentHeight() const;                                       // every track's rows and label strips
-    juce::Rectangle<int> nameBounds(int track, int row = 0) const;
-    juce::Rectangle<int> pill(int track, int which, int row = 0) const; // 0 mute, 1 solo, after the name
-    juce::Rectangle<int> labelPill(int track, int which) const;      // the track's mute and solo in its label strip
-    juce::Rectangle<int> meterBounds(int track, int row = 0) const;  // the level meter under the name
-    juce::Rectangle<int> knobBounds(int track, int row = 0) const;   // the volume knob, right of the meter
+    juce::Rectangle<int> nameBounds(int track) const;
+    juce::Rectangle<int> pill(int track, int which) const; // 0 mute, 1 solo, after the name
+    juce::Rectangle<int> voicePill(int track, int k) const; // the k-th voice's mute, beside its row
+    juce::Rectangle<int> meterBounds(int track) const;      // the level meter under the name
+    juce::Rectangle<int> knobBounds(int track) const;       // the volume knob, right of the meter
     juce::Rectangle<int> disclosure(int track) const;       // a chord part's expand and collapse arrow
     bool expanded(int track) const;                          // a chord part showing a row per voice
     bool compact() const { return laneHeight_ < kCompactHeight; }
     bool minimal() const { return laneHeight_ < kMinimalHeight; }
     int pillWidth() const { return minimal() ? 18 : 23; } // mute and solo
-    void setVolume(int track, int row, float volume); // row -1: the track's; else its voice's in that row
+    void setVolume(int track, float volume);
 
     void paintRuler(juce::Graphics&);
     void paintLanes(juce::Graphics&);
@@ -171,14 +163,13 @@ private:
     bool gliding_ = false;
     double glideFrom_ = 0, glideStart_ = 0;   // the view's start and the time, in ms, when the glide began
     int dragTrack_ = -1;                   // the track whose knob is turned
-    int dragRow_ = -1;                     // and its voice's row, -1 for the track's own
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
     NoteRef hover_;
 
     // Meters: each chip channel belongs to the track of the note last started
     // on it, so a release still counts for its track.
-    float trackLevel(int track, int row = -1) const; // loudest owned channel, linear, 1 at full scale; row: one voice's
+    float trackLevel(int track) const; // loudest owned channel, linear, 1 at full scale
     static constexpr float kMeterFloor = -36.0f; // dB at the meter's left end; its right end is full scale
     struct Owner
     {
@@ -190,8 +181,6 @@ private:
     int ownersRevision_ = -1;
     std::array<float, SongPlayer::kMeterChannels> channelLevel_ {};
     std::vector<float> level_, hold_; // per track, 0..1 along the meter
-    std::vector<std::vector<float>> voiceLevel_, voiceHold_; // per track, per voice row
-    std::vector<std::vector<double>> voiceHoldAge_;
     std::vector<double> holdAge_;     // seconds since the hold was set
 };
 
