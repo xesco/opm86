@@ -1211,8 +1211,9 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
         const int i = indexOf(hover_);
         const auto& tr = model_.tune().tracks[static_cast<size_t>(hover_.track)];
         const auto& n = tr.notes[static_cast<size_t>(i)];
-        setTooltip(tr.kind == TuneTrack::Kind::Fm ? theme::noteName(model_.tune().pitch(tr, n)) + theme::dot()
-                                                        + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 0) + " ms"
+        // "C-4 · 123.45 ms": the dot spaced by one, the length to two decimals.
+        setTooltip(tr.kind == TuneTrack::Kind::Fm ? theme::noteName(model_.tune().pitch(tr, n)) + juce::String::fromUTF8(" \xc2\xb7 ")
+                                                        + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 2) + " ms"
                                                   : juce::String(tr.name));
     }
     else
