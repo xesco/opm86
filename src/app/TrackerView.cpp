@@ -13,12 +13,17 @@ namespace opm86
 namespace
 {
 
-// The width an FM part's instrument takes after solo, gap included; 0 for drums.
+// An FM part's instrument, shown after solo unless the track is named after it.
+bool showsInstrument(const TuneTrack& t)
+{
+    return t.kind == TuneTrack::Kind::Fm && juce::String(t.name) != "FM " + juce::String(t.instrument + 1);
+}
+
+// The width the instrument takes after solo, gap included; 0 when not shown.
 int instrumentWidth(const TuneTrack& t)
 {
-    return t.kind == TuneTrack::Kind::Fm
-               ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), "FM " + juce::String(t.instrument + 1))
-               : 0;
+    return showsInstrument(t) ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), "FM " + juce::String(t.instrument + 1))
+                              : 0;
 }
 
 // Header layout; see the comment before voicePill.
@@ -889,7 +894,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
                    juce::Justification::centredLeft, true);
         drawToggle(mute, "M", tr.mute, theme::orange);
         drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
-        if (tr.kind == TuneTrack::Kind::Fm && !minimal())
+        if (showsInstrument(tr) && !minimal())
         {
             // Which instrument the voice plays.
             g.setColour(audible ? theme::dim : theme::faint);

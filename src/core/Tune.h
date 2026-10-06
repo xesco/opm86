@@ -99,7 +99,6 @@ public:
     std::shared_ptr<VgmSong> build(BuildReport* report = nullptr, bool mix = true) const;
 
 private:
-    void splitParts(); // one track per FM patch and chip voice, in voice order
 
     // The registers a note needs from its channel, as the game had them at
     // its key on (FM) or trigger (drums), by register offset from the channel.

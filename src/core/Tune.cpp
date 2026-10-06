@@ -189,52 +189,7 @@ std::unique_ptr<Tune> Tune::load(const std::vector<uint8_t>& file, const std::st
                                       [](const TuneTrack& t) { return t.notes.empty(); }),
                        tune->tracks.end());
     tune->data_ = data;
-    tune->splitParts();
     return tune;
-}
-
-void Tune::splitParts()
-{
-    // An FM track is one patch on one chip voice, so every line can be muted,
-    // soloed and set apart: a voice plays one note at a time. The tracks go in
-    // voice order, V1 first; a voice that plays several patches has a track for
-    // each, V1 · 1, V1 · 2, most used first. Drum tracks follow, as they were.
-    std::vector<TuneTrack> fm, drums;
-    for (TuneTrack& track : tracks)
-    {
-        if (track.kind != TuneTrack::Kind::Fm)
-        {
-            drums.push_back(std::move(track));
-            continue;
-        }
-        std::array<TuneTrack, 8> byVoice;
-        for (const TuneNote& n : track.notes)
-            byVoice[static_cast<size_t>(originalChannel(track, n))].notes.push_back(n);
-        for (size_t v = 0; v < byVoice.size(); ++v)
-            if (!byVoice[v].notes.empty())
-            {
-                byVoice[v].kind = track.kind;
-                byVoice[v].instrument = track.instrument;
-                fm.push_back(std::move(byVoice[v]));
-            }
-    }
-    auto voiceOf = [&](const TuneTrack& t) { return originalChannel(t, t.notes.front()); };
-    std::stable_sort(fm.begin(), fm.end(), [&](const TuneTrack& a, const TuneTrack& b) {
-        return voiceOf(a) != voiceOf(b) ? voiceOf(a) < voiceOf(b) : a.notes.size() > b.notes.size();
-    });
-    std::array<int, 8> count {}, seen {};
-    for (const TuneTrack& t : fm)
-        ++count[static_cast<size_t>(voiceOf(t))];
-    for (TuneTrack& t : fm)
-    {
-        const auto v = static_cast<size_t>(voiceOf(t));
-        t.name = "V" + std::to_string(v + 1);
-        if (count[v] > 1)
-            t.name += " \xc2\xb7 " + std::to_string(++seen[v]);
-    }
-    tracks = std::move(fm);
-    for (TuneTrack& t : drums)
-        tracks.push_back(std::move(t));
 }
 
 int64_t Tune::originalStart(const TuneTrack& track, const TuneNote& note) const
