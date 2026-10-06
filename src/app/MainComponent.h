@@ -61,6 +61,7 @@ public:
 
     void songOpened(); // a new song: its first time zoom as the zoom's home
     void syncZoom();   // the zoom sliders follow the view, however it was zoomed
+    void syncSelection(); // the start and end fields follow the selection, unless being typed in
     void refresh();    // the M/S shortcuts light up as the tracks' solos stand
 
     void paint(juce::Graphics&) override;
@@ -81,6 +82,10 @@ private:
     IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes
     SnapSlider speed_, heightZoom_, timeZoom_;
     juce::Rectangle<int> speedCaption_, heightCaption_, timeCaption_; // labels over the sliders
+    // The selection's start and end, typed as m:ss.mmm or seconds.
+    juce::TextEditor selectionStart_, selectionEnd_;
+    juce::Rectangle<int> startCaption_, endCaption_;
+    void applySelection();
 };
 
 // A strip under the tracks with a chevron that slides it down to a thin bar

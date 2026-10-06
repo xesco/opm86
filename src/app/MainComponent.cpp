@@ -516,6 +516,25 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         addAndMakeVisible(b);
     }
 
+    for (auto* editor : { &selectionStart_, &selectionEnd_ })
+    {
+        editor->setFont(theme::mono(12.0f, true));
+        editor->setJustification(juce::Justification::centred);
+        editor->setColour(juce::TextEditor::backgroundColourId, theme::background);
+        editor->setColour(juce::TextEditor::textColourId, theme::text);
+        editor->setColour(juce::TextEditor::outlineColourId, theme::gridBar);
+        editor->setColour(juce::TextEditor::focusedOutlineColourId, theme::cyan);
+        editor->setTextToShowWhenEmpty("-:--.---", theme::faint);
+        editor->setSelectAllWhenFocused(true);
+        // Return or leaving the field sets the selection; Escape puts it back.
+        editor->onReturnKey = [this] { applySelection(); view_.grabKeyboardFocus(); };
+        editor->onFocusLost = [this] { applySelection(); };
+        editor->onEscapeKey = [this] { view_.grabKeyboardFocus(); syncSelection(); };
+        addAndMakeVisible(editor);
+    }
+    selectionStart_.setTooltip("Selection start, m:ss.mmm");
+    selectionEnd_.setTooltip("Selection end, m:ss.mmm");
+
     // Speed on a log scale, 25% to 200%, home at 100%.
     for (auto* slider : { &speed_, &heightZoom_, &timeZoom_ })
     {
@@ -552,6 +571,67 @@ void ToolBar::songOpened()
     timeZoom_.setHome(-std::log2(view_.samplesPerPixel()));
     syncZoom();
     refresh();
+}
+
+namespace
+{
+// Song time as m:ss.mmm.
+juce::String formatTime(double songTime)
+{
+    const double seconds = songTime / kVgmRate;
+    const int minutes = static_cast<int>(seconds / 60.0);
+    return juce::String(minutes) + ":" + juce::String(seconds - minutes * 60.0, 3).paddedLeft('0', 6);
+}
+
+// "1:23.5", "83.5" or "1:23" to song time: false for nonsense; empty, a
+// blank field.
+bool parseTime(const juce::String& text, double& songTime, bool& empty)
+{
+    const auto t = text.trim();
+    empty = t.isEmpty();
+    if (empty)
+        return true;
+    if (!t.containsOnly("0123456789.:") || t.indexOfChar(':') != t.lastIndexOfChar(':'))
+        return false;
+    const bool colon = t.containsChar(':');
+    const double minutes = colon ? t.upToFirstOccurrenceOf(":", false, false).getDoubleValue() : 0.0;
+    const double seconds = (colon ? t.fromFirstOccurrenceOf(":", false, false) : t).getDoubleValue();
+    songTime = (minutes * 60.0 + seconds) * kVgmRate;
+    return true;
+}
+} // namespace
+
+void ToolBar::syncSelection()
+{
+    for (auto [editor, value] : { std::pair { &selectionStart_, model_.selectionStart() }, std::pair { &selectionEnd_, model_.selectionEnd() } })
+        if (!editor->hasKeyboardFocus(true))
+        {
+            const auto text = model_.hasSelection() ? formatTime(value) : juce::String();
+            if (editor->getText() != text)
+                editor->setText(text, false);
+        }
+}
+
+void ToolBar::applySelection()
+{
+    if (!model_.hasTune())
+        return;
+    double start = 0, end = 0;
+    bool noStart = false, noEnd = false;
+    if (parseTime(selectionStart_.getText(), start, noStart) && parseTime(selectionEnd_.getText(), end, noEnd))
+    {
+        // An empty start is the song's start, an empty end its end; both empty, no selection.
+        if (noStart && noEnd)
+            model_.clearSelection();
+        else
+        {
+            const double from = noStart ? 0.0 : start;
+            const double to = noEnd ? static_cast<double>(model_.tune().source().length) : end;
+            if (to > from)
+                model_.setSelection(from, to);
+        }
+    }
+    syncSelection();
 }
 
 void ToolBar::syncZoom()
@@ -619,6 +699,14 @@ void ToolBar::resized()
     button(drums_);
     r.removeFromLeft(10);
     group(speed_, speedCaption_, r.removeFromLeft(140));
+    r.removeFromLeft(14);
+    for (auto [editor, caption] : { std::pair { &selectionStart_, &startCaption_ }, std::pair { &selectionEnd_, &endCaption_ } })
+    {
+        auto g = r.removeFromLeft(84).withSizeKeepingCentre(84, 36);
+        *caption = g.removeFromTop(12);
+        editor->setBounds(g.withTrimmedTop(1));
+        r.removeFromLeft(6);
+    }
 
     group(timeZoom_, timeCaption_, r.removeFromRight(130));
     r.removeFromRight(14);
@@ -650,6 +738,8 @@ void ToolBar::paint(juce::Graphics& g)
     g.drawText("SPEED " + juce::String(juce::roundToInt(model_.speed() * 100.0)) + "%", speedCaption_, juce::Justification::centred);
     g.drawText("HEIGHT", heightCaption_, juce::Justification::centred);
     g.drawText("TIME", timeCaption_, juce::Justification::centred);
+    g.drawText("START", startCaption_, juce::Justification::centred);
+    g.drawText("END", endCaption_, juce::Justification::centred);
 }
 
 // SlidingStrip ----------------------------------------------------------------
@@ -1322,6 +1412,7 @@ void MainComponent::frame(double timestamp)
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
     tools_.syncZoom();
+    tools_.syncSelection();
     if (model_.playing() || model_.hasTune())
     {
         view_.repaint();
