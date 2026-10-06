@@ -121,9 +121,11 @@ public:
 
     juce::Rectangle<int> getTooltipBounds(const juce::String& text, juce::Point<int> at, juce::Rectangle<int> parent) override
     {
-        // Tight round the text: 5 pixels each side.
-        const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + 10;
-        return juce::Rectangle<int>(at.x + 12, at.y + 18, w, 20).constrainedWithin(parent);
+        // A note's, over the tracks, sits tight round its text; the rest have room.
+        auto* under = juce::Desktop::getInstance().getMainMouseSource().getComponentUnderMouse();
+        const bool note = dynamic_cast<TrackerView*>(under) != nullptr;
+        const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + (note ? 10 : 20);
+        return juce::Rectangle<int>(at.x + 12, at.y + 18, w, note ? 20 : 24).constrainedWithin(parent);
     }
 };
 
