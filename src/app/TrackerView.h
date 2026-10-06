@@ -68,6 +68,10 @@ public:
     static constexpr int kMaxLaneHeight = 80;
     static constexpr double kMinSamplesPerPixel = 50, kMaxSamplesPerPixel = 10000; // time zoom, in and out
 
+    // A volume knob's turn: dB from silence to +6 dB, to 0..1 round the knob, 0 dB at its middle; and back.
+    static float knobPosition(float volume);
+    static float knobVolume(float position);
+
 private:
     // A note by its track and its id.
     struct NoteRef
@@ -116,8 +120,6 @@ private:
     bool compact() const { return laneHeight_ < kCompactHeight; }
     bool minimal() const { return laneHeight_ < kMinimalHeight; }
     int pillWidth() const { return minimal() ? 18 : 23; } // mute and solo
-    static float knobPosition(float volume);                // dB to 0..1 round the knob
-    static float knobVolume(float position);                // and back
     void setVolume(int track, float volume);
 
     void paintRuler(juce::Graphics&);

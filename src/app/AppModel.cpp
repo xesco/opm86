@@ -327,6 +327,11 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         juce::FloatVectorOperations::clear(left, numSamples);
         juce::FloatVectorOperations::clear(right, numSamples);
     }
+    else if (const float master = master_.load(); master != 1.0f)
+    {
+        juce::FloatVectorOperations::multiply(left, master, numSamples);
+        juce::FloatVectorOperations::multiply(right, master, numSamples);
+    }
     for (int ch = 2; ch < numOutputs; ++ch)
         if (outputs[ch])
             juce::FloatVectorOperations::clear(outputs[ch], numSamples);

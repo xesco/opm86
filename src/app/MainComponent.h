@@ -29,8 +29,28 @@ public:
     double snapValue(double attempted, DragMode) override;
 };
 
+// A volume knob like a track's: dragged up or right, or scrolled, from
+// silence to +6 dB; a double-click puts it back to 0 dB.
+class VolumeKnob : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    float volume() const { return volume_; }
+    void setVolume(float dB);
+    std::function<void(float dB)> onChange;
+
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override { setVolume(0.0f); }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    float volume_ = 0.0f;
+    float from_ = 0.0f; // the knob's position when a drag began
+};
+
 // The transport and song display along the top: title, rewind, play, stop
-// and to the end, LED counters, the file and Open.
+// and to the end, LED counters, the file, the master volume and Open.
 class TopBar : public juce::Component, public juce::TooltipClient
 {
 public:
@@ -51,7 +71,8 @@ private:
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
-    juce::Rectangle<int> counters_, fileArea_;
+    VolumeKnob master_;
+    juce::Rectangle<int> counters_, fileArea_, masterArea_;
 };
 
 // The tool bar under the top bar: the playhead, follow and loop toggles, the

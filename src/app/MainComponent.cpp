@@ -360,6 +360,74 @@ double SnapSlider::snapValue(double attempted, DragMode)
     return attempted;
 }
 
+// VolumeKnob ------------------------------------------------------------------
+
+void VolumeKnob::setVolume(float dB)
+{
+    // In tenths of a dB, and silent at the bottom.
+    dB = dB <= TuneTrack::kSilent ? TuneTrack::kSilent : std::round(juce::jlimit(TuneTrack::kSilent, TuneTrack::kMaxVolume, dB) * 10.0f) / 10.0f;
+    if (std::abs(dB - volume_) < 0.01f)
+        return;
+    volume_ = dB;
+    if (onChange)
+        onChange(volume_);
+    repaint();
+}
+
+void VolumeKnob::mouseDown(const juce::MouseEvent&)
+{
+    from_ = TrackerView::knobPosition(volume_);
+}
+
+void VolumeKnob::mouseDrag(const juce::MouseEvent& e)
+{
+    // 200 pixels turn it end to end, as a track's knob.
+    const float moved = static_cast<float>(e.getDistanceFromDragStartX() - e.getDistanceFromDragStartY());
+    setVolume(TrackerView::knobVolume(juce::jlimit(0.0f, 1.0f, from_ + moved / 200.0f)));
+}
+
+void VolumeKnob::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    setVolume(TrackerView::knobVolume(juce::jlimit(0.0f, 1.0f, TrackerView::knobPosition(volume_) + w.deltaY * 0.25f)));
+}
+
+void VolumeKnob::paint(juce::Graphics& g)
+{
+    // A ring from silence to +6 dB lit up to the level, a tick at 0 dB, and a
+    // raised cap with a pointer, as on a track.
+    constexpr float arc = juce::MathConstants<float>::pi * 0.75f;
+    const auto bounds = getLocalBounds().toFloat();
+    const auto centre = bounds.getCentre();
+    const float radius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.5f - 2.0f;
+    const float angle = -arc + 2.0f * arc * TrackerView::knobPosition(volume_);
+    const bool dragging = isMouseButtonDown();
+
+    juce::Path ring;
+    ring.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -arc, arc, true);
+    g.setColour(juce::Colour(0xff2a2f4a));
+    g.strokePath(ring, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    if (volume_ > TuneTrack::kSilent)
+    {
+        juce::Path value;
+        value.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -arc, angle, true);
+        g.setColour(dragging ? theme::cyan.brighter(0.3f) : theme::cyan);
+        g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+    const float zero = -arc + 2.0f * arc * TrackerView::knobPosition(0.0f);
+    g.setColour(theme::text.withAlpha(0.8f));
+    g.drawLine({ centre.getPointOnCircumference(radius - 2.5f, zero), centre.getPointOnCircumference(radius + 2.5f, zero) }, 1.2f);
+
+    const auto cap = juce::Rectangle<float>(0, 0, (radius - 4.0f) * 2.0f, (radius - 4.0f) * 2.0f).withCentre(centre);
+    g.setColour(juce::Colours::black.withAlpha(0.5f));
+    g.fillEllipse(cap.translated(0.0f, 1.5f));
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xffc9cbe8), cap.getX(), cap.getY(), juce::Colour(0xff4f5378), cap.getX(), cap.getBottom(), false));
+    g.fillEllipse(cap);
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.drawEllipse(cap.reduced(0.5f), 1.0f);
+    g.setColour(dragging ? theme::cyan : theme::background);
+    g.drawLine({ centre.getPointOnCircumference(cap.getWidth() * 0.12f, angle), centre.getPointOnCircumference(cap.getWidth() * 0.5f - 2.5f, angle) }, 2.2f);
+}
+
 // TopBar ----------------------------------------------------------------------
 
 TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
@@ -387,6 +455,12 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (onOpen)
             onOpen();
     };
+    master_.setTooltip("Master volume");
+    master_.onChange = [this](float dB) {
+        model_.setMasterVolume(dB);
+        repaint(masterArea_);
+    };
+    addAndMakeVisible(master_);
     for (juce::Button* b : std::initializer_list<juce::Button*> { &rewind_, &play_, &stop_, &end_, &open_ })
     {
         b->setWantsKeyboardFocus(false);
@@ -437,6 +511,10 @@ void TopBar::resized()
     r.removeFromLeft(14);
     open_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
+    // The master volume: its caption and level, then the knob.
+    master_.setBounds(r.removeFromRight(40).withSizeKeepingCentre(40, 40));
+    masterArea_ = r.removeFromRight(64);
+    r.removeFromRight(14);
     counters_ = r;
 }
 
@@ -457,6 +535,15 @@ void TopBar::paint(juce::Graphics& g)
     g.drawText("PLAYER  YM2151+SEGAPCM", juce::Rectangle<int>(16, 38, 200, 12), juce::Justification::topLeft);
 
     play_.setToggleState(model_.playing(), juce::dontSendNotification);
+
+    // The master volume's caption and level, left of its knob.
+    g.setFont(theme::mono(11.0f, true));
+    g.setColour(theme::dim);
+    g.drawText("MASTER", masterArea_.withTrimmedBottom(masterArea_.getHeight() / 2), juce::Justification::bottomRight);
+    g.setColour(theme::text);
+    const float master = master_.volume();
+    g.drawText(master <= TuneTrack::kSilent ? juce::String("-inf dB") : juce::String(master, 1) + " dB",
+               masterArea_.withTrimmedTop(masterArea_.getHeight() / 2 + 2), juce::Justification::topRight);
 
     // Counters.
     auto c = counters_;

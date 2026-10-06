@@ -56,6 +56,8 @@ public:
     void scrub(double songTime);
     void setMonitor(bool on) { monitor_.store(on); } // off: plays and meters, but outputs silence
     void setSpeed(double speed) { speed_.store(speed); } // tempo, 1 as made; the pitch stays
+    // The whole output, in dB; this app's sound only, under the system volume.
+    void setMasterVolume(float dB) { master_.store(dB <= TuneTrack::kSilent ? 0.0f : juce::Decibels::decibelsToGain(dB)); }
     double speed() const { return speed_.load(); }
 
     // A section of the song, in VGM samples: the playhead goes to its start,
@@ -121,6 +123,7 @@ private:
     std::atomic<bool> playing_ { false };
     std::atomic<bool> monitor_ { true };
     std::atomic<double> speed_ { 1.0 };
+    std::atomic<float> master_ { 1.0f }; // the master volume as a gain
     std::atomic<double> position_ { 0.0 };
     std::atomic<double> positionStamp_ { 0.0 }; // when position_ was set, in ms
     double sampleRate_ = 48000.0;
