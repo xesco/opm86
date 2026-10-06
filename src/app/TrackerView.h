@@ -38,6 +38,7 @@ public:
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
     void wake(); // a mouse or key event anywhere: shows the playhead, which hides after a second without one
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
+    void setFollow(bool follow) { follow_ = follow; } // off, the view stays where it is put while playing
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
@@ -135,6 +136,7 @@ private:
     double laneHeightExact_ = 54; // the zoom, unrounded, so small pinch steps add up
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
+    bool follow_ = true;
 
     std::set<int> collapsed_; // chord parts drawn in one lane
     Drag drag_ = Drag::None;

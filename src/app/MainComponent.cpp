@@ -190,6 +190,17 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(box.getCentreX() - 5.0f, box.getY(), box.getCentreX() + 5.0f, box.getY(), box.getCentreX(), box.getY() + 6.0f);
             p.addRectangle(box.getCentreX() - 1.0f, box.getY(), 2.0f, box.getHeight());
             break;
+        case Icon::Follow: // the playhead held between the view's two edges
+        {
+            const float x0 = box.getX() - 1.0f, x1 = box.getRight() + 1.0f, y0 = box.getY(), y1 = box.getBottom();
+            for (const float x : { x0, x1 - 1.5f })
+                p.addRectangle(x, y0, 1.5f, box.getHeight());
+            for (const float y : { y0, y1 - 1.5f })
+                p.addRectangle(x0, y, 4.0f, 1.5f), p.addRectangle(x1 - 4.0f, y, 4.0f, 1.5f);
+            p.addTriangle(box.getCentreX() - 3.5f, y0 + 2.0f, box.getCentreX() + 3.5f, y0 + 2.0f, box.getCentreX(), y0 + 6.5f);
+            p.addRectangle(box.getCentreX() - 0.75f, y0 + 2.0f, 1.5f, box.getHeight() - 4.0f);
+            break;
+        }
         case Icon::Reset: // an arrow going back round a circle
         {
             const auto c = box.getCentre();
@@ -461,6 +472,11 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     keepPlayhead_.setClickingTogglesState(true);
     keepPlayhead_.setTooltip("Keep playhead");
     keepPlayhead_.onClick = [this] { view_.setKeepPlayhead(keepPlayhead_.getToggleState()); };
+    follow_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    follow_.setClickingTogglesState(true);
+    follow_.setToggleState(true, juce::dontSendNotification);
+    follow_.setTooltip("Follow playhead");
+    follow_.onClick = [this] { view_.setFollow(follow_.getToggleState()); };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {
         if (model_.hasTune())
@@ -488,7 +504,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &reset_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &reset_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -604,6 +620,7 @@ void ToolBar::resized()
         slider.setBounds(g);
     };
     button(keepPlayhead_);
+    button(follow_);
     r.removeFromLeft(10);
     button(reset_);
     button(instruments_);

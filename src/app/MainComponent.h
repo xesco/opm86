@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, Play, Stop, Playhead, Reset, Instruments, Drums, FitTracks, FitTime, FitBoth, Home };
+    enum class Icon { Rewind, Play, Stop, Playhead, Follow, Reset, Instruments, Drums, FitTracks, FitTime, FitBoth, Home };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -70,7 +70,7 @@ private:
     float angle_ = 0, lastAngle_ = 0; // radians: the wheel's, and the pointer's at the last drag
 };
 
-// The tool bar under the top bar: the playhead toggle, the tracks'
+// The tool bar under the top bar: the playhead and follow toggles, the tracks'
 // M/S shortcuts, speed and the jog wheel, the fit buttons and the zoom sliders.
 class ToolBar : public juce::Component
 {
@@ -92,6 +92,7 @@ private:
     AppModel& model_;
     TrackerView& view_;
     IconButton keepPlayhead_ { IconButton::Icon::Playhead }; // on, the playhead never fades
+    IconButton follow_ { IconButton::Icon::Follow };         // on, the view follows the playhead
     IconButton reset_ { IconButton::Icon::Reset }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::Home }; // both zoom sliders back to their homes

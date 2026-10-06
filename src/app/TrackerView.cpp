@@ -161,7 +161,7 @@ void TrackerView::zoomAround(double factor, float x)
 
 void TrackerView::followPlayhead()
 {
-    if (!model_.playing() || drag_ == Drag::Pan || !model_.hasTune())
+    if (!follow_ || !model_.playing() || drag_ == Drag::Pan || !model_.hasTune())
     {
         gliding_ = false;
         return;
