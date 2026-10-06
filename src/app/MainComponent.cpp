@@ -453,72 +453,10 @@ void JogWheel::paint(juce::Graphics& g)
     g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(c.getPointOnCircumference(size * 0.32f, angle_)));
 }
 
-// GridPicker ------------------------------------------------------------------
-
-juce::Rectangle<float> GridPicker::segment(int index) const
-{
-    const int rows = (labels_.size() + columns_ - 1) / columns_;
-    const float w = static_cast<float>(getWidth()) / static_cast<float>(columns_);
-    const float h = static_cast<float>(getHeight()) / static_cast<float>(rows);
-    return { w * static_cast<float>(index % columns_), h * static_cast<float>(index / columns_), w, h };
-}
-
-void GridPicker::paint(juce::Graphics& g)
-{
-    // One rounded groove split into cells; the chosen one lit cyan.
-    const auto r = getLocalBounds().toFloat().reduced(0.5f);
-    g.setColour(theme::background);
-    g.fillRoundedRectangle(r, 4.0f);
-    const auto mouse = getMouseXYRelative().toFloat();
-    g.setFont(theme::mono(11.0f, true));
-    for (int k = 0; k < labels_.size(); ++k)
-    {
-        const auto s = segment(k).reduced(1.5f);
-        const bool on = k == selected_, over = isMouseOver() && segment(k).contains(mouse);
-        if (on || over)
-        {
-            g.setColour(on ? theme::cyan : theme::panelLight);
-            g.fillRoundedRectangle(s, 3.0f);
-        }
-        g.setColour(on ? theme::background : over ? theme::text : theme::dim);
-        g.drawText(labels_[k], s, juce::Justification::centred);
-        // A faint line before each cell in a row, but not beside the lit one.
-        if (k % columns_ > 0 && !on && k - 1 != selected_)
-        {
-            const auto cell = segment(k);
-            g.setColour(theme::grid);
-            g.fillRect(cell.getX(), cell.getY() + 3.0f, 1.0f, cell.getHeight() - 6.0f);
-        }
-    }
-    g.setColour(theme::gridBar);
-    g.drawRoundedRectangle(r, 4.0f, 1.0f);
-}
-
-void GridPicker::mouseDown(const juce::MouseEvent& e)
-{
-    for (int k = 0; k < labels_.size(); ++k)
-        if (segment(k).contains(e.position) && k != selected_)
-        {
-            setSelected(k);
-            if (onChange)
-                onChange();
-        }
-}
-
 // ToolBar ---------------------------------------------------------------------
 
 ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
 {
-    snap_.setSelected(5); // 1/16
-    snap_.setTooltip("Snap grid");
-    snap_.onChange = [this] {
-        static constexpr int kDivision[] = { 0, 1, 2, 4, 8, 16 }; // bars split this many ways; 0 is off
-        const int division = kDivision[snap_.selected()];
-        const double bar = model_.hasTune() ? model_.tune().source().beatLength * 4 : 0;
-        view_.setSnap(division > 0 ? bar / division : 0);
-    };
-    addAndMakeVisible(snap_);
-
     keepPlayhead_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     keepPlayhead_.setClickingTogglesState(true);
     keepPlayhead_.setTooltip("Keep playhead");
@@ -605,7 +543,6 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
 
 void ToolBar::songOpened()
 {
-    snap_.onChange();
     timeZoom_.setHome(-std::log2(view_.samplesPerPixel()));
     syncZoom();
     refresh();
@@ -687,8 +624,6 @@ void ToolBar::resized()
     fitTime_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
     r.removeFromRight(6);
     fitTracks_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
-    r.removeFromRight(14);
-    snap_.setBounds(r.removeFromRight(114).withSizeKeepingCentre(114, 36));
     syncZoom();
 }
 

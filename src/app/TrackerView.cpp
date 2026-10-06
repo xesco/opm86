@@ -13,8 +13,6 @@ namespace opm86
 namespace
 {
 
-constexpr float kEdge = 6.0f;      // pixels at a note's right end that resize it
-
 // The width an FM part's instrument takes after solo, gap included; 0 for drums.
 int instrumentWidth(const TuneTrack& t)
 {
@@ -22,7 +20,6 @@ int instrumentWidth(const TuneTrack& t)
                ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), "FM " + juce::String(t.instrument + 1))
                : 0;
 }
-constexpr double kMinLength = 441; // 10 ms, the shortest note
 
 // Header layout; see the comment before voicePill.
 constexpr int kVoiceColumn = 44; // width of the voice toggles' column
@@ -31,84 +28,6 @@ constexpr int kKnob = 26;        // the knob's size
 constexpr int kBlock = 44;       // height of the name and meter block
 constexpr int kMinHeaderWidth = 150; // room for TRACKS and the strips' names and chevrons
 constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
-
-// A small editor for a note's pitch, shown in a callout.
-class PitchEditor : public juce::Component
-{
-public:
-    PitchEditor(const juce::String& current, std::function<void(int)> apply) : apply_(std::move(apply))
-    {
-        label_.setText("PITCH", juce::dontSendNotification);
-        label_.setFont(theme::pixel(8.0f));
-        label_.setColour(juce::Label::textColourId, theme::orange);
-        addAndMakeVisible(label_);
-        editor_.setFont(theme::mono(18.0f, true));
-        editor_.setText(current, false);
-        editor_.setJustification(juce::Justification::centred);
-        editor_.setColour(juce::TextEditor::backgroundColourId, theme::background);
-        editor_.setColour(juce::TextEditor::textColourId, theme::text);
-        editor_.setColour(juce::TextEditor::outlineColourId, theme::gridBar);
-        editor_.setColour(juce::TextEditor::focusedOutlineColourId, theme::cyan);
-        editor_.onReturnKey = [this] { commit(); };
-        addAndMakeVisible(editor_);
-        setSize(150, 70);
-    }
-
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced(8);
-        label_.setBounds(area.removeFromTop(16));
-        editor_.setBounds(area.removeFromTop(32));
-    }
-
-    void visibilityChanged() override
-    {
-        if (isShowing())
-        {
-            editor_.grabKeyboardFocus();
-            editor_.selectAll();
-        }
-    }
-
-private:
-    // Accepts "C#5", "c-4", "Bb3", "60".
-    void commit()
-    {
-        const juce::String t = editor_.getText().trim().toUpperCase().removeCharacters("-");
-        int note = -1;
-        if (t.containsOnly("0123456789"))
-            note = t.getIntValue();
-        else if (t.isNotEmpty())
-        {
-            static const int kBase[7] = { 9, 11, 0, 2, 4, 5, 7 }; // A..G
-            const juce::juce_wchar letter = t[0];
-            if (letter >= 'A' && letter <= 'G')
-            {
-                int pc = kBase[letter - 'A'];
-                int i = 1;
-                if (t[i] == '#')
-                    ++pc, ++i;
-                else if (t[i] == 'B')
-                    --pc, ++i;
-                const juce::String octave = t.substring(i);
-                if (octave.isNotEmpty() && octave.trimCharactersAtStart("-").containsOnly("0123456789"))
-                    note = (octave.getIntValue() + 1) * 12 + pc;
-            }
-        }
-        if (note >= 0 && note <= 127)
-        {
-            apply_(note);
-            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
-                box->dismiss();
-        }
-        else
-            editor_.setColour(juce::TextEditor::outlineColourId, theme::danger);
-    }
-
-    juce::Label label_;
-    juce::TextEditor editor_;
-    std::function<void(int)> apply_;
-};
 
 } // namespace
 
@@ -125,9 +44,6 @@ TrackerView::~TrackerView()
 
 void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
 {
-    // Drop selected notes that no longer exist.
-    for (auto it = selection_.begin(); it != selection_.end();)
-        it = indexOf(*it) < 0 ? selection_.erase(it) : std::next(it);
     repaint();
 }
 
@@ -333,14 +249,6 @@ juce::Rectangle<int> TrackerView::disclosure(int track) const
     return { 10, nameBounds(track).getY(), 14, nameBounds(track).getHeight() };
 }
 
-double TrackerView::snapTime(double t) const
-{
-    if (snap_ <= 0 || !model_.hasTune())
-        return t;
-    const double origin = model_.tune().source().firstBeat;
-    return origin + std::round((t - origin) / snap_) * snap_;
-}
-
 juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
 {
     const TuneNote& n = model_.tune().tracks[static_cast<size_t>(track)].notes[static_cast<size_t>(note)];
@@ -359,9 +267,8 @@ juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
     return { x0, y, std::max(2.0f, x1 - x0), h };
 }
 
-TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge) const
+TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p) const
 {
-    onRightEdge = false;
     const int t = yToTrack(p.y);
     if (t < 0 || p.x < lanesX())
         return {};
@@ -371,16 +278,13 @@ TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge
     for (int i = static_cast<int>(notes.size()) - 1; i >= 0; --i)
     {
         const TuneNote& n = notes[static_cast<size_t>(i)];
-        if (static_cast<double>(n.start) > time + kEdge * samplesPerPixel_)
+        if (static_cast<double>(n.start) > time)
             continue;
         if (static_cast<double>(n.start + n.length + layout().longest[static_cast<size_t>(t)]) < time)
             break;
         const auto r = noteBounds(t, i);
-        if (r.expanded(1.0f, 0.0f).contains(p) || (p.x >= r.getRight() - kEdge && p.x <= r.getRight() + 2 && r.getY() <= p.y && p.y <= r.getBottom()))
-        {
-            onRightEdge = p.x >= r.getRight() - kEdge;
+        if (r.expanded(1.0f, 0.0f).contains(p))
             return { t, n.id };
-        }
     }
     return {};
 }
@@ -698,16 +602,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
             if (static_cast<double>(it->start + it->length) < from)
                 continue;
             const int i = static_cast<int>(it - notes.begin());
-            auto r = noteBounds(static_cast<int>(t), i);
-            // While dragging, selected notes show where they will land.
-            if ((drag_ == Drag::Move || drag_ == Drag::Resize) && selection_.count({ static_cast<int>(t), it->id }))
-            {
-                const float dx = static_cast<float>(dragDelta_ / samplesPerPixel_);
-                if (drag_ == Drag::Move)
-                    r.translate(dx, 0);
-                else
-                    r.setWidth(std::max(2.0f, r.getWidth() + dx));
-            }
+            const auto r = noteBounds(static_cast<int>(t), i);
             if (isSounding(*it))
                 sounding.push_back({ static_cast<int>(t), i, r });
             else
@@ -717,14 +612,6 @@ void TrackerView::paintLanes(juce::Graphics& g)
     // The notes sounding now go last, so their glow lies over their neighbours.
     for (const auto& [t, i, r] : sounding)
         paintNote(g, t, i, r);
-
-    if (drag_ == Drag::Box)
-    {
-        g.setColour(theme::cyan.withAlpha(0.12f));
-        g.fillRect(box_);
-        g.setColour(theme::cyan.withAlpha(0.8f));
-        g.drawRect(box_, 1.0f);
-    }
     g.restoreState();
 }
 
@@ -741,7 +628,6 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
     const int pitch = model_.tune().pitch(tr, n);
     const bool audible = model_.tune().audible(tr, n);
-    const bool selected = selection_.count({ track, n.id }) > 0;
     const bool sounding = isSounding(n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
@@ -784,11 +670,6 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     {
         g.setColour(theme::danger);
         g.drawRoundedRectangle(r, 3.0f, 2.0f);
-    }
-    else if (selected)
-    {
-        g.setColour(juce::Colours::white);
-        g.drawRoundedRectangle(r.expanded(0.5f), 3.0f, 1.5f);
     }
 
     // The label, centred and as large as the note allows: white with a dark
@@ -1008,7 +889,6 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     const auto p = e.position;
     dragFrom_ = p;
-    dragDelta_ = 0;
 
     if (p.y < kRulerHeight && p.x >= lanesX())
     {
@@ -1061,28 +941,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    bool edge = false;
-    const NoteRef hit = noteAt(p, edge);
-    if (hit.valid())
-    {
-        if (e.mods.isShiftDown())
-        {
-            if (!selection_.erase(hit))
-                selection_.insert(hit);
-        }
-        else if (!selection_.count(hit))
-            selection_ = { hit };
-        dragNote_ = hit;
-        drag_ = edge ? Drag::Resize : Drag::Move;
-    }
-    else
-    {
-        if (!e.mods.isShiftDown())
-            selection_.clear();
-        drag_ = Drag::Box;
-        box_ = { p, p };
-    }
-    repaint();
+    drag_ = Drag::Lanes;
 }
 
 void TrackerView::mouseDrag(const juce::MouseEvent& e)
@@ -1103,69 +962,15 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
-    if (drag_ == Drag::Move || drag_ == Drag::Resize)
-    {
-        const int index = indexOf(dragNote_);
-        if (index < 0)
-            return;
-        const TuneNote& n = model_.tune().tracks[static_cast<size_t>(dragNote_.track)].notes[static_cast<size_t>(index)];
-        const double raw = (p.x - dragFrom_.x) * samplesPerPixel_;
-        if (drag_ == Drag::Move)
-            dragDelta_ = snapTime(static_cast<double>(n.start) + raw) - static_cast<double>(n.start);
-        else
-        {
-            const double end = static_cast<double>(n.start + n.length);
-            dragDelta_ = std::max(snapTime(end + raw), static_cast<double>(n.start) + kMinLength) - end;
-        }
-        repaint();
-        return;
-    }
-    if (drag_ == Drag::Box)
-    {
-        box_ = juce::Rectangle<float>(dragFrom_, p);
-        // Select every note the box touches.
-        if (!e.mods.isShiftDown())
-            selection_.clear();
-        const auto& tracks = model_.tune().tracks;
-        const int t0 = std::max(0, yToTrack(std::max<float>(box_.getY(), kRulerHeight)));
-        const int t1 = yToTrack(box_.getBottom());
-        for (int t = t0; t <= (t1 < 0 ? static_cast<int>(tracks.size()) - 1 : t1); ++t)
-            for (size_t i = 0; i < tracks[static_cast<size_t>(t)].notes.size(); ++i)
-                if (noteBounds(t, static_cast<int>(i)).intersects(box_))
-                    selection_.insert({ t, tracks[static_cast<size_t>(t)].notes[i].id });
-        repaint();
-    }
 }
 
 void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
-    // A click on empty lanes, not a box drag, puts the stopped playhead there.
-    if (finished == Drag::Box && e.mouseWasClicked() && !model_.playing())
+    // A click on the lanes puts the stopped playhead there.
+    if (finished == Drag::Lanes && e.mouseWasClicked() && !model_.playing())
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
-    if ((finished == Drag::Move || finished == Drag::Resize) && std::abs(dragDelta_) >= 1.0)
-    {
-        const auto chosen = selection_;
-        const auto delta = static_cast<int64_t>(std::llround(dragDelta_));
-        const bool move = finished == Drag::Move;
-        model_.edit(move ? "Move notes" : "Resize notes", [chosen, delta, move](Tune& tune) {
-            for (size_t t = 0; t < tune.tracks.size(); ++t)
-            {
-                auto& notes = tune.tracks[t].notes;
-                for (TuneNote& n : notes)
-                    if (chosen.count({ static_cast<int>(t), n.id }))
-                    {
-                        if (move)
-                            n.start = std::max<int64_t>(0, n.start + delta);
-                        else
-                            n.length = std::max<int64_t>(static_cast<int64_t>(kMinLength), n.length + delta);
-                    }
-                std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-            }
-        });
-    }
-    dragDelta_ = 0;
     repaint();
 }
 
@@ -1173,13 +978,9 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
 {
     if (!model_.hasTune())
         return;
-    bool edge = false;
-    hover_ = noteAt(e.position, edge);
-    hoverEdge_ = edge;
-    setMouseCursor(hover_.valid() && edge ? juce::MouseCursor::LeftRightResizeCursor
-                   : hover_.valid()       ? juce::MouseCursor::DraggingHandCursor
-                   : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
-                                                                                 : juce::MouseCursor::NormalCursor);
+    hover_ = noteAt(e.position);
+    setMouseCursor(e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
+                                                                          : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
     {
         const int i = indexOf(hover_);
@@ -1213,16 +1014,7 @@ void TrackerView::mouseDoubleClick(const juce::MouseEvent& e)
         {
             dragStarted_ = false;
             setVolume(t, 0.0f);
-            return;
         }
-    if (!model_.hasTune() || e.position.x < lanesX() || e.position.y < kRulerHeight)
-        return;
-    bool edge = false;
-    const NoteRef hit = noteAt(e.position, edge);
-    if (hit.valid())
-        editPitch(hit);
-    else if (const int t = yToTrack(e.position.y); t >= 0)
-        addNoteAt(t, snapTime(xToTime(e.position.x)));
 }
 
 void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
@@ -1239,21 +1031,7 @@ void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
         zoomLanes(std::pow(1.6, static_cast<double>(w.deltaY) * 2.0), e.position.y);
         return;
     }
-    // Over a selected note, the wheel changes its pitch: one semitone a notch.
-    bool edge = false;
-    const NoteRef hit = noteAt(e.position, edge);
-    if (hit.valid() && selection_.count(hit) && std::abs(w.deltaY) > std::abs(w.deltaX))
-    {
-        static float accumulated = 0;
-        accumulated += w.deltaY;
-        if (std::abs(accumulated) >= 0.12f)
-        {
-            transposeSelection((accumulated > 0 ? 1 : -1) * (e.mods.isShiftDown() ? 12 : 1));
-            accumulated = 0;
-        }
-        return;
-    }
-    // Otherwise it scrolls: sideways through time, up and down through tracks.
+    // It scrolls: sideways through time, up and down through tracks.
     const float dx = std::abs(w.deltaX) > 0 ? w.deltaX : (e.mods.isShiftDown() ? w.deltaY : 0.0f);
     const float dy = e.mods.isShiftDown() ? 0.0f : w.deltaY;
     if (std::abs(dx) > 0)
@@ -1271,177 +1049,19 @@ void TrackerView::mouseMagnify(const juce::MouseEvent& e, float scale)
         zoomAround(scale, e.position.x);
 }
 
-// Editing ---------------------------------------------------------------------
+// Keys ------------------------------------------------------------------------
 
+// Undo and redo take back mute, solo and volume; the notes cannot be edited.
 bool TrackerView::keyPressed(const juce::KeyPress& key)
 {
     wake();
     if (!model_.hasTune())
         return false;
-    const auto mods = key.getModifiers();
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
-        return deleteSelection(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0))
         return model_.undo().undo(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
-    if (key == juce::KeyPress('d', juce::ModifierKeys::commandModifier, 0))
-        return duplicateSelection(), true;
-    if (key == juce::KeyPress('a', juce::ModifierKeys::commandModifier, 0))
-    {
-        selection_.clear();
-        const auto& tracks = model_.tune().tracks;
-        for (size_t t = 0; t < tracks.size(); ++t)
-            for (const TuneNote& n : tracks[t].notes)
-                selection_.insert({ static_cast<int>(t), n.id });
-        repaint();
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::upKey || key.getKeyCode() == juce::KeyPress::downKey)
-    {
-        const int step = mods.isShiftDown() ? 12 : 1;
-        transposeSelection(key.getKeyCode() == juce::KeyPress::upKey ? step : -step);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
-    {
-        if (selection_.empty())
-            return false;
-        const double step = snap_ > 0 ? snap_ : model_.tune().source().beatLength / 4;
-        const auto delta = static_cast<int64_t>(std::llround(key.getKeyCode() == juce::KeyPress::rightKey ? step : -step));
-        const auto chosen = selection_;
-        model_.edit("Move notes", [chosen, delta](Tune& tune) {
-            for (size_t t = 0; t < tune.tracks.size(); ++t)
-            {
-                auto& notes = tune.tracks[t].notes;
-                for (TuneNote& n : notes)
-                    if (chosen.count({ static_cast<int>(t), n.id }))
-                        n.start = std::max<int64_t>(0, n.start + delta);
-                std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-            }
-        });
-        return true;
-    }
-    if (key == juce::KeyPress::escapeKey)
-    {
-        selection_.clear();
-        repaint();
-        return true;
-    }
     return false;
-}
-
-void TrackerView::transposeSelection(int semitones)
-{
-    if (selection_.empty())
-        return;
-    const auto chosen = selection_;
-    model_.edit("Transpose", [chosen, semitones](Tune& tune) {
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-            for (TuneNote& n : tune.tracks[t].notes)
-                if (chosen.count({ static_cast<int>(t), n.id }))
-                    n.transpose = std::clamp(n.transpose + semitones, -48, 48);
-    });
-}
-
-void TrackerView::deleteSelection()
-{
-    if (selection_.empty())
-        return;
-    const auto chosen = selection_;
-    model_.edit("Delete notes", [chosen](Tune& tune) {
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-        {
-            auto& notes = tune.tracks[t].notes;
-            notes.erase(std::remove_if(notes.begin(), notes.end(),
-                                       [&](const TuneNote& n) { return chosen.count({ static_cast<int>(t), n.id }) > 0; }),
-                        notes.end());
-        }
-    });
-    selection_.clear();
-}
-
-void TrackerView::duplicateSelection()
-{
-    if (selection_.empty())
-        return;
-    // The copy goes right after the selection, rounded up to a whole bar.
-    const auto& tracks = model_.tune().tracks;
-    int64_t first = std::numeric_limits<int64_t>::max(), last = 0;
-    for (const NoteRef& r : selection_)
-        if (const int i = indexOf(r); i >= 0)
-        {
-            const TuneNote& n = tracks[static_cast<size_t>(r.track)].notes[static_cast<size_t>(i)];
-            first = std::min(first, n.start);
-            last = std::max(last, n.start + n.length);
-        }
-    const double bar = model_.tune().source().beatLength * 4;
-    const auto shift = static_cast<int64_t>(std::ceil(static_cast<double>(last - first) / bar) * bar);
-    const auto chosen = selection_;
-    std::set<NoteRef> copies;
-    model_.edit("Duplicate notes", [chosen, shift, &copies](Tune& tune) {
-        int id = tune.newNoteId();
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-        {
-            auto& notes = tune.tracks[t].notes;
-            std::vector<TuneNote> added;
-            for (const TuneNote& n : notes)
-                if (chosen.count({ static_cast<int>(t), n.id }))
-                {
-                    TuneNote copy = n;
-                    copy.id = id++;
-                    copy.start += shift;
-                    added.push_back(copy);
-                    copies.insert({ static_cast<int>(t), copy.id });
-                }
-            notes.insert(notes.end(), added.begin(), added.end());
-            std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-        }
-    });
-    selection_ = copies;
-    repaint();
-}
-
-void TrackerView::editPitch(NoteRef ref)
-{
-    const int i = indexOf(ref);
-    if (i < 0)
-        return;
-    const auto& tr = model_.tune().tracks[static_cast<size_t>(ref.track)];
-    const auto& n = tr.notes[static_cast<size_t>(i)];
-    const int current = model_.tune().pitch(tr, n);
-    const int base = current - n.transpose;
-    auto editor = std::make_unique<PitchEditor>(theme::noteName(current), [this, ref, base](int note) {
-        model_.edit("Set pitch", [ref, note, base](Tune& tune) {
-            for (TuneNote& x : tune.tracks[static_cast<size_t>(ref.track)].notes)
-                if (x.id == ref.id)
-                    x.transpose = std::clamp(note - base, -48, 48);
-        });
-    });
-    juce::CallOutBox::launchAsynchronously(std::move(editor), noteBounds(ref.track, i).toNearestInt() + getScreenPosition(), nullptr);
-}
-
-void TrackerView::addNoteAt(int track, double time)
-{
-    // A copy of the track's nearest note: the instrument's own sound.
-    const auto& notes = model_.tune().tracks[static_cast<size_t>(track)].notes;
-    if (notes.empty())
-        return;
-    const auto nearest = std::min_element(notes.begin(), notes.end(), [time](const TuneNote& a, const TuneNote& b) {
-        return std::abs(static_cast<double>(a.start) - time) < std::abs(static_cast<double>(b.start) - time);
-    });
-    TuneNote copy = *nearest;
-    copy.start = static_cast<int64_t>(std::max(0.0, time));
-    NoteRef added;
-    model_.edit("Add note", [track, copy, &added](Tune& tune) mutable {
-        copy.id = tune.newNoteId();
-        added = { track, copy.id };
-        auto& list = tune.tracks[static_cast<size_t>(track)].notes;
-        list.push_back(copy);
-        std::stable_sort(list.begin(), list.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-    });
-    selection_ = { added };
-    repaint();
 }
 
 } // namespace opm86

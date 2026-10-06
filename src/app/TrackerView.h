@@ -44,10 +44,6 @@ public:
     void setCollapsed(int track, bool collapsed); // a chord part in one lane, or a row per voice
     void zoomLanes(double factor, float y);
 
-    // Snap grid in VGM samples; 0 is off.
-    void setSnap(double samples) { snap_ = samples; }
-    double snap() const { return snap_; }
-
     void paint(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
@@ -70,7 +66,7 @@ public:
     static constexpr double kMinSamplesPerPixel = 50, kMaxSamplesPerPixel = 10000; // time zoom, in and out
 
 private:
-    // A note by its track and its id, which edits keep.
+    // A note by its track and its id.
     struct NoteRef
     {
         int track = -1, id = -1;
@@ -103,8 +99,7 @@ private:
     int yToTrack(float y) const;
     juce::Rectangle<float> noteBounds(int track, int note) const; // note by index
     int indexOf(NoteRef ref) const;
-    NoteRef noteAt(juce::Point<float> p, bool& onRightEdge) const;
-    double snapTime(double t) const;
+    NoteRef noteAt(juce::Point<float> p) const;
     void setScrollY(int y);
     int trackTop(int track) const;    // a track is as many lanes high as it has rows
     int trackHeight(int track) const;
@@ -128,13 +123,7 @@ private:
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
 
-    // Editing.
-    enum class Drag { None, Move, Resize, Box, Ruler, Scroll, Knob };
-    void transposeSelection(int semitones);
-    void deleteSelection();
-    void duplicateSelection();
-    void editPitch(NoteRef ref);
-    void addNoteAt(int track, double time);
+    enum class Drag { None, Lanes, Ruler, Knob };
 
     AppModel& model_;
     mutable Layout layout_;
@@ -144,20 +133,15 @@ private:
     int scrollY_ = 0;
     int laneHeight_ = 54;
     double laneHeightExact_ = 54; // the zoom, unrounded, so small pinch steps add up
-    double snap_ = 0;
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
 
-    std::set<NoteRef> selection_;
     std::set<int> collapsed_; // chord parts drawn in one lane
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
-    NoteRef dragNote_;
     int dragTrack_ = -1;                   // the track whose knob is turned
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
-    double dragDelta_ = 0;                 // move or resize amount, in samples, while dragging
-    juce::Rectangle<float> box_;
     NoteRef hover_;
 
     // Meters: each chip channel belongs to the track of the note last started
@@ -175,7 +159,6 @@ private:
     std::array<float, SongPlayer::kMeterChannels> channelLevel_ {};
     std::vector<float> level_, hold_; // per track, 0..1 along the meter
     std::vector<double> holdAge_;     // seconds since the hold was set
-    bool hoverEdge_ = false;
 };
 
 } // namespace opm86

@@ -70,35 +70,14 @@ private:
     float angle_ = 0, lastAngle_ = 0; // radians: the wheel's, and the pointer's at the last drag
 };
 
-// Choices in rows of a few, one lit: the snap grid's values.
-class GridPicker : public juce::Component, public juce::SettableTooltipClient
-{
-public:
-    GridPicker(juce::StringArray labels, int columns) : labels_(std::move(labels)), columns_(columns) {}
-    int selected() const { return selected_; }
-    void setSelected(int index) { selected_ = index, repaint(); }
-    std::function<void()> onChange;
-
-    void paint(juce::Graphics&) override;
-    void mouseDown(const juce::MouseEvent&) override;
-    void mouseMove(const juce::MouseEvent&) override { repaint(); }
-    void mouseExit(const juce::MouseEvent&) override { repaint(); }
-
-private:
-    juce::Rectangle<float> segment(int index) const;
-    juce::StringArray labels_;
-    int columns_;
-    int selected_ = 0;
-};
-
-// The tool bar under the top bar: snap, the playhead toggle, the tracks'
+// The tool bar under the top bar: the playhead toggle, the tracks'
 // M/S shortcuts, speed and the jog wheel, the fit buttons and the zoom sliders.
 class ToolBar : public juce::Component
 {
 public:
     ToolBar(AppModel& model, TrackerView& view);
 
-    void songOpened(); // a new song: its snap grid, and its first time zoom as the zoom's home
+    void songOpened(); // a new song: its first time zoom as the zoom's home
     void syncZoom();   // the zoom sliders follow the view, however it was zoomed
     void refresh();    // the M/S shortcuts light up as the tracks' solos stand
 
@@ -112,7 +91,6 @@ private:
 
     AppModel& model_;
     TrackerView& view_;
-    GridPicker snap_ { { "OFF", "1", "1/2", "1/4", "1/8", "1/16" }, 3 };
     IconButton keepPlayhead_ { IconButton::Icon::Playhead }; // on, the playhead never fades
     IconButton reset_ { IconButton::Icon::Reset }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
