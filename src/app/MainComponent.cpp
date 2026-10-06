@@ -231,21 +231,12 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             juce::PathStrokeType(1.5f).createStrokedPath(p, outline);
             break;
         }
-        case Icon::ZoomHome: // a magnifying glass whose lens is an arrow going back round
+        case Icon::ZoomHome: // "1:1", the zoom as it was
         {
-            const auto c = box.getCentre().translated(-1.5f, -1.5f);
-            const float radius = 4.5f;
-            juce::Path lens;
-            lens.addCentredArc(c.x, c.y, radius, radius, 0.0f, 0.7f, 5.7f, true);
-            juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, lens);
-            const auto tip = c.getPointOnCircumference(radius, 0.7f);
-            p.addTriangle(tip.x - 3.0f, tip.y - 2.5f, tip.x + 2.5f, tip.y - 3.0f, tip.x + 0.5f, tip.y + 2.5f);
-            juce::Path handle;
-            handle.startNewSubPath(c.getPointOnCircumference(radius + 0.5f, juce::MathConstants<float>::pi * 0.75f));
-            handle.lineTo(c.getPointOnCircumference(radius + 5.5f, juce::MathConstants<float>::pi * 0.75f));
-            juce::Path stroked;
-            juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(stroked, handle);
-            p.addPath(stroked);
+            juce::GlyphArrangement glyphs;
+            glyphs.addFittedText(theme::mono(12.0f, true), "1:1", box.getX() - 4.0f, box.getY(), box.getWidth() + 8.0f, box.getHeight(),
+                                 juce::Justification::centred, 1, 1.0f);
+            glyphs.createPath(p);
             break;
         }
         case Icon::FitTracks: // arrows to the top and bottom edges
