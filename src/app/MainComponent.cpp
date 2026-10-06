@@ -1260,6 +1260,8 @@ bool MainComponent::open(const juce::File& file)
     view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
     view_.setViewStart(model_.tune().source().firstBeat - bar * 0.25);
     tools_.songOpened();
+    piano_.setHeaderWidth(view_.headerWidth());
+    overview_.setHeaderWidth(view_.headerWidth());
     view_.grabKeyboardFocus();
     updateTitle();
     if (onOpened)
@@ -1287,6 +1289,9 @@ void MainComponent::resized()
     overview_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(overviewShown_))));
     piano_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(pianoShown_))));
     view_.setBounds(r);
+    // The strips line up with the header column from the first paint, not a frame later.
+    piano_.setHeaderWidth(view_.headerWidth());
+    overview_.setHeaderWidth(view_.headerWidth());
 }
 
 void MainComponent::paint(juce::Graphics& g)
