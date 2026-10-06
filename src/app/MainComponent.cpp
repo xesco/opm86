@@ -953,6 +953,7 @@ void PianoStrip::paint(juce::Graphics& g)
         whites += isBlack(k) ? 0 : 1;
     const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
+    const float blackWidth = keyWidth * 0.5f, blackHeight = area.getHeight() * 0.55f; // a black key, against a white one
 
     // White keys, then black keys over them.
     float x = area.getX();
@@ -986,7 +987,7 @@ void PianoStrip::paint(juce::Graphics& g)
             x += keyWidth;
             continue;
         }
-        const auto key = juce::Rectangle<float>(x - keyWidth * 0.32f, area.getY(), keyWidth * 0.64f, area.getHeight() * 0.6f);
+        const auto key = juce::Rectangle<float>(x - blackWidth * 0.5f, area.getY(), blackWidth, blackHeight);
         const bool down = on[static_cast<size_t>(k)];
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xff1b1e30));
         g.fillRoundedRectangle(key, 2.0f);
@@ -1006,7 +1007,7 @@ void PianoStrip::paint(juce::Graphics& g)
             x += keyWidth;
         if (!on[static_cast<size_t>(k)])
             continue;
-        const float bottom = black ? area.getY() + area.getHeight() * 0.6f - 2.0f : area.getBottom() - 3.0f;
+        const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
         juce::GlyphArrangement glyphs;
         glyphs.addLineOfText(theme::mono(13.0f, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
         const auto bounds = glyphs.getBoundingBox(0, -1, true);
