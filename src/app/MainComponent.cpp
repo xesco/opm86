@@ -243,6 +243,26 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             juce::PathStrokeType(1.5f).createStrokedPath(p, outline);
             break;
         }
+        case Icon::FewerKeys: // a keyboard of three wide keys
+        case Icon::MoreKeys:  // and of six narrow ones
+        {
+            const bool more = icon_ == Icon::MoreKeys;
+            const int whites = more ? 6 : 3;
+            const auto board = box.withSizeKeepingCentre(15.0f, 12.0f);
+            const float w = board.getWidth() / static_cast<float>(whites);
+            juce::Path outline;
+            outline.addRectangle(board);
+            for (int k = 1; k < whites; ++k)
+            {
+                outline.startNewSubPath(board.getX() + w * static_cast<float>(k), board.getY());
+                outline.lineTo(board.getX() + w * static_cast<float>(k), board.getBottom());
+            }
+            juce::PathStrokeType(1.0f).createStrokedPath(p, outline);
+            // Black keys after C, D, F and G, as on a piano from C.
+            for (const int k : more ? std::vector<int> { 1, 2, 4, 5 } : std::vector<int> { 1, 2 })
+                p.addRectangle(board.getX() + w * static_cast<float>(k) - w * 0.3f, board.getY(), w * 0.6f, board.getHeight() * 0.6f);
+            break;
+        }
         case Icon::ZoomHome: // "1:1", the zoom as it was
         {
             juce::GlyphArrangement glyphs;
@@ -286,7 +306,7 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             break;
         }
     }
-    g.setColour(getToggleState() ? theme::background : over ? theme::text : theme::dim);
+    g.setColour((getToggleState() ? theme::background : over ? theme::text : theme::dim).withMultipliedAlpha(isEnabled() ? 1.0f : 0.35f));
     g.fillPath(p);
 }
 
@@ -875,8 +895,8 @@ void PianoStrip::resized()
 {
     SlidingStrip::resized();
     // Under the chevron, at the right of the header column.
-    fewer_.setBounds(headerWidth() - 52, kClosedHeight + 4, 20, 18);
-    more_.setBounds(headerWidth() - 30, kClosedHeight + 4, 20, 18);
+    fewer_.setBounds(headerWidth() - 62, kClosedHeight + 4, 26, 22);
+    more_.setBounds(headerWidth() - 34, kClosedHeight + 4, 26, 22);
 }
 
 void PianoStrip::setOctaves(int octaves)
