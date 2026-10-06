@@ -16,7 +16,7 @@
 namespace opm86
 {
 
-// The tracker's state: the open tune and its edits, undo, the background
+// The player's state: the open tune and its edits, undo, the background
 // builds, and exact playback on the audio device. Message thread, except
 // where marked.
 class AppModel : public juce::ChangeBroadcaster, private juce::Timer, private juce::AudioIODeviceCallback

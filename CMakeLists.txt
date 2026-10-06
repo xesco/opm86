@@ -69,28 +69,28 @@ target_link_libraries(opm86_cli
         juce::juce_recommended_warning_flags)
 add_test(NAME tuning COMMAND opm86_cli tune)
 
-# The tracker: a standalone Mac app that edits a VGM rip and plays it exactly.
+# The player: a standalone Mac app that plays a VGM rip exactly, track by track.
 juce_add_binary_data(opm86_fonts SOURCES
     resources/fonts/PressStart2P-Regular.ttf
     resources/fonts/JetBrainsMono-Regular.ttf
     resources/fonts/JetBrainsMono-Bold.ttf)
-juce_add_gui_app(opm86_tracker
-    PRODUCT_NAME "OPM86 Tracker"
+juce_add_gui_app(opm86_player
+    PRODUCT_NAME "OPM86 Player"
     COMPANY_NAME "xesco"
-    BUNDLE_ID "com.xesco.opm86tracker"
+    BUNDLE_ID "com.xesco.opm86player"
     DOCUMENT_EXTENSIONS vgz vgm)
-target_sources(opm86_tracker PRIVATE
+target_sources(opm86_player PRIVATE
     src/app/AppModel.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/Theme.cpp
     src/app/TrackerView.cpp)
-target_compile_definitions(opm86_tracker PRIVATE
+target_compile_definitions(opm86_player PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
-    JUCE_APPLICATION_NAME_STRING="OPM86 Tracker"
+    JUCE_APPLICATION_NAME_STRING="OPM86 Player"
     JUCE_APPLICATION_VERSION_STRING="0.1.0")
-target_link_libraries(opm86_tracker
+target_link_libraries(opm86_player
     PRIVATE
         opm86_core
         opm86_fonts

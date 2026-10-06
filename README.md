@@ -63,8 +63,8 @@ The build writes these files:
 | `build/OPM86_artefacts/Release/Standalone/OPM86.app` | The plugin as an application, with no host needed |
 
 To build only the command-line program and put it in the repository root as `./opm86`,
-run `make`. To build the tracker app and put it in the repository root as
-`OPM86 Tracker.app`, run `make tracker`, then open it with `open "OPM86 Tracker.app"`.
+run `make`. To build the player app and put it in the repository root as
+`OPM86 Player.app`, run `make player`, then open it with `open "OPM86 Player.app"`.
 `make all` builds both. Each configures the `build` folder the first time, and `make clean`
 removes both copies.
 

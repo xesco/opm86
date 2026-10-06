@@ -380,7 +380,7 @@ void TopBar::paint(juce::Graphics& g)
     g.drawText("OPM86", juce::Rectangle<int>(16, 12, 190, 20), juce::Justification::topLeft);
     g.setFont(theme::mono(12.0f, true));
     g.setColour(theme::dim);
-    g.drawText("TRACKER  YM2151+SEGAPCM", juce::Rectangle<int>(16, 38, 200, 12), juce::Justification::topLeft);
+    g.drawText("PLAYER  YM2151+SEGAPCM", juce::Rectangle<int>(16, 38, 200, 12), juce::Justification::topLeft);
 
     play_.setToggleState(model_.playing(), juce::dontSendNotification);
 
@@ -1179,7 +1179,7 @@ void MainComponent::filesDropped(const juce::StringArray& files, int, int)
 void MainComponent::updateTitle()
 {
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
-        window->setName(model_.hasTune() ? model_.file().getFileName() + juce::String::fromUTF8(" \xe2\x80\x94 OPM86 Tracker") : "OPM86 Tracker");
+        window->setName(model_.hasTune() ? model_.file().getFileName() + juce::String::fromUTF8(" \xe2\x80\x94 OPM86 Player") : "OPM86 Player");
 }
 
 void MainComponent::parentHierarchyChanged()

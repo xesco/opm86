@@ -10,7 +10,7 @@ class MainWindow : public juce::DocumentWindow
 {
 public:
     explicit MainWindow(std::unique_ptr<MainComponent> content)
-        : DocumentWindow("OPM86 Tracker", theme::background, DocumentWindow::allButtons)
+        : DocumentWindow("OPM86 Player", theme::background, DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
@@ -26,7 +26,7 @@ public:
 class TrackerApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "OPM86 Tracker"; }
+    const juce::String getApplicationName() override { return "OPM86 Player"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     // One window, except for snapshots, which must not hand over to a running app.
     bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--snapshot"); }

@@ -11,7 +11,7 @@
 namespace opm86
 {
 
-// A song as tracks of notes, the form the tracker edits. Times are in VGM
+// A song as tracks of notes, the form the player shows. Times are in VGM
 // samples (1/44100 s). Each track is one instrument: an FM patch or one
 // drum sound. A note carries what the game did while it played, relative
 // to its own start, so it can be moved, stretched or transposed whole.

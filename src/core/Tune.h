@@ -13,7 +13,7 @@
 namespace opm86
 {
 
-// A song as the tracker edits it: tracks of notes over the split VGM log.
+// A song as the player shows it: tracks of notes over the split VGM log.
 // A track is one part: an FM patch on one chip voice, or one drum sound. A
 // note points at its part of the log and records only what was edited: its
 // start, length, transposition and channel. Building the tune rewrites the
@@ -48,7 +48,7 @@ struct TuneTrack
     std::vector<TuneNote> notes; // in order of start
 };
 
-// What a build did with each note, for the tracker to show.
+// What a build did with each note, for the player to show.
 struct BuildReport
 {
     // Per track, per note: the chip channel it plays on, or -1 when every
