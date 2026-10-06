@@ -565,10 +565,10 @@ void TrackerView::paintRuler(juce::Graphics& g)
         const float x1 = timeToX(model_.selectionEnd());
         if (x1 > x0)
         {
-            g.setColour(theme::cyan.withAlpha(0.25f));
+            g.setColour(theme::cyan.withAlpha(0.35f));
             g.fillRect(x0, 0.0f, x1 - x0, static_cast<float>(kRulerHeight));
             g.setColour(theme::cyan);
-            g.fillRect(x0, static_cast<float>(kRulerHeight) - 4.0f, x1 - x0, 3.0f);
+            g.fillRect(x0, static_cast<float>(kRulerHeight) - 6.0f, x1 - x0, 5.0f);
         }
     }
 
@@ -652,15 +652,20 @@ void TrackerView::paintLanes(juce::Graphics& g)
             }
     }
 
-    // The selection, a band across every lane, edged.
+    // The selection, a tinted band across every lane between solid edges,
+    // with the song outside it darkened.
     if (model_.hasSelection())
     {
         const float x0 = timeToX(model_.selectionStart()), x1 = timeToX(model_.selectionEnd());
-        g.setColour(theme::cyan.withAlpha(0.10f));
-        g.fillRect(x0, static_cast<float>(kRulerHeight), x1 - x0, static_cast<float>(getHeight() - kRulerHeight));
-        g.setColour(theme::cyan.withAlpha(0.6f));
-        g.fillRect(x0, static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight() - kRulerHeight));
-        g.fillRect(x1 - 1.0f, static_cast<float>(kRulerHeight), 1.0f, static_cast<float>(getHeight() - kRulerHeight));
+        const float top = static_cast<float>(kRulerHeight), height = static_cast<float>(getHeight() - kRulerHeight);
+        g.setColour(theme::background.withAlpha(0.45f));
+        g.fillRect(lanesX(), top, x0 - lanesX(), height);
+        g.fillRect(x1, top, static_cast<float>(getWidth()) - x1, height);
+        g.setColour(theme::cyan.withAlpha(0.14f));
+        g.fillRect(x0, top, x1 - x0, height);
+        g.setColour(theme::cyan);
+        g.fillRect(x0 - 1.0f, top, 2.0f, height);
+        g.fillRect(x1 - 1.0f, top, 2.0f, height);
     }
 
     // Notes in view.
