@@ -43,9 +43,22 @@ public:
                      args.size() > 6 ? args[6] : juce::String());
             return;
         }
+        // The last file opened is opened again, unless one is given or it is gone.
+        juce::PropertiesFile::Options options;
+        options.applicationName = getApplicationName();
+        options.filenameSuffix = "settings";
+        options.osxLibrarySubFolder = "Application Support";
+        settings_.setStorageParameters(options);
         auto content = std::make_unique<MainComponent>();
+        content->onOpened = [this](const juce::File& file) {
+            if (auto* user = settings_.getUserSettings())
+                user->setValue("lastFile", file.getFullPathName()), user->saveIfNeeded();
+        };
+        const juce::File last(settings_.getUserSettings() ? settings_.getUserSettings()->getValue("lastFile") : juce::String());
         if (args.size() == 1 && juce::File(args[0].unquoted()).existsAsFile())
             content->open(juce::File(args[0].unquoted()));
+        else if (last.existsAsFile())
+            content->open(last);
         window_ = std::make_unique<MainWindow>(std::move(content));
     }
 
@@ -64,6 +77,7 @@ public:
     }
 
 private:
+    juce::ApplicationProperties settings_;
     // Waits for the first build, then writes the component's image.
     struct Snapshot : juce::Timer
     {

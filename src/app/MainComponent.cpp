@@ -1020,6 +1020,8 @@ bool MainComponent::open(const juce::File& file)
     tools_.songOpened();
     view_.grabKeyboardFocus();
     updateTitle();
+    if (onOpened)
+        onOpened(file);
     return true;
 }
 

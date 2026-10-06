@@ -187,6 +187,7 @@ public:
 
     bool open(const juce::File& file);
     void openDialog();
+    std::function<void(const juce::File&)> onOpened; // a file was opened
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }
 
