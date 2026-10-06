@@ -206,11 +206,12 @@ void TrackerView::reveal(double p)
     // With the whole song in view, the view stays still.
     if (!model_.hasTune() || (viewStart_ <= 0 && viewStart_ + visibleSamples() >= static_cast<double>(model_.tune().source().length)))
         return;
-    // The playhead runs to the middle, then the song moves under it.
+    // The playhead runs to the middle, then the song moves under it; behind
+    // the view, the view goes back to put it in the middle, short of the start.
     if (p > viewStart_ + visibleSamples() * 0.5)
         setViewStart(p - visibleSamples() * 0.5);
     else if (p < viewStart_)
-        setViewStart(p - visibleSamples() * 0.1);
+        setViewStart(std::max(0.0, p - visibleSamples() * 0.5));
 }
 
 void TrackerView::fitTime()
