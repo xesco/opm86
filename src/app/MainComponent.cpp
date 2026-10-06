@@ -954,6 +954,9 @@ void PianoStrip::paint(juce::Graphics& g)
     const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
     const float keyWidth = area.getWidth() / static_cast<float>(whites);
     const float blackWidth = keyWidth * 0.57f, blackHeight = area.getHeight() * 0.58f; // a black key, against a white one
+    // Names grow with the keys: the octave on each C, and the notes sounding.
+    const float octaveSize = juce::jlimit(7.0f, 20.0f, std::min(keyWidth * 0.55f, area.getHeight() * 0.18f));
+    const float nameSize = juce::jlimit(13.0f, 30.0f, std::min(keyWidth * 0.55f, area.getHeight() * 0.22f));
 
     // White keys, then black keys over them.
     float x = area.getX();
@@ -974,8 +977,8 @@ void PianoStrip::paint(juce::Graphics& g)
         if (!down && k % 12 == 0)
         {
             g.setColour(juce::Colour(0xff6c6f8e));
-            g.setFont(theme::mono(std::min(11.0f, keyWidth * 0.55f), true));
-            g.drawText(theme::noteName(k).removeCharacters("-"), key.withTrimmedTop(key.getHeight() - 16.0f), juce::Justification::centred, false);
+            g.setFont(theme::mono(octaveSize, true));
+            g.drawText(theme::noteName(k).removeCharacters("-"), key.withTrimmedTop(key.getHeight() - octaveSize - 5.0f), juce::Justification::centred, false);
         }
         x += keyWidth;
     }
@@ -1009,13 +1012,13 @@ void PianoStrip::paint(juce::Graphics& g)
             continue;
         const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
         juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(theme::mono(13.0f, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
+        glyphs.addLineOfText(theme::mono(nameSize, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
         const auto bounds = glyphs.getBoundingBox(0, -1, true);
         glyphs.moveRangeOfGlyphs(0, -1, centre - bounds.getCentreX(), bottom - bounds.getBottom());
         juce::Path text;
         glyphs.createPath(text);
         g.setColour(theme::background.withAlpha(0.85f));
-        g.strokePath(text, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
+        g.strokePath(text, juce::PathStrokeType(std::max(3.0f, nameSize * 0.2f), juce::PathStrokeType::curved));
         g.setColour(juce::Colours::white);
         g.fillPath(text);
     }
