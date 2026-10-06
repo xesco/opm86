@@ -207,20 +207,6 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(x0 + 0.5f, y1, x0 + 4.5f, y1 - 3.0f, x0 + 4.5f, y1 + 3.0f);
             break;
         }
-        case Icon::Magnet: // a horseshoe magnet, open at the top, its tips apart
-        {
-            const auto c = box.getCentre().translated(0.0f, 1.0f);
-            const float r = 5.0f;
-            juce::Path u;
-            u.startNewSubPath(c.x - r, c.y - 4.0f);
-            u.lineTo(c.x - r, c.y);
-            u.addCentredArc(c.x, c.y, r, r, 0.0f, juce::MathConstants<float>::halfPi * 3.0f, juce::MathConstants<float>::halfPi, false); // round the bottom
-            u.lineTo(c.x + r, c.y - 4.0f);
-            juce::PathStrokeType(3.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt).createStrokedPath(p, u);
-            p.addRectangle(c.x - r - 1.5f, c.y - 7.5f, 3.0f, 2.5f);
-            p.addRectangle(c.x + r - 1.5f, c.y - 7.5f, 3.0f, 2.5f);
-            break;
-        }
         case Icon::Follow: // the playhead held between the view's two edges
         {
             const float x0 = box.getX() - 1.0f, x1 = box.getRight() + 1.0f, y0 = box.getY(), y1 = box.getBottom();
@@ -483,11 +469,6 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     loop_.setClickingTogglesState(true);
     loop_.setTooltip("Loop the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
-    magnet_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
-    magnet_.setClickingTogglesState(true);
-    magnet_.setToggleState(true, juce::dontSendNotification);
-    magnet_.setTooltip("Snap the selection to the grid");
-    magnet_.onClick = [this] { view_.setMagnet(magnet_.getToggleState()); };
     reset_.setTooltip("Reset mix");
     reset_.onClick = [this] {
         if (model_.hasTune())
@@ -529,7 +510,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &magnet_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -631,7 +612,6 @@ void ToolBar::resized()
     button(keepPlayhead_);
     button(follow_);
     button(loop_);
-    button(magnet_);
     r.removeFromLeft(10);
     button(reset_);
     button(invert_);

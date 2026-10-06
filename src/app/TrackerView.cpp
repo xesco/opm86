@@ -1026,27 +1026,6 @@ int TrackerView::selectionEdgeAt(juce::Point<float> p) const
     return ds < de ? 0 : 1;
 }
 
-double TrackerView::attract(double songTime, float x)
-{
-    if (!magnet_ || !model_.hasTune())
-        return songTime;
-    // The finest grid lines drawn: sixteenths, beats or bars, as the zoom shows them.
-    const VgmSong& song = model_.tune().source();
-    const double beatPixels = song.beatLength / samplesPerPixel_;
-    const double step = beatPixels > 64 ? song.beatLength / 4 : beatPixels > 10 ? song.beatLength : song.beatLength * 4;
-    // Held until pulled far enough away, like a band snapping back, but let
-    // go before the next line catches, so none is skipped.
-    const float release = std::min(kRelease, static_cast<float>(step / samplesPerPixel_) - kCatch);
-    if (held_ >= 0 && std::abs(x - timeToX(held_)) <= release)
-        return held_;
-    held_ = -1;
-    const double nearest = song.firstBeat + std::round((songTime - song.firstBeat) / step) * step;
-    if (nearest < 0 || std::abs(timeToX(nearest) - x) > kCatch)
-        return songTime;
-    held_ = nearest;
-    return nearest;
-}
-
 void TrackerView::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
@@ -1054,7 +1033,6 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     const auto p = e.position;
     dragFrom_ = p;
-    held_ = -1;
 
     // A selection's edge, over the ruler or the lanes, drags out or in.
     if (const int edge = selectionEdgeAt(p); edge >= 0)
@@ -1119,8 +1097,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     if (!model_.playing() && !e.mods.isShiftDown())
     {
         drag_ = Drag::Select;
-        selectFrom_ = std::max(0.0, attract(xToTime(p.x), p.x));
-        held_ = -1; // the start is placed; the moving end catches on its own
+        selectFrom_ = std::max(0.0, xToTime(p.x));
         return;
     }
     // Playing, or with Shift: a click moves the playhead there; held and
@@ -1152,13 +1129,13 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     {
         // Stopped, the playhead goes with the edge while it is the start;
         // playing, it stays unless it falls outside.
-        const double t = std::max(0.0, attract(xToTime(p.x), p.x));
+        const double t = std::max(0.0, xToTime(p.x));
         model_.setSelection(selectFrom_, t, model_.playing() || t > selectFrom_);
         return;
     }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
     {
-        model_.setSelection(selectFrom_, std::max(0.0, attract(xToTime(p.x), p.x)));
+        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
         return;
     }
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
