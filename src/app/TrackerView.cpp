@@ -14,7 +14,8 @@ namespace
 {
 
 // A header's name and the tag after solo: the voice, V1 · 2, and the patch,
-// FM 6; in patch order the other way round. Drums have their name alone.
+// FM 6; in patch order the other way round, the voice without its number,
+// V1. Drums have their name alone.
 juce::String headName(const TuneTrack& t, bool byPatch)
 {
     return byPatch && t.kind == TuneTrack::Kind::Fm ? "FM " + juce::String(t.instrument + 1) : juce::String(t.name).toUpperCase();
@@ -22,7 +23,9 @@ juce::String headName(const TuneTrack& t, bool byPatch)
 
 juce::String tagName(const TuneTrack& t, bool byPatch)
 {
-    return t.kind != TuneTrack::Kind::Fm ? juce::String() : byPatch ? juce::String(t.name).toUpperCase() : "FM " + juce::String(t.instrument + 1);
+    return t.kind != TuneTrack::Kind::Fm ? juce::String()
+           : byPatch                     ? juce::String(t.name).upToFirstOccurrenceOf(" ", false, false).toUpperCase()
+                                         : "FM " + juce::String(t.instrument + 1);
 }
 
 // The width an FM part's tag takes after solo, gap included; 0 for drums.
