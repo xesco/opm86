@@ -158,6 +158,19 @@ void TrackerView::zoomAround(double factor, float x)
     const double anchor = xToTime(x);
     samplesPerPixel_ = std::clamp(samplesPerPixel_ / factor, kMinSamplesPerPixel, kMaxSamplesPerPixel);
     setViewStart(anchor - (x - lanesX()) * samplesPerPixel_);
+    centrePlayhead();
+}
+
+void TrackerView::centrePlayhead()
+{
+    // Following playback, a zoom puts the playhead in the middle at once,
+    // short of the song start, unless the whole song is in view.
+    if (!follow_ || !model_.playing() || !model_.hasTune())
+        return;
+    gliding_ = false;
+    if (viewStart_ <= 0 && viewStart_ + visibleSamples() >= static_cast<double>(model_.tune().source().length))
+        return;
+    setViewStart(std::max(0.0, playhead() - visibleSamples() * 0.5));
 }
 
 void TrackerView::followPlayhead()
@@ -225,13 +238,8 @@ void TrackerView::fitTime()
     const double width = std::max(1.0, static_cast<double>(getWidth() - headerWidth()));
     samplesPerPixel_ = std::clamp(length * 1.04 / width, kMinSamplesPerPixel, kMaxSamplesPerPixel);
     setViewStart(-length * 0.02);
-    // Too long to fit while the view follows playback: on the playhead at
-    // once, rather than at the start and gliding back to it.
-    if (follow_ && model_.playing())
-    {
-        gliding_ = false;
-        reveal(playhead());
-    }
+    // Too long to fit: on the playhead, rather than at the start and gliding back.
+    centrePlayhead();
 }
 
 void TrackerView::fitTracks()

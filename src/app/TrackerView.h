@@ -32,6 +32,7 @@ public:
     int headerWidth() const { return layout().headerWidth; } // as wide as the tracks' names, knobs and voice toggles need
     float lanesX() const { return static_cast<float>(headerWidth()); }      // where the lanes begin
     void followPlayhead(); // keeps the playhead in view while playing
+    void centrePlayhead(); // following playback, the playhead to the middle of the view at once
     void reveal(double songTime); // the view follows a playhead there as it does while playing: up to the middle, then scrolling
     void fitTime();   // the whole song across, as far as the zoom goes
     void fitTracks(); // every track's rows down, as far as the lane height goes
