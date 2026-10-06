@@ -12,8 +12,9 @@ namespace
 
 constexpr int kTopHeight = 64;
 constexpr int kToolHeight = 44;
-constexpr int kOverviewHeight = 54; // the overview's least height; it opens at 100, as the keys do
-constexpr int kPianoHeight = 66; // the keys' least height; they open at 100
+constexpr int kOverviewHeight = 54; // the overview's least height
+constexpr int kPianoHeight = 66;    // the keys' least height
+constexpr int kStripMaxHeight = 132; // both strips' greatest height; they open at 70% of it
 constexpr int kStatusHeight = 30;
 
 // Flat, rounded controls in the theme's colours and fonts.
@@ -1217,13 +1218,13 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
     overview_.onHeight = [this](int height) {
-        overviewHeight_ = std::clamp(height, kOverviewHeight, 2 * kPianoHeight); // as tall as the keys can go
+        overviewHeight_ = std::clamp(height, kOverviewHeight, kStripMaxHeight);
         overview_.openHeight = overviewHeight_;
         overviewShown_ = overviewHeight_;
         resized();
     };
     piano_.onHeight = [this](int height) {
-        pianoHeight_ = std::clamp(height, kPianoHeight, 2 * kPianoHeight);
+        pianoHeight_ = std::clamp(height, kPianoHeight, kStripMaxHeight);
         piano_.openHeight = pianoHeight_;
         pianoShown_ = pianoHeight_;
         resized();

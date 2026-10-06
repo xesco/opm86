@@ -244,7 +244,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser_;
     juce::String status_;
     bool dragOver_ = false;
-    int pianoHeight_ = 100, overviewHeight_ = 100; // dragged between their least size and twice the keys' least
+    int pianoHeight_ = 92, overviewHeight_ = 92; // 70% of the greatest height, dragged between their least and greatest
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
     Activity activity_ { view_ };
     double lastFrame_ = 0;
