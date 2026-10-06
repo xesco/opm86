@@ -23,6 +23,7 @@ int instrumentWidth(const TuneTrack& t)
 
 // Header layout; see the comment before voicePill.
 constexpr int kVoiceColumn = 44; // width of the voice toggles' column
+constexpr int kChipColumn = 24;  // width of the chip's column, at the left edge
 constexpr int kKnobColumn = 48;  // width of the dB under the knob
 constexpr int kKnob = 26;        // the knob's size
 constexpr int kBlock = 44;       // height of the name and meter block
@@ -115,7 +116,7 @@ const TrackerView::Layout& TrackerView::layout() const
 
         // The names share a column as wide as the widest, so mute, solo
         // and the instrument line up; the knobs go after the widest of those.
-        const int left = layout_.rows.back() > 1 ? 28 : 14;
+        const int left = kChipColumn + (layout_.rows.back() > 1 ? 28 : 14);
         const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), juce::String(t.name).toUpperCase()) + 2, 96);
         layout_.nameEnd = std::max(layout_.nameEnd, left + name);
         instrument = std::max(instrument, instrumentWidth(t));
@@ -281,7 +282,7 @@ bool TrackerView::expanded(int track) const
 
 juce::Rectangle<int> TrackerView::disclosure(int track) const
 {
-    return { 10, nameBounds(track).getY(), 14, nameBounds(track).getHeight() };
+    return { kChipColumn + 10, nameBounds(track).getY(), 14, nameBounds(track).getHeight() };
 }
 
 juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
@@ -434,7 +435,7 @@ juce::Rectangle<int> TrackerView::nameBounds(int track) const
     // After the arrow of a chord part, up to the names' shared column, but
     // leaving mute, solo and the instrument room before the knob, or before
     // the voice toggles in a compact lane. Centred in a compact lane.
-    const int left = layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14;
+    const int left = kChipColumn + (layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14);
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
     const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
@@ -464,7 +465,7 @@ juce::Rectangle<int> TrackerView::meterBounds(int track) const
 {
     // The width up to the knob and the level in dB under it.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
-    return { 14, top + 25, knobBounds(track).getCentreX() - kKnobColumn / 2 - 4 - 14, 16 };
+    return { kChipColumn + 14, top + 25, knobBounds(track).getCentreX() - kKnobColumn / 2 - 4 - kChipColumn - 14, 16 };
 }
 
 // The knob law: 0 dB, as the game played it, sits at the middle, so the
@@ -748,8 +749,53 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         const auto row = juce::Rectangle<int>(0, y, headerWidth() - 1, trackHeight(static_cast<int>(t)));
         g.setColour(t % 2 ? theme::panel : theme::panelLight);
         g.fillRect(row);
-        g.setColour(theme::instrumentColour(static_cast<int>(t)));
-        g.fillRect(row.getX(), row.getY() + 3, 4, row.getHeight() - 6);
+
+        // The chip that plays the track, in its own column, drawn as a chip
+        // with pins down both sides and its name up the middle: OPM for the
+        // YM2151's FM voices, PCM for the SegaPCM's samples.
+        {
+            const auto column = juce::Rectangle<int>(0, row.getY(), kChipColumn, row.getHeight());
+            g.setColour(theme::background.withAlpha(0.35f));
+            g.fillRect(column);
+            g.setColour(theme::grid);
+            g.fillRect(column.getRight() - 1, column.getY(), 1, column.getHeight());
+
+            const bool fm = tr.kind == TuneTrack::Kind::Fm;
+            const juce::Colour ink = (fm ? theme::cyan : theme::orange).withAlpha(model_.tune().audible(tr) ? 0.9f : 0.35f);
+            const auto firstRow = column.withHeight(std::min(column.getHeight(), laneHeight_)).toFloat();
+            const auto body = firstRow.withSizeKeepingCentre(11.0f, std::min(30.0f, firstRow.getHeight() - 8.0f));
+            g.setColour(ink);
+            if (body.getHeight() < 22.0f)
+            {
+                // Too short a lane for the chip: its name alone, across.
+                g.setFont(theme::pixel(6.0f));
+                g.drawText(fm ? "OPM" : "PCM", firstRow, juce::Justification::centred, false);
+            }
+            else
+            {
+                for (float pin = body.getY() + 3.0f; pin < body.getBottom() - 2.0f; pin += 3.5f)
+                {
+                    g.fillRect(body.getX() - 2.5f, pin, 2.5f, 1.2f);
+                    g.fillRect(body.getRight(), pin, 2.5f, 1.2f);
+                }
+                g.setColour(theme::background);
+                g.fillRoundedRectangle(body, 2.0f);
+                g.setColour(ink);
+                g.drawRoundedRectangle(body.reduced(0.5f), 2.0f, 1.0f);
+                g.fillEllipse(body.getX() + 2.0f, body.getY() + 2.0f, 1.5f, 1.5f); // pin 1's mark
+
+                // The name, reading upwards.
+                juce::GlyphArrangement glyphs;
+                glyphs.addLineOfText(theme::pixel(5.0f), fm ? "OPM" : "PCM", 0.0f, 0.0f);
+                juce::Path text;
+                glyphs.createPath(text);
+                const auto bounds = text.getBounds();
+                text.applyTransform(juce::AffineTransform::translation(-bounds.getCentreX(), -bounds.getCentreY())
+                                        .rotated(-juce::MathConstants<float>::halfPi)
+                                        .translated(body.getCentreX(), body.getCentreY() + 1.0f));
+                g.fillPath(text);
+            }
+        }
 
         const int ti = static_cast<int>(t);
         const auto& voices = layout().voices[t];
@@ -891,12 +937,12 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             for (size_t k = 1; k < voices.size(); ++k)
                 g.fillRect(x, row.getY() + static_cast<int>(k) * laneHeight_, headerWidth() - 1 - x, 1);
             const auto top = voicePill(ti, 0), bottom = voicePill(ti, static_cast<int>(voices.size()) - 1);
-            g.setColour(theme::instrumentColour(ti).withAlpha(0.45f));
+            g.setColour(theme::dim.withAlpha(0.45f));
             g.fillRect(x + 1, top.getCentreY(), 1, bottom.getCentreY() - top.getCentreY());
             for (size_t k = 0; k < voices.size(); ++k)
             {
                 const auto r = voicePill(ti, static_cast<int>(k));
-                g.setColour(theme::instrumentColour(ti).withAlpha(0.45f));
+                g.setColour(theme::dim.withAlpha(0.45f));
                 g.fillRect(x + 1, r.getCentreY(), r.getX() - x - 1, 1);
                 drawToggle(r, "V" + juce::String(voices[k] + 1), (tr.mutedVoices >> voices[k]) & 1, theme::orange);
             }
