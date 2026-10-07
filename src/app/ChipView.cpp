@@ -512,7 +512,10 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         const float sustain = 1.0f - static_cast<float>(d1l) / 15.0f;
         const float held = sustain * (1.0f - std::min(1.0f, static_cast<float>(d2r) / 31.0f * 0.9f));
         const float total = attack * 0.25f + decay * 0.25f + 0.3f + release * 0.25f;
-        const auto plot = r.reduced(6.0f, 6.0f);
+        // The name in a strip of its own at the top, the shape under it.
+        const float nameFont = std::clamp(graphH * 0.3f, 9.0f, 13.0f);
+        auto plot = r.reduced(6.0f, 4.0f);
+        const auto nameStrip = plot.removeFromTop(nameFont + 2.0f);
         const float height = plot.getHeight() * (0.15f + 0.85f * static_cast<float>(127 - tl) / 127.0f);
         auto x = [&](float t) { return plot.getX() + plot.getWidth() * t / total; };
         auto y = [&](float lv) { return plot.getBottom() - height * lv; };
@@ -529,9 +532,9 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         g.fillPath(fill);
         g.setColour(on ? accent : accent.withAlpha(0.35f));
         g.strokePath(shape, juce::PathStrokeType(on ? 1.8f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setFont(theme::mono(std::clamp(graphH * 0.3f, 9.0f, 13.0f), true));
+        g.setFont(theme::mono(nameFont, true));
         g.setColour(on ? theme::text : theme::dim);
-        g.drawText(kChipOrder[d], r.reduced(5.0f, 3.0f), juce::Justification::topLeft, false);
+        g.drawText(kChipOrder[d], nameStrip, juce::Justification::centredLeft, false);
         tip(r, kChipOrder[d]);
     }
 }
