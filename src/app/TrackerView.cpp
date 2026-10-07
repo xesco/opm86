@@ -64,10 +64,10 @@ void drawChip(juce::Graphics& g, juce::Rectangle<float> body, bool square, int l
         g.strokePath(edge, juce::PathStrokeType(2.0f));
     }
     // The markings, centred.
-    auto text = body.reduced(10.0f).withSizeKeepingCentre(body.getWidth() - 20.0f, 92.0f);
+    auto text = body.reduced(10.0f).withSizeKeepingCentre(body.getWidth() - 20.0f, 102.0f);
     g.setColour(accent.withAlpha(0.7f));
-    g.setFont(theme::mono(15.0f, true));
-    g.drawText(maker, text.removeFromTop(24.0f), juce::Justification::centred, false);
+    g.setFont(theme::mono(22.0f, true));
+    g.drawText(maker, text.removeFromTop(34.0f), juce::Justification::centred, false);
     g.setColour(accent);
     g.setFont(theme::pixel(std::min(24.0f, (body.getWidth() - 24.0f) / static_cast<float>(name.length()))));
     g.drawText(name, text.removeFromTop(42.0f), juce::Justification::centred, false);
