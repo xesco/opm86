@@ -1,3 +1,4 @@
+#include "BinaryData.h"
 #include "MainComponent.h"
 #include "Theme.h"
 
@@ -18,6 +19,10 @@ public:
         setContentOwned(content.release(), true);
         centreWithSize(getWidth(), getHeight());
         setVisible(true);
+        // The window's own icon, which Linux and Windows show in the title bar
+        // and the task bar; macOS takes the app's.
+        if (auto* peer = getPeer())
+            peer->setIcon(juce::ImageCache::getFromMemory(BinaryData::icon_png, BinaryData::icon_pngSize));
     }
 
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }

@@ -11,7 +11,9 @@ the app, where to find songs, and how to use the app.
 
 The Out Run sound board has two sound chips, and the app emulates both at their original
 clock rates. Each chip produces its output at its own sample rate, and the app converts
-both outputs to the sample rate of your audio interface.
+both outputs to the sample rate of your audio interface. The project takes its name from
+this board: OPM is Yamaha's name for the YM2151, short for FM Operator Type-M, and 86
+stands for 1986, the year Sega released Out Run.
 
 | Chip | Role | Clock | Sample rate | Voices |
 | --- | --- | --- | --- | --- |
