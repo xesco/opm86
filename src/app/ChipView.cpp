@@ -102,7 +102,7 @@ juce::String explain(const juce::String& label)
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "LOOPS", "Whether the sample loops at its end" },
         { "PLAY", "Where the channel is in its sample now, from start to end" },
-        { "ROM", "The sample ROM, 512 KB in 8 banks, with each playing channel's place in it" },
+        { "ROM", "The sample ROM, 512 KB in 8 banks: each playing channel's sample shaded, and a line and its number where it plays now" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
@@ -605,10 +605,13 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     const juce::Colour accent = theme::orange;
     auto inner = section(g, area, "SEGAPCM", juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS"), accent);
 
-    // The ROM: 512 KB in 8 banks, each playing channel's place in it lit.
+    // The ROM: 512 KB in 8 banks. Each playing channel shades its sample,
+    // from start to end, and marks where it plays now with a line and its
+    // number; numbers close together stagger so each can be read.
     {
-        auto map = inner.removeFromTop(std::clamp(inner.getHeight() * 0.07f, 20.0f, 34.0f));
+        auto map = inner.removeFromTop(std::clamp(inner.getHeight() * 0.11f, 30.0f, 48.0f));
         tip(map, "ROM");
+        const auto tags = map.removeFromTop(map.getHeight() * 0.4f);
         const float bankW = map.getWidth() / 8.0f;
         g.setFont(theme::mono(std::clamp(map.getHeight() * 0.4f, 9.0f, 12.0f)));
         for (int bank = 0; bank < 8; ++bank)
@@ -619,15 +622,42 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
             g.setColour(theme::faint);
             g.drawText("BANK " + juce::String(bank), r, juce::Justification::centred, false);
         }
+        auto xOf = [&](double address) { return map.getX() + map.getWidth() * static_cast<float>(address / static_cast<double>(SegaPcm::kRomSize)); };
+        const float tagFont = std::clamp(tags.getHeight() * 0.8f, 9.0f, 12.0f);
+        g.setFont(theme::mono(tagFont, true));
+        // Left to right, so each tag is weighed against the one beside it.
+        std::vector<int> playing;
         for (int ch = 0; live_.valid && ch < 16; ++ch)
             if ((live_.pcmPlaying >> ch) & 1)
+                playing.push_back(ch);
+        std::sort(playing.begin(), playing.end(), [&](int a, int b) { return live_.pcmAddress[static_cast<size_t>(a)] < live_.pcmAddress[static_cast<size_t>(b)]; });
+        float lastTagRight = -1.0e9f;
+        bool raised = false;
+        for (const int ch : playing)
+        {
+            const int base = ch * 8;
+            const double bank = static_cast<double>((pcm_[static_cast<size_t>(0x86 + base)] & 0x70) << 12);
+            const double start = bank + (pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8);
+            const double end = bank + ((pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8);
+            const float x = xOf(live_.pcmAddress[static_cast<size_t>(ch)]);
+            if (end > start)
             {
-                const float x = map.getX() + map.getWidth() * static_cast<float>(live_.pcmAddress[static_cast<size_t>(ch)]) / static_cast<float>(SegaPcm::kRomSize);
-                g.setColour(accent.withAlpha(0.3f));
-                g.fillRect(x - 2.5f, map.getY(), 5.0f, map.getHeight());
-                g.setColour(accent);
-                g.fillRect(x - 0.75f, map.getY(), 1.5f, map.getHeight());
+                g.setColour(accent.withAlpha(0.18f));
+                g.fillRect(juce::Rectangle<float>(xOf(start), map.getY(), std::max(2.0f, xOf(end) - xOf(start)), map.getHeight()));
             }
+            g.setColour(accent);
+            g.fillRect(x - 0.75f, map.getY(), 1.5f, map.getHeight());
+            // The channel's number above its line, a step up when it would touch the last.
+            const juce::String number = juce::String(ch + 1);
+            const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), number)) + 6.0f;
+            raised = x - w * 0.5f < lastTagRight + 2.0f ? !raised : false;
+            const auto tag = juce::Rectangle<float>(w, tagFont + 2.0f).withCentre({ x, tags.getCentreY() - (raised ? tagFont * 0.6f : 0.0f) });
+            g.setColour(accent);
+            g.fillRoundedRectangle(tag, 3.0f);
+            g.setColour(theme::background);
+            g.drawText(number, tag, juce::Justification::centred, false);
+            lastTagRight = std::max(lastTagRight, tag.getRight());
+        }
         inner.removeFromTop(10.0f);
     }
 
