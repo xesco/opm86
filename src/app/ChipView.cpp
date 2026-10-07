@@ -419,6 +419,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
 {
     const int rlFbAlg = ym_[static_cast<size_t>(0x20 + ch)];
     const Algorithm& alg = algorithm(rlFbAlg & 7);
+    area.removeFromTop(8.0f); // room under the header, for M1's feedback loop
     auto diagram = area.removeFromLeft(area.getWidth() * 0.5f).reduced(4.0f, 4.0f);
     area.removeFromLeft(10.0f);
 
