@@ -652,7 +652,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         return;
     }
     const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), fmFont_ * 4.0f);
-    const float font = std::clamp(rowH * 0.28f, 9.0f, fmFont_);
+    const float font = std::clamp(rowH * 0.5f, 10.0f, fmFont_); // as big as the YM2151 values, short of half a row
     const float labelW = font * 4.2f, gap = 4.0f;
     for (size_t b = 0; b < banks.size(); ++b)
     {
