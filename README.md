@@ -51,9 +51,18 @@ The download also holds the app's icon, `opm86-player.png`, for a launcher entry
 
 ### Raspberry Pi
 
-The app runs on a Raspberry Pi 3, 4 or 5 with the 64-bit Raspberry Pi OS. It is built on
-Debian 12, which that system is based on. It has not been tried on a Pi yet, and a Pi 3
-may be too slow to play smoothly.
+The app is built for the 64-bit Raspberry Pi OS, on Debian 12, which that system is based
+on. How well it runs depends on the model:
+
+| Model | Status |
+| --- | --- |
+| Raspberry Pi 5 or 500 | Tested on a 500: plays, though the scrolling is not fully smooth |
+| Raspberry Pi 4 | Not tried; may be too slow to play smoothly, or at all |
+| Raspberry Pi 3 | Not tried; probably too slow to play at all |
+
+On a Pi, the app redraws its window 30 times a second instead of 60, because the Pi's
+display cannot take the full rate. It needs the 64-bit system; the 32-bit one cannot run
+it.
 
 1. Download [OPM86-Player-linux-arm64.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz).
 2. Unpack it and run the app:
