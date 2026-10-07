@@ -53,8 +53,12 @@ cmake --build build --config Release
 
 The app is then in `build/opm86_player_artefacts/Release`, as `OPM86 Player` on Linux and
 `OPM86 Player.exe` on Windows. On Linux, JUCE needs the development packages of ALSA, JACK,
-FreeType, Fontconfig, X11 and OpenGL. The workflow in `.github/workflows/build.yml` lists
-them for Ubuntu.
+FreeType, Fontconfig, X11 and OpenGL, and `scripts/linux-deps.sh` installs them on Ubuntu.
+
+On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
+Ubuntu container, to check a change before GitHub builds it. The container keeps its build
+and its compiler cache in `build-linux`, so a second run recompiles only what changed. The
+first run takes about 5 minutes, and a run after a small change takes seconds.
 
 GitHub builds the app for all three systems on every push to `main` and every pull
 request, and runs the tests (see [Tests](#tests)). Each run keeps the three apps as
