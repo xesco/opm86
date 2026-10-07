@@ -303,7 +303,7 @@ The app is built on these parts, each under its own licence:
 
 | Part | What it does in the app | Licence |
 | --- | --- | --- |
-| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3, the terms the app uses it under |
+| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3 or a commercial licence; OPM86 Player uses JUCE under the AGPLv3 |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Emulates the YM2151 | BSD 3-Clause |
 | [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
 | [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |
