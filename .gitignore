@@ -2,3 +2,5 @@ build/
 build-*/
 .DS_Store
 /OPM86 Player.app/
+/opm86-player
+/OPM86 Player.exe

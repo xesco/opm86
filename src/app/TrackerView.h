@@ -140,8 +140,16 @@ private:
 
     void paintRuler(juce::Graphics&);
     void paintLanes(juce::Graphics&);
+    void paintLaneLayer(juce::Graphics&, float right); // the lanes, grid, selection and every note at rest, out to x = right
+    // The lanes at rest, drawn in tiles kTileWidth wide, tile k from song time
+    // k x kTileWidth x samplesPerPixel_ on: a tile is drawn as it comes into
+    // view and dropped once it is well out, and all of them are redrawn when
+    // anything they show changes (lanesKey_).
+    static constexpr int kTileWidth = 256;
+    std::map<long, juce::Image> tiles_;
+    std::vector<double> lanesKey_;
     void paintHeaders(juce::Graphics&);
-    void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
+    void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
     // A note label's text and its dark outline, at the origin, kept per label and size.
     struct LabelShapes

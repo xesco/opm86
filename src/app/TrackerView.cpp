@@ -814,13 +814,86 @@ void TrackerView::paintRuler(juce::Graphics& g)
 
 void TrackerView::paintLanes(juce::Graphics& g)
 {
+    // The lanes at rest come from tiles_, drawn only when needed: drawing
+    // every note each frame is most of a frame's cost. Over them go the notes
+    // sounding now, which change from frame to frame.
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const float height = static_cast<float>(getHeight() - kRulerHeight);
+    if (static_cast<float>(getWidth()) <= lanesX() || height <= 0.0f)
+        return;
+    std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
+                              static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
+                              samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
+    for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
+        key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
+    if (key != lanesKey_)
+        tiles_.clear(), lanesKey_ = std::move(key);
+
+    // The tiles in view, and the one about to come into it.
+    const double span = kTileWidth * samplesPerPixel_; // song time a tile covers
+    const auto first = static_cast<long>(std::floor(viewStart_ / span));
+    const auto last = static_cast<long>(std::floor(xToTime(static_cast<float>(getWidth())) / span)) + 1;
+    for (auto it = tiles_.begin(); it != tiles_.end();)
+        it = it->first < first - 2 || it->first > last + 2 ? tiles_.erase(it) : std::next(it);
+    // Every tile starts a whole number of tiles from the next, so they share
+    // one rounding to device pixels, and the sounding notes take it too:
+    // tiles are copied, not resampled, and the notes stay on them.
+    const float exact = timeToX(static_cast<double>(first) * span);
+    const float shift = std::round(exact * scale) / scale - exact;
+    g.saveState();
+    g.reduceClipRegion(juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight));
+    g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+    for (long k = first; k <= last; ++k)
+    {
+        auto& tile = tiles_[k];
+        if (!tile.isValid())
+        {
+            tile = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
+            juce::Graphics layer(tile);
+            layer.addTransform(juce::AffineTransform::translation(-lanesX(), -static_cast<float>(kRulerHeight)).scaled(scale));
+            const double view = viewStart_;
+            viewStart_ = static_cast<double>(k) * span; // the tile starts at the lanes' left edge
+            paintLaneLayer(layer, lanesX() + static_cast<float>(kTileWidth));
+            viewStart_ = view;
+        }
+        const float x = timeToX(static_cast<double>(k) * span) + shift;
+        g.drawImageTransformed(tile, juce::AffineTransform::scale(1.0f / scale).translated(x, static_cast<float>(kRulerHeight)));
+    }
+
+    // The notes sounding now, over the rest with their glow.
+    if (model_.playing())
+    {
+        g.addTransform(juce::AffineTransform::translation(shift, 0.0f));
+        const double now = playhead();
+        const auto& tracks = model_.tune().tracks;
+        for (size_t t = 0; t < tracks.size(); ++t)
+        {
+            const int y = trackTop(static_cast<int>(t));
+            if (y > getHeight() || y + trackHeight(static_cast<int>(t)) < kRulerHeight)
+                continue;
+            const auto& notes = tracks[t].notes;
+            auto it = std::lower_bound(notes.begin(), notes.end(), now - static_cast<double>(layout().longest[t]),
+                                       [](const TuneNote& n, double time) { return static_cast<double>(n.start) < time; });
+            for (; it != notes.end() && static_cast<double>(it->start) <= now; ++it)
+                if (isSounding(*it))
+                {
+                    const int i = static_cast<int>(it - notes.begin());
+                    paintNote(g, static_cast<int>(t), i, noteBounds(static_cast<int>(t), i));
+                }
+        }
+    }
+    g.restoreState();
+}
+
+void TrackerView::paintLaneLayer(juce::Graphics& g, float right)
+{
     const auto& tracks = model_.tune().tracks;
     const VgmSong& song = model_.tune().source();
     const double beat = song.beatLength;
     const double beatPixels = beat / samplesPerPixel_;
-    const auto lanes = juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight);
+    const auto lanes = juce::Rectangle<float>(lanesX(), static_cast<float>(kRulerHeight), right - lanesX(), static_cast<float>(getHeight() - kRulerHeight));
     g.saveState();
-    g.reduceClipRegion(lanes);
+    g.reduceClipRegion(lanes.getSmallestIntegerContainer());
     g.setColour(theme::lane);
     g.fillRect(lanes);
 
@@ -830,18 +903,18 @@ void TrackerView::paintLanes(juce::Graphics& g)
         if (y > getHeight() || y + h < kRulerHeight)
             continue;
         g.setColour(layout().position[t] % 2 ? theme::lane : theme::laneAlt);
-        g.fillRect(headerWidth(), y, getWidth() - headerWidth(), h);
+        g.fillRect(lanesX(), static_cast<float>(y), right - lanesX(), static_cast<float>(h));
         // Faint lines between a chord part's voices.
         g.setColour(theme::grid.withAlpha(0.3f));
         for (size_t k = 1; expanded(static_cast<int>(t)) && k < layout().voices[t].size(); ++k)
-            g.fillRect(headerWidth(), y + static_cast<int>(k) * laneHeight_, getWidth() - headerWidth(), 1);
+            g.fillRect(lanesX(), static_cast<float>(y + static_cast<int>(k) * laneHeight_), right - lanesX(), 1.0f);
         g.setColour(theme::grid.withAlpha(0.6f));
-        g.fillRect(headerWidth(), y + h - 1, getWidth() - headerWidth(), 1);
+        g.fillRect(lanesX(), static_cast<float>(y + h - 1), right - lanesX(), 1.0f);
     }
 
     // Grid: bars bright, beats dim, sixteenths when there is room.
     const long first = static_cast<long>(std::floor((viewStart_ - song.firstBeat) / beat)) - 1;
-    const long last = static_cast<long>(std::ceil((xToTime(static_cast<float>(getWidth())) - song.firstBeat) / beat));
+    const long last = static_cast<long>(std::ceil((xToTime(right) - song.firstBeat) / beat));
     for (long k = first; k <= last; ++k)
     {
         const double t0 = song.firstBeat + static_cast<double>(k) * beat;
@@ -867,14 +940,13 @@ void TrackerView::paintLanes(juce::Graphics& g)
         const float top = static_cast<float>(kRulerHeight), height = static_cast<float>(getHeight() - kRulerHeight);
         g.setColour(theme::background.withAlpha(0.45f));
         g.fillRect(lanesX(), top, x0 - lanesX(), height);
-        g.fillRect(x1, top, static_cast<float>(getWidth()) - x1, height);
+        g.fillRect(x1, top, right - x1, height);
         g.setColour(theme::cyan.withAlpha(0.14f));
         g.fillRect(x0, top, x1 - x0, height);
     }
 
-    // Notes in view.
-    const double from = viewStart_, to = xToTime(static_cast<float>(getWidth()));
-    std::vector<std::tuple<int, int, juce::Rectangle<float>>> sounding;
+    // Notes in view, at rest.
+    const double from = viewStart_, to = xToTime(right);
     for (size_t t = 0; t < tracks.size(); ++t)
     {
         const int y = trackTop(static_cast<int>(t));
@@ -889,16 +961,9 @@ void TrackerView::paintLanes(juce::Graphics& g)
             if (static_cast<double>(it->start + it->length) < from)
                 continue;
             const int i = static_cast<int>(it - notes.begin());
-            const auto r = noteBounds(static_cast<int>(t), i);
-            if (isSounding(*it))
-                sounding.push_back({ static_cast<int>(t), i, r });
-            else
-                paintNote(g, static_cast<int>(t), i, r);
+            paintNote(g, static_cast<int>(t), i, noteBounds(static_cast<int>(t), i), true);
         }
     }
-    // The notes sounding now go last, so their glow lies over their neighbours.
-    for (const auto& [t, i, r] : sounding)
-        paintNote(g, t, i, r);
 
     // The selection's edges, over the notes.
     if (model_.hasSelection())
@@ -916,14 +981,14 @@ bool TrackerView::isSounding(const TuneNote& n) const
     return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
 }
 
-void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r)
+void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r, bool resting)
 {
     const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const TuneNote& n = tr.notes[static_cast<size_t>(note)];
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
     const int pitch = model_.tune().pitch(tr, n);
     const bool audible = model_.tune().audible(tr, n);
-    const bool sounding = isSounding(n);
+    const bool sounding = !resting && isSounding(n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
                           && static_cast<size_t>(note) < channels[static_cast<size_t>(track)].size()

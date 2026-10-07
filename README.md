@@ -1,7 +1,5 @@
 # OPM86 Player
 
-![OPM86 Player playing Magical Sound Shower](docs/demo.webp)
-
 OPM86 Player is a desktop app for macOS, Linux and Windows that plays the music of Sega's
 arcade games from the late 1980s, such as Out Run, from VGM recordings of their sound
 chips. It plays each song exactly as the game did, shows its notes track by track, and
@@ -11,27 +9,59 @@ find songs and how to use the app, and, for developers, how to build it.
 
 ## Download
 
-Download the latest release for your system. Each link always points at the newest
-release, and every release is listed on the
-[releases page](https://github.com/xesco/opm86/releases).
+Each link below downloads the latest release, and every release is listed on the
+[releases page](https://github.com/xesco/opm86/releases). The downloads are not signed, so
+the first launch on macOS and on Windows needs one extra step. To build the app yourself
+instead, see [Build](#build).
 
-| System | Download | Then |
-| --- | --- | --- |
-| macOS 11 or later, Apple Silicon or Intel | [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip) | Unzip it and move **OPM86 Player** to Applications |
-| Windows 10 or later | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) | Unzip it and run **OPM86 Player.exe** |
-| Linux, x86-64 | [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz) | Unpack it with `tar -xzf OPM86-Player-linux.tar.gz` and run `./OPM86\ Player` |
+### macOS
 
-The apps are not signed, so the first launch needs one extra step:
+The app runs on macOS 11 or later, on Apple Silicon and on Intel.
 
-| System | What it says | What to do |
-| --- | --- | --- |
-| macOS | That Apple could not check the app for malware | Click **Done**, then **Open Anyway** in **System Settings > Privacy & Security** |
-| Windows | That SmartScreen prevented an unrecognised app from starting | Click **More info**, then **Run anyway** |
+1. Download [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip).
+2. Unzip it and move **OPM86 Player** to Applications.
+3. Open it. macOS says that Apple could not check it for malware; click **Done**.
+4. Open **System Settings > Privacy & Security**, click **Open Anyway** next to the message
+   about OPM86 Player, and confirm.
 
-On Linux the app needs the ALSA, FreeType, Fontconfig and X11 libraries, which most
-desktop distributions install already. It is built on Ubuntu 24.04, so it needs a
-distribution with glibc 2.39 or later, from 2024 on. To build the app yourself instead,
-see [Build](#build).
+### Windows
+
+The app runs on Windows 10 or later.
+
+1. Download [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip).
+2. Unzip it and run **OPM86 Player.exe**.
+3. SmartScreen says that it prevented an unrecognised app from starting; click **More
+   info**, then **Run anyway**.
+
+### Linux, x86-64
+
+The app runs on x86-64 Linux with glibc 2.39 or later, which distributions have from 2024
+on, because it is built on Ubuntu 24.04. It needs the ALSA, FreeType, Fontconfig and X11
+libraries, which most desktop distributions install already.
+
+1. Download [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz).
+2. Unpack it and run the app:
+
+   ```sh
+   tar -xzf OPM86-Player-linux.tar.gz
+   ./opm86-player
+   ```
+
+The download also holds the app's icon, `opm86-player.png`, for a launcher entry.
+
+### Raspberry Pi
+
+The app runs on a Raspberry Pi 3, 4 or 5 with the 64-bit Raspberry Pi OS. It is built on
+Debian 12, which that system is based on. It has not been tried on a Pi yet, and a Pi 3
+may be too slow to play smoothly.
+
+1. Download [OPM86-Player-linux-arm64.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz).
+2. Unpack it and run the app:
+
+   ```sh
+   tar -xzf OPM86-Player-linux-arm64.tar.gz
+   ./opm86-player
+   ```
 
 ## The sound board
 
@@ -58,13 +88,16 @@ The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Ea
 
 ## Build
 
-The app builds on macOS, Linux and Windows with CMake 3.22 or later and a C++20 compiler:
-the Xcode command line tools on macOS, GCC or Clang on Linux, and Visual Studio 2022 on
-Windows. The first build needs a network connection, because CMake downloads JUCE 9.0.3
-and the ymfm chip emulator. On Windows, CMake also downloads zlib, which the app needs to
-read `.vgz` files.
+Every system builds the app with CMake 3.22 or later and a C++20 compiler. The first build
+needs a network connection, because CMake downloads JUCE 9.0.3 and the ymfm chip emulator.
+From the repository root, `make` builds the app for the system it runs on, the same as
+`make mac`, `make linux` or `make windows`, and puts it in the repository root. Each
+command compiles one file per processor core at once; on a machine short of memory, such
+as a Raspberry Pi 3, add `JOBS=1`.
 
-On macOS, `make` builds the app and puts it in the repository root as `OPM86 Player.app`:
+### macOS
+
+macOS needs the Xcode command line tools. `make` builds the app as `OPM86 Player.app`:
 
 ```sh
 make
@@ -76,32 +109,49 @@ repository root. When your keychain has a code-signing certificate named `OPM86 
 `make` signs the app with it. macOS then sees every build as the same app and remembers
 the folders you allowed it to read, such as Downloads. Without the certificate, macOS asks
 again after every build. To use a certificate with another name, run
-`make SIGN_ID="its name"`. On Linux and Windows, build with CMake directly:
+`make SIGN_ID="its name"`.
+
+### Windows
+
+Windows needs Visual Studio 2022 with its C++ tools. CMake also downloads zlib, which the
+app needs to read `.vgz` files. In Git Bash with `make` installed, `make` builds the app as
+`OPM86 Player.exe`. Without `make`, build with CMake from the repository root:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-The app is then in `build/opm86_player_artefacts/Release`, as `OPM86 Player` on Linux and
-`OPM86 Player.exe` on Windows. On Linux, JUCE needs the development packages of ALSA, JACK,
-FreeType, Fontconfig, X11 and OpenGL, and `scripts/linux-deps.sh` installs them on Ubuntu.
+The app is then `build/opm86_player_artefacts/Release/OPM86 Player.exe`.
+
+### Linux
+
+Linux needs GCC or Clang, and the development packages of ALSA, JACK, FreeType,
+Fontconfig, X11 and OpenGL, which JUCE builds against. `sudo scripts/linux-deps.sh`
+installs them and the build tools on Ubuntu, Debian and Raspberry Pi OS (with `apt`) and on
+Arch and Omarchy (with `pacman`). Then `make` builds the app as `opm86-player`, and
+`./opm86-player` runs it. A Raspberry Pi builds the same way.
 
 On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
 Ubuntu container, to check a change before GitHub builds it. The container keeps its build
 and its compiler cache in `build-linux`, so a second run recompiles only what changed. The
 first run takes about 5 minutes, and a run after a small change takes seconds.
 
-When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the app for
-all three systems, runs the tests (see [Tests](#tests)), and publishes the three apps as a
-release. GitHub also builds and tests the three apps for every pull request, but not for a
-push to a branch. A pull request's run, or a run of the **Build** workflow started by hand
-under **Actions**, keeps the apps as downloads on its page. To release, run
-`make release VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The
-command sets the version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with
-the title of each pull request merged since the last release. It then commits both, tags
-the commit `v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the
-same list as its notes.
+## Release
+
+GitHub builds the app for macOS, Windows, Linux and the Raspberry Pi, and runs the tests
+(see [Tests](#tests)), in two cases:
+
+| Case | What GitHub does with the four builds |
+| --- | --- |
+| A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
+| A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
+
+A push to a branch builds nothing. To release, run `make release VERSION=0.2.0` on an
+up-to-date `main` with no uncommitted changes. The command sets the version in
+`CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each pull
+request merged since the last release. It then commits both, tags the commit `v0.2.0`, and
+pushes the commit and the tag. The release on GitHub shows the same list as its notes.
 
 ## Get songs
 
@@ -267,7 +317,7 @@ levels, how many commands it receives a second (WRITES), and its last command (L
 
 | Chip | What its section shows |
 | --- | --- |
-| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a row of settings for each of its four operators. The switch in a card's header draws the channel instead: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. |
+| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
 | Sega PCM | A map of the samples the song plays, in rows by 64KB bank, where a playing sample lights up and, when its tile has room, shows the address being read. Below it, a row for each of the 16 channels with its start, loop and end addresses, its playback rate, its flags, its bank, its two volumes and its output level. |
 
 Rest the pointer on any label in the view to see what it means.
@@ -299,11 +349,11 @@ OPM86 Player is free software under the GNU Affero General Public License, versi
 [LICENSE](LICENSE)). You may use, change and share it. When you share a changed version,
 you must also share its source under the same licence.
 
-The app is built on these parts, each under its own licence:
+OPM86 Player is built on these parts, each under its own licence:
 
-| Part | What it does in the app | Licence |
+| Part | What it does in OPM86 Player | Licence |
 | --- | --- | --- |
-| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3, the terms the app uses it under |
+| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3 or a commercial licence; OPM86 Player uses JUCE under the AGPLv3 |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Emulates the YM2151 | BSD 3-Clause |
 | [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
 | [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |

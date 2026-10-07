@@ -21,16 +21,22 @@ jobs:
             configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           - name: linux
             os: ubuntu-24.04
+          # For the Raspberry Pi 3, 4 and 5 on 64-bit Raspberry Pi OS: built on
+          # Debian 12, whose glibc that system shares.
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            container: debian:bookworm
           - name: windows
             os: windows-2022
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }} # none but for linux-arm64
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install the Linux packages
         if: runner.os == 'Linux'
-        run: sudo ./scripts/linux-deps.sh
+        run: if command -v sudo >/dev/null; then sudo ./scripts/linux-deps.sh; else ./scripts/linux-deps.sh; fi # a container runs as root, without sudo
 
       - name: Install Ninja
         if: runner.os != 'Linux'
@@ -59,14 +65,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      # The runtime is linked in (CMakeLists.txt), so a PC without Microsoft's
+      # Visual C++ runtime runs the app too.
+      - name: Check the Windows app needs no Visual C++ runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          dumpbin //dependents "build/opm86_player_artefacts/Release/OPM86 Player.exe" | tee deps.txt
+          if grep -iE "msvcp|vcruntime" deps.txt; then echo "the app still needs the Visual C++ runtime" >&2; exit 1; fi
+
       - name: Package
         shell: bash
         run: |
           out="build/opm86_player_artefacts/Release"
           case "${{ runner.os }}" in
             macOS) ditto -c -k --keepParent "$out/OPM86 Player.app" "OPM86-Player-macos.zip" ;;
-            Linux) cp resources/icon.png "$out/OPM86 Player.png"  # for a launcher entry
-                   tar -czf "OPM86-Player-linux.tar.gz" -C "$out" "OPM86 Player" "OPM86 Player.png" ;;
+            Linux) cp resources/icon.png "$out/opm86-player.png"  # for a launcher entry
+                   tar -czf "OPM86-Player-${{ matrix.name }}.tar.gz" -C "$out" opm86-player opm86-player.png ;;
             Windows) 7z a "OPM86-Player-windows.zip" "./$out/OPM86 Player.exe" ;;
           esac
 
