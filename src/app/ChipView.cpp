@@ -1086,8 +1086,8 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
     {
         auto row = inner.removeFromTop(rowH);
         const int base = ch * 8;
-        const int flags = pcm_[static_cast<size_t>(0x86 + base)];
-        const bool on = (flags & 1) == 0 && (pcm_[static_cast<size_t>(0x02 + base)] || pcm_[static_cast<size_t>(0x03 + base)]);
+        const int flagBits = pcm_[static_cast<size_t>(0x86 + base)];
+        const bool on = (flagBits & 1) == 0 && (pcm_[static_cast<size_t>(0x02 + base)] || pcm_[static_cast<size_t>(0x03 + base)]);
         if (ch % 2 == 1)
         {
             g.setColour(theme::background.withAlpha(0.35f));
@@ -1112,8 +1112,8 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
         cell(g, row.removeFromLeft(colW), hex(loop, 4), std::max(glow(false, 0x04 + base), glow(false, 0x05 + base)), accent, !on);
         cell(g, row.removeFromLeft(colW), hex(pcm_[static_cast<size_t>(0x06 + base)], 2) + "00", glow(false, 0x06 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), juce::String(pcm_[static_cast<size_t>(0x07 + base)]), glow(false, 0x07 + base), accent, !on);
-        cell(g, row.removeFromLeft(colW), hex(flags, 2), glow(false, 0x86 + base), accent, !on);
-        cell(g, row.removeFromLeft(colW), juce::String((flags >> 4) & 7), glow(false, 0x86 + base), accent, !on);
+        cell(g, row.removeFromLeft(colW), hex(flagBits, 2), glow(false, 0x86 + base), accent, !on);
+        cell(g, row.removeFromLeft(colW), juce::String((flagBits >> 4) & 7), glow(false, 0x86 + base), accent, !on);
         for (const int side : { 0x02, 0x03 })
         {
             const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);

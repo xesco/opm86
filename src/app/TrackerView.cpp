@@ -801,7 +801,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
                                    : base.withMultipliedSaturation(0.7f).withMultipliedBrightness(0.5f);
     if (sounding && audible)
     {
-        for (const auto [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
+        for (const auto& [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
         {
             g.setColour(base.withAlpha(alpha));
             g.fillRoundedRectangle(r.expanded(grow), 3.0f + grow);
