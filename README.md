@@ -1,11 +1,37 @@
 # OPM86 Player
 
+![OPM86 Player playing Magical Sound Shower](docs/demo.webp)
+
 OPM86 Player is a desktop app for macOS, Linux and Windows that plays the music of Sega's
 arcade games from the late 1980s, such as Out Run, from VGM recordings of their sound
 chips. It plays each song exactly as the game did, shows its notes track by track, and
-shows the two sound chips at work. This page is for anyone who wants to build the app and
-listen to these songs closely. It explains the sound board the app emulates, how to build
-the app, where to find songs, and how to use the app.
+shows the two sound chips at work. This page is for anyone who wants to listen to these
+songs closely. It explains how to download the app, the sound board it emulates, where to
+find songs and how to use the app, and, for developers, how to build it.
+
+## Download
+
+Download the latest release for your system. Each link always points at the newest
+release, and every release is listed on the
+[releases page](https://github.com/xesco/opm86/releases).
+
+| System | Download | Then |
+| --- | --- | --- |
+| macOS 11 or later, Apple Silicon or Intel | [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip) | Unzip it and move **OPM86 Player** to Applications |
+| Windows 10 or later | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) | Unzip it and run **OPM86 Player.exe** |
+| Linux, x86-64 | [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz) | Unpack it with `tar -xzf OPM86-Player-linux.tar.gz` and run `./OPM86\ Player` |
+
+The apps are not signed, so the first launch needs one extra step:
+
+| System | What it says | What to do |
+| --- | --- | --- |
+| macOS | That Apple could not check the app for malware | Click **Done**, then **Open Anyway** in **System Settings > Privacy & Security** |
+| Windows | That SmartScreen prevented an unrecognised app from starting | Click **More info**, then **Run anyway** |
+
+On Linux the app needs the ALSA, FreeType, Fontconfig and X11 libraries, which most
+desktop distributions install already. It is built on Ubuntu 24.04, so it needs a
+distribution with glibc 2.39 or later, from 2024 on. To build the app yourself instead,
+see [Build](#build).
 
 ## The sound board
 
@@ -70,13 +96,12 @@ When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the 
 all three systems, runs the tests (see [Tests](#tests)), and publishes the three apps as a
 release. GitHub also builds and tests the three apps for every pull request, but not for a
 push to a branch. A pull request's run, or a run of the **Build** workflow started by hand
-under **Actions**, keeps the apps as downloads on its page. To release, run `make release
-VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The command sets the
-version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each
-pull request merged since the last release. It then commits both, tags the commit
-`v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the same list as
-its notes. The macOS app is not signed, so macOS blocks it the first time you open it. To
-open it anyway, click **Open Anyway** in **System Settings > Privacy & Security**.
+under **Actions**, keeps the apps as downloads on its page. To release, run
+`make release VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The
+command sets the version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with
+the title of each pull request merged since the last release. It then commits both, tags
+the commit `v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the
+same list as its notes.
 
 ## Get songs
 
