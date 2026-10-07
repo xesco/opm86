@@ -903,6 +903,10 @@ void ToolBar::resized()
         dividers_.push_back(gap.getCentreX());
     };
 
+    // A line on each side of every group, the outermost too; HEIGHT and
+    // TIME make one group.
+    divider(true);
+    divider(false);
     buttons(r.removeFromLeft(width(2)), "PLAYHEAD", { &keepPlayhead_, &follow_ });
     divider(true);
     group(speed_, speedCaption_, r.removeFromLeft(140));
@@ -919,6 +923,7 @@ void ToolBar::resized()
     }
     divider(true);
     buttons(r.removeFromLeft(width(4)), "MIX", { &reset_, &invert_, &instruments_, &drums_ });
+    divider(true);
 
     group(timeZoom_, timeCaption_, r.removeFromRight(130));
     r.removeFromRight(4);
@@ -927,6 +932,7 @@ void ToolBar::resized()
     buttons(r.removeFromRight(width(4)), "ZOOM", { &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ });
     divider(false);
     buttons(r.removeFromRight(width(2)), "VIEW", { &order_, &chips_ });
+    divider(false);
     syncZoom();
 }
 
