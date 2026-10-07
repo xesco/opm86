@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.2 (2026-10-07)
+
+- Player: other boards' drums, close and a start screen, local signing, AGPL licence (#11)
+
 ## v0.1.1 (2026-10-07)
 
 - Player: an app icon on macOS, Windows and Linux, and where the name comes from (#10)
