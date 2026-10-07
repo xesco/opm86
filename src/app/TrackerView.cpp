@@ -13,7 +13,7 @@ namespace opm86
 namespace
 {
 
-// A header's name and the tag right after it: the voice, V1 · 2, and the patch,
+// A header's name and the tag right after it: the voice, V1 2, and the patch,
 // FM 6; in patch order the other way round, the voice without its number,
 // V1. Drums have their name alone.
 juce::String headName(const TuneTrack& t, bool byPatch)

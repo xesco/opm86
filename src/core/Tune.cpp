@@ -197,8 +197,8 @@ void Tune::splitParts()
 {
     // An FM track is one patch on one chip voice, so every line can be muted,
     // soloed and set apart: a voice plays one note at a time. The tracks go in
-    // voice order, V1 first, each numbered by its patch on the voice, V1 · 1,
-    // V1 · 2, most used first, even when the voice plays one patch. Drum tracks
+    // voice order, V1 first, each numbered by its patch on the voice, V1 1,
+    // V1 2, most used first, even when the voice plays one patch. Drum tracks
     // follow, as they were.
     std::vector<TuneTrack> fm, drums;
     for (TuneTrack& track : tracks)
@@ -227,7 +227,7 @@ void Tune::splitParts()
     for (TuneTrack& t : fm)
     {
         const auto v = static_cast<size_t>(voiceOf(t));
-        t.name = "V" + std::to_string(v + 1) + " \xc2\xb7 " + std::to_string(++seen[v]);
+        t.name = "V" + std::to_string(v + 1) + " " + std::to_string(++seen[v]);
     }
     tracks = std::move(fm);
     for (TuneTrack& t : drums)
