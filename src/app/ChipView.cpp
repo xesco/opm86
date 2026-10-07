@@ -205,8 +205,8 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const float valueFont = std::clamp(std::min(rowH * 0.78f, (c.getWidth() / 12.5f) * 0.55f), 10.0f, 24.0f);
         const float labelW = valueFont * 2.8f, colW = (c.getWidth() - labelW) / 11.0f;
         columns.removeFromLeft(labelW);
-        g.setFont(theme::mono(valueFont * 0.62f, true));
-        g.setColour(theme::faint);
+        g.setFont(theme::mono(valueFont * 0.8f));
+        g.setColour(theme::dim);
         for (const char* name : kColumns)
             g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
         g.setFont(theme::mono(valueFont, true));
@@ -262,8 +262,8 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 7.0f;
     auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
-    g.setFont(theme::mono(valueFont * 0.62f, true));
-    g.setColour(theme::faint);
+    g.setFont(theme::mono(valueFont * 0.8f));
+    g.setColour(theme::dim);
     for (const char* name : kColumns)
         g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
     g.setFont(theme::mono(valueFont, true));
