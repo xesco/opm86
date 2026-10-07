@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3 (2026-10-08)
+
+- make per system, a Raspberry Pi build, faster drawing, and the README by system (#13)
+
 ## v0.1.2 (2026-10-07)
 
 - Player: other boards' drums, close and a start screen, local signing, AGPL licence (#11)
