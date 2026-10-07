@@ -109,6 +109,18 @@ public:
         label.setFont(getComboBoxFont(box));
     }
 
+    // A tooltip wider than kTooltipWidth wraps onto more lines.
+    static constexpr float kTooltipWidth = 360.0f;
+    static juce::TextLayout tooltipLayout(const juce::String& text)
+    {
+        juce::AttributedString lines;
+        lines.append(text, theme::mono(13.0f, true), theme::text);
+        lines.setJustification(juce::Justification::centredLeft);
+        juce::TextLayout layout;
+        layout.createLayout(lines, kTooltipWidth);
+        return layout;
+    }
+
     void drawTooltip(juce::Graphics& g, const juce::String& text, int w, int h) override
     {
         g.fillAll(theme::panelLight);
@@ -116,7 +128,10 @@ public:
         g.drawRect(0, 0, w, h);
         g.setColour(theme::text);
         g.setFont(theme::mono(13.0f, true));
-        g.drawText(text, 0, 0, w, h, juce::Justification::centred);
+        if (juce::GlyphArrangement::getStringWidth(theme::mono(13.0f, true), text) <= kTooltipWidth)
+            g.drawText(text, 0, 0, w, h, juce::Justification::centred);
+        else
+            tooltipLayout(text).draw(g, juce::Rectangle<float>(static_cast<float>(w), static_cast<float>(h)).reduced(10.0f, 6.0f));
     }
 
     juce::Rectangle<int> getTooltipBounds(const juce::String& text, juce::Point<int> at, juce::Rectangle<int> parent) override
@@ -124,7 +139,16 @@ public:
         // A note's, over the tracks, sits tight round its text; the rest have room.
         auto* under = juce::Desktop::getInstance().getMainMouseSource().getComponentUnderMouse();
         const bool note = dynamic_cast<TrackerView*>(under) != nullptr;
-        const int w = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), text) + (note ? 10 : 20);
+        const float width = juce::GlyphArrangement::getStringWidth(theme::mono(13.0f, true), text);
+        if (width > kTooltipWidth)
+        {
+            // Long: wrapped, as tall as its lines.
+            const auto layout = tooltipLayout(text);
+            const int w = static_cast<int>(std::ceil(layout.getWidth())) + 20;
+            const int h = static_cast<int>(std::ceil(layout.getHeight())) + 12;
+            return juce::Rectangle<int>(at.x + 12, at.y + 18, w, h).constrainedWithin(parent);
+        }
+        const int w = static_cast<int>(std::ceil(width)) + (note ? 10 : 20);
         return juce::Rectangle<int>(at.x + 12, at.y + 18, w, note ? 20 : 24).constrainedWithin(parent);
     }
 };
