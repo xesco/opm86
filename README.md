@@ -26,9 +26,18 @@ The app runs on macOS 11 or later, on Apple Silicon and on Intel.
 
 ### Windows
 
-The app runs on Windows 10 or later.
+The app runs on Windows 10 or later. It comes in two builds, one for each kind of
+processor:
 
-1. Download [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip).
+| PC | Download |
+| --- | --- |
+| Most PCs, with an Intel or AMD processor | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) |
+| PCs with an ARM processor, such as Snapdragon laptops, Windows 11 only | [OPM86-Player-windows-arm64.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows-arm64.zip) |
+
+**Settings > System > About** shows which processor a PC has. An ARM PC also runs the
+Intel and AMD build, translated as it runs, but more slowly.
+
+1. Download the build for your PC.
 2. Unzip it and run **OPM86 Player.exe**.
 3. SmartScreen says that it prevented an unrecognised app from starting; click **More
    info**, then **Run anyway**.
