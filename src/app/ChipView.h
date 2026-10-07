@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <vector>
 
 namespace opm86
 {
@@ -14,13 +15,16 @@ namespace opm86
 // by channel. The values are the game's writes up to the playhead, before
 // the player's mutes and volumes, and each one glows for a moment when it
 // is written.
-class ChipView : public juce::Component
+class ChipView : public juce::Component, public juce::TooltipClient
 {
 public:
     explicit ChipView(AppModel& model);
     void paint(juce::Graphics&) override;
+    juce::String getTooltip() override; // what the abbreviation under the pointer means
 
 private:
+    void tip(juce::Rectangle<float> area, const juce::String& label); // a label drawn there, explained on hover
+    std::vector<std::pair<juce::Rectangle<float>, juce::String>> tips_; // the labels drawn, refilled each paint
     void catchUp(); // the registers as written up to the playhead
     void write(bool fm, uint16_t reg, uint8_t value, double time);
     float glow(bool fm, int reg) const; // 1 as it is written, down to 0 after kGlow

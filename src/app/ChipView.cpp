@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace opm86
 {
@@ -59,11 +60,71 @@ juce::Rectangle<float> section(juce::Graphics& g, juce::Rectangle<float> area, c
 
 juce::String hex(int value, int digits) { return juce::String::toHexString(value).toUpperCase().paddedLeft('0', digits); }
 
+// What each label means, shown when the pointer rests on it.
+juce::String explain(const juce::String& label)
+{
+    static const std::map<juce::String, juce::String> kMeaning = {
+        { "LFO", "LFO rate: how fast the low-frequency oscillator runs" },
+        { "PMD", "Pitch modulation depth: how far the LFO moves pitch" },
+        { "AMD", "Amplitude modulation depth: how far the LFO moves volume" },
+        { "WAVE", "LFO waveform" },
+        { "NOISE", "Noise generator, on channel 8's last operator, and its frequency" },
+        { "L", "Output to the left" },
+        { "R", "Output to the right" },
+        { "FB", "Feedback: how much M1 modulates itself" },
+        { "ALG", "Algorithm: how the four operators connect" },
+        { "KC", "Key code: octave and note" },
+        { "KF", "Key fraction: pitch between notes" },
+        { "PMS", "Pitch modulation sensitivity: how much the LFO bends this channel" },
+        { "AMS", "Amplitude modulation sensitivity: how much the LFO moves its volume" },
+        { "M1", "Operator M1, modulator 1" },
+        { "M2", "Operator M2, modulator 2" },
+        { "C1", "Operator C1, carrier 1" },
+        { "C2", "Operator C2, carrier 2" },
+        { "TL", "Total level: the operator's volume, 0 loudest" },
+        { "AR", "Attack rate: how fast the sound rises" },
+        { "D1R", "First decay rate: how fast it falls after the attack" },
+        { "D1L", "First decay level: where the first decay stops" },
+        { "D2R", "Second decay rate: how fast it falls while the key is held" },
+        { "RR", "Release rate: how fast it fades after the key is let go" },
+        { "MUL", "Frequency multiple of the note" },
+        { "DT1", "Fine detune" },
+        { "DT2", "Coarse detune" },
+        { "KS", "Key scaling: faster envelopes on higher notes" },
+        { "AM", "Amplitude modulation: the LFO moves this operator's volume" },
+        { "START", "Where the sample starts in the ROM" },
+        { "LOOP", "Where the sample loops back to" },
+        { "END", "The page where the sample ends" },
+        { "RATE", "Playback step: 128 plays the sample as recorded" },
+        { "LOOPS", "Whether the sample loops at its end" },
+        { "VOL L", "Volume on the left" },
+        { "VOL R", "Volume on the right" },
+    };
+    if (label.startsWith("CH"))
+        return "Channel " + label.substring(2);
+    const auto it = kMeaning.find(label);
+    return it != kMeaning.end() ? it->second : juce::String();
+}
+
 } // namespace
 
 ChipView::ChipView(AppModel& model) : model_(model)
 {
     setOpaque(true);
+}
+
+void ChipView::tip(juce::Rectangle<float> area, const juce::String& label)
+{
+    tips_.emplace_back(area, label);
+}
+
+juce::String ChipView::getTooltip()
+{
+    const auto at = getMouseXYRelative().toFloat();
+    for (const auto& [area, label] : tips_)
+        if (area.contains(at))
+            return explain(label);
+    return {};
 }
 
 void ChipView::write(bool fm, uint16_t reg, uint8_t value, double time)
@@ -119,6 +180,7 @@ float ChipView::glow(bool fm, int reg) const
 void ChipView::paint(juce::Graphics& g)
 {
     g.fillAll(theme::background);
+    tips_.clear();
     if (!model_.hasTune())
         return;
     catchUp();
@@ -143,8 +205,9 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const auto item = [&](const juce::String& label, const juce::String& value, float glowing, float width) {
             auto r = row.removeFromLeft(width);
             g.setColour(theme::dim);
-            g.drawText(label, r.removeFromLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 6.0f),
-                       juce::Justification::centredLeft, false);
+            const auto at = r.removeFromLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 6.0f);
+            g.drawText(label, at, juce::Justification::centredLeft, false);
+            tip(at, label);
             cell(g, r.removeFromLeft(r.getWidth() - 10.0f), value, glowing, accent);
         };
         item("LFO", juce::String(ym_[0x18]), glow(true, 0x18), 110.0f);
@@ -187,6 +250,7 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const float headFont = std::clamp(head.getHeight() * 0.66f, 11.0f, 20.0f);
         g.setFont(theme::mono(headFont, true));
         g.setColour(keyed ? theme::text : theme::dim);
+        tip(head.withWidth(headFont * 2.6f), "CH" + juce::String(ch + 1));
         g.drawText("CH" + juce::String(ch + 1), head.removeFromLeft(headFont * 2.6f), juce::Justification::centredLeft, false);
         const int kc = ym_[static_cast<size_t>(0x28 + ch)], code = kc & 15;
         const int midi = 13 + ((kc >> 4) & 7) * 12 + code - code / 4; // the YM2151 counts notes from C#, skipping every fourth code
@@ -206,14 +270,20 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const int rl = ym_[static_cast<size_t>(0x20 + ch)];
         head.removeFromLeft(headFont * 0.8f);
         const float unit = headFont * 0.62f; // one character
-        cell(g, head.removeFromLeft(unit * 2.0f), "L", glow(true, 0x20 + ch), accent, (rl & 0x40) == 0);
-        cell(g, head.removeFromLeft(unit * 2.0f), "R", glow(true, 0x20 + ch), accent, (rl & 0x80) == 0);
+        for (const auto& [side, bit] : { std::pair { "L", 0x40 }, std::pair { "R", 0x80 } })
+        {
+            const auto at = head.removeFromLeft(unit * 2.0f);
+            cell(g, at, side, glow(true, 0x20 + ch), accent, (rl & bit) == 0);
+            tip(at, side);
+        }
         head.removeFromLeft(unit);
         g.setColour(theme::dim);
+        tip(head.withWidth(unit * 2.5f), "FB");
         g.drawText("FB", head.removeFromLeft(unit * 2.5f), juce::Justification::centredLeft, false);
         cell(g, head.removeFromLeft(unit * 2.0f), juce::String((rl >> 3) & 7), glow(true, 0x20 + ch), accent);
         head.removeFromLeft(unit);
         g.setColour(theme::dim);
+        tip(head.withWidth(unit * 3.5f), "ALG");
         g.drawText("ALG", head.removeFromLeft(unit * 3.5f), juce::Justification::centredLeft, false);
         cell(g, head.removeFromLeft(unit * 2.0f), juce::String(rl & 7), glow(true, 0x20 + ch), accent);
         // The pitch as written, key code and key fraction, and the LFO's depths on this channel.
@@ -221,6 +291,7 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const auto field = [&](const juce::String& name, const juce::String& value, int reg, float chars) {
             head.removeFromLeft(unit);
             g.setColour(theme::dim);
+            tip(head.withWidth(unit * (static_cast<float>(name.length()) + 0.5f)), name);
             g.drawText(name, head.removeFromLeft(unit * (static_cast<float>(name.length()) + 0.5f)), juce::Justification::centredLeft, false);
             cell(g, head.removeFromLeft(unit * chars), value, glow(true, reg), accent);
         };
@@ -238,7 +309,10 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         g.setFont(theme::mono(valueFont * 0.8f));
         g.setColour(theme::dim);
         for (const char* name : kColumns)
+        {
+            tip(columns.withWidth(colW), name);
             g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+        }
         g.setFont(theme::mono(valueFont, true));
         for (int op = 0; op < 4; ++op)
         {
@@ -256,6 +330,7 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
             g.fillEllipse(light);
             g.setColour(on ? theme::text : theme::dim);
             g.drawText(kOperators[op], label, juce::Justification::centredLeft, false);
+            tip(label, kOperators[op]);
 
             const int dtMul = ym_[static_cast<size_t>(0x40 + slot)], tl = ym_[static_cast<size_t>(0x60 + slot)] & 0x7F;
             const int ksAr = ym_[static_cast<size_t>(0x80 + slot)], amD1r = ym_[static_cast<size_t>(0xA0 + slot)];
@@ -295,7 +370,10 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     g.setFont(theme::mono(valueFont * 0.8f));
     g.setColour(theme::dim);
     for (const char* name : kColumns)
+    {
+        tip(columns.withWidth(colW), name);
         g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+    }
     g.setFont(theme::mono(valueFont, true));
     for (int ch = 0; ch < 16; ++ch)
     {
@@ -319,6 +397,7 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
         g.fillEllipse(light);
         g.setColour(on ? theme::text : theme::dim);
         g.drawText("CH" + juce::String(ch + 1), label, juce::Justification::centredLeft, false);
+        tip(label, "CH" + juce::String(ch + 1));
 
         const int start = pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8;
         const int loop = pcm_[static_cast<size_t>(0x04 + base)] | pcm_[static_cast<size_t>(0x05 + base)] << 8;
