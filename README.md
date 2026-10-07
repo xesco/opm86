@@ -64,8 +64,9 @@ The build writes these files:
 
 To build only the command-line program and put it in the repository root as `./opm86`,
 run `make`. OPM86 Player is a separate Mac app that plays a game's recorded song and shows
-the notes of each track as they play. To build the app and put it in the repository root
-as `OPM86 Player.app`, run `make player`, then open it with `open "OPM86 Player.app"`.
+the notes of each track as they play (see [Use OPM86 Player](#use-opm86-player)). To build
+the app and put it in the repository root as `OPM86 Player.app`, run `make player`, then
+open it with `open "OPM86 Player.app"`.
 `make all` builds both the program and the app. Each of the three commands configures the
 `build` folder the first time, and `make clean` removes both copies from the repository
 root.
@@ -495,6 +496,139 @@ played from the same start, with a difference 58dB below the music. That differe
 comes from the YM2151's output converter, which rounds each stem on its own instead of
 rounding the mix. A beat reached by a jump is identical to the same beat in a render
 started there.
+
+## Use OPM86 Player
+
+OPM86 Player is a Mac app that plays a VGM file and shows the song while it plays. The app
+sends the game's own commands to the two chips, so it plays the exact song, as the
+`vgmplay` command does. You can mute, solo and change the volume of each part of the song,
+loop a section, and watch the registers of the two chips. To build the app, see
+[Build](#build).
+
+### Open a song
+
+Click **Open** in the top bar or press Cmd+O to choose a `.vgz` or `.vgm` file, or drop the
+file on the window. When the app starts, it opens the song you played last. The app also
+remembers the size and place of its window and the pitch colours you chose.
+
+### The window
+
+The window has six areas, from top to bottom:
+
+1. The top bar holds the transport buttons, the song's name, **Open** and the master
+   volume. The transport buttons are rewind, to the end, play or pause, and stop.
+2. The tool bar holds the controls in named groups (see [The tool bar](#the-tool-bar)).
+3. The tracks area shows a ruler with the song's bars and beats, and a lane for each
+   track. Each note shows as a rectangle in the colour of its pitch.
+4. The keys strip is a keyboard of 3 to 7 octaves that lights the keys of the notes
+   sounding at the playhead. Its buttons set the number of octaves and show or hide the
+   note names.
+5. The overview strip shows the whole song, with a frame around the part of the song
+   that the tracks area shows.
+6. The status bar counts the tracks and the notes, and shows the pitch colours. Click a
+   pitch's colour to choose another one.
+
+The keys strip and the overview strip slide down when you click the arrow in their header,
+and they grow taller when you drag the grip in their top edge.
+
+### The tracks
+
+An FM track holds the notes that one patch plays on one voice of the YM2151, so each track
+plays one note at a time. Each track is named after its voice and numbered by its patch on
+that voice, with the most used patch first: V1 1, V1 2, then V2 1. The patch's number
+follows the name, as in FM 6. The drum tracks come after the FM tracks. A drum note in
+grey is a hit the game played at zero volume, which you do not hear.
+
+A track's header holds its mute and solo buttons, a level meter, and a volume knob with
+its level in dB under it. The knob controls the track like this:
+
+| Action | Effect |
+| --- | --- |
+| Drag up or right | Raises the volume |
+| Drag down or left | Lowers the volume |
+| Double-click, or Option-click | Puts the volume back to 0dB, the level the game played |
+
+A muted track is silent even when it is also soloed. Cmd+Z undoes a change to mute, solo
+or volume, and Shift+Cmd+Z redoes it. The notes themselves cannot be edited.
+
+The ruler's bars and beats come from the times the notes start, because a VGM file
+records no tempo. Bar 1 starts at the song's first note.
+
+### The tool bar
+
+The tool bar groups its controls by what they act on:
+
+| Group | Controls |
+| --- | --- |
+| PLAYHEAD | **Keep playhead** keeps the playhead's line on screen, which otherwise fades a second after you last move the mouse or press a key. **Follow playhead** scrolls the tracks with the song, and it is on when the app starts. |
+| SPEED | Plays the song from 25% to 200% of its speed, with the notes at their own pitch. Double-click the slider to go back to 100%. |
+| LOOP | **Loop** plays the selection again and again, or the whole song when nothing is selected. The START and END fields show the selection's times and set them (see [Select and loop](#select-and-loop)). |
+| MIX | **Reset mix** unmutes, unsolos and sets every track to 0dB. **Invert** flips the solos when any track is soloed, and otherwise flips the mutes. **Only instruments** and **Only drums** solo one kind of track, and a second click turns the solo off. |
+| VIEW | **Order by patch** puts the FM tracks in patch order, FM 1 first, with the patch's number before the voice in each name. **Show the chips** shows the chips view in place of the tracks (see [The chips view](#the-chips-view)). |
+| ZOOM | **Fit tracks**, **Fit time** and **Fit both** fit the tracks, the song, or both to the window. **1:1** puts both zooms back to where they start. |
+| HEIGHT and TIME | The two sliders set the height of the tracks and the zoom in time. |
+
+### Play and move
+
+The keyboard controls the song like this:
+
+| Key | Effect |
+| --- | --- |
+| Space | Plays, or pauses while playing |
+| Return or Home | Goes to the start of the selection, or of the song |
+| End | Goes to the end of the selection, or of the song |
+| Cmd+= and Cmd+- | Zooms in and out in time |
+| Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
+| Escape | Drops the selection |
+
+The **stop** button stops the song, and a second click goes back to the song's start. The
+mouse moves around the song like this:
+
+| Mouse | Effect |
+| --- | --- |
+| Click a lane or the ruler | Moves the playhead there |
+| Drag the lanes while playing, or with Shift | Moves the view with a hand |
+| Scroll | Scrolls through time and through the tracks |
+| Cmd+scroll, or pinch | Zooms in time |
+| Option+scroll, or Shift+pinch | Changes the height of the tracks |
+| Drag the overview's frame | Moves the view |
+
+While **Follow playhead** is on, the overview's frame carries the playhead. Holding the
+frame pauses the song, dragging it plays a moment of each place it reaches, and the song
+plays on from where you release it.
+
+### Select and loop
+
+A selection is a section of the song that the playhead stays in. While the song is
+stopped, drag across the lanes to select a section. The selection works like this:
+
+| Action | Effect |
+| --- | --- |
+| Drag an edge of the selection | Moves that edge |
+| Drag the selection's bar on the ruler | Moves the whole selection |
+| Type a time in START or END, as m:ss.mmm | Sets that edge |
+| Click the lanes while stopped, or press Escape | Drops the selection |
+
+When **Loop** is on, the song plays the selection again and again.
+
+### The chips view
+
+The chips view shows the registers of the two chips at the playhead, in place of the
+tracks. The values are the game's commands up to the playhead, before your mutes and
+volumes, and each value glows when the game writes it. A value written again unchanged
+glows dimmer. The view only shows the chips, so nothing in it can be changed. While the
+view shows, the keys strip and the overview strip slide down, and they come back as they
+were when you turn the view off. The app always starts with the tracks.
+
+Each chip has its own section. A section's header shows the chip's left and right output
+levels, how many commands it receives a second (WRITES), and its last command (LAST):
+
+| Chip | What its section shows |
+| --- | --- |
+| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a row of settings for each of its four operators. The switch in a card's header draws the channel instead: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. |
+| Sega PCM | A map of the samples the song plays, in rows by 64KB bank, where a playing sample lights up and, when its tile has room, shows the address being read. Below it, a row for each of the 16 channels with its start, loop and end addresses, its playback rate, its flags, its bank, its two volumes and its output level. |
+
+Rest the pointer on any label in the view to see what it means.
 
 ## Drum pads
 
