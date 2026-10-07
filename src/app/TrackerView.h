@@ -37,6 +37,13 @@ public:
     void fitTime();   // the whole song across, as far as the zoom goes
     void fitTracks(); // every track's rows down, as far as the lane height goes
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
+    // A chip channel's output now, 8 FM then 16 PCM: 0..1 along a meter
+    // from kMeterFloor to full scale, falling back as the meters do.
+    float channelMeter(int channel) const
+    {
+        const float db = juce::Decibels::gainToDecibels(channelLevel_[static_cast<size_t>(channel)], kMeterFloor);
+        return (db - kMeterFloor) / -kMeterFloor;
+    }
     void wake(); // a mouse or key event anywhere: shows the playhead, which hides after a second without one
     void setKeepPlayhead(bool keep) { keepPlayhead_ = keep; repaint(); } // or always shows it
     double idleSeconds() const { return (juce::Time::getMillisecondCounterHiRes() - lastActivity_) / 1000.0; } // since the last wake()

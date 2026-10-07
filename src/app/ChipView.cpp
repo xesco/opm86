@@ -59,6 +59,13 @@ juce::Rectangle<float> section(juce::Graphics& g, juce::Rectangle<float> area, c
     return inner;
 }
 
+// The width a section's title takes in its header: the chip, its name and what it plays.
+float titleWidth(const juce::String& name, const juce::String& role)
+{
+    return 24.0f + static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::pixel(15.0f), name)) + 16.0f
+           + static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(15.0f, true), role)) + 20.0f;
+}
+
 juce::String hex(int value, int digits) { return juce::String::toHexString(value).toUpperCase().paddedLeft('0', digits); }
 
 // What each label means, shown when the pointer rests on it.
@@ -102,6 +109,8 @@ juce::String explain(const juce::String& label)
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "LOOPS", "Whether the sample loops at its end" },
         { "BANK", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
+        { "OUT", "The channel's output now" },
+        { "BUS", "The writes reaching the chip in the last second, newest at the right; how many a second, and the last one" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
@@ -113,7 +122,7 @@ juce::String explain(const juce::String& label)
 
 } // namespace
 
-ChipView::ChipView(AppModel& model) : model_(model)
+ChipView::ChipView(AppModel& model, const TrackerView& tracks) : model_(model), tracks_(tracks)
 {
     setOpaque(true);
 }
@@ -232,7 +241,10 @@ void ChipView::paint(juce::Graphics& g)
 void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::cyan;
-    auto inner = section(g, area, "YM2151", juce::String::fromUTF8("FM  \xc2\xb7  8 CHANNELS  \xc2\xb7  4 OPERATORS EACH"), accent);
+    const juce::String role = juce::String::fromUTF8("FM  \xc2\xb7  8 CHANNELS  \xc2\xb7  4 OPERATORS EACH");
+    auto inner = section(g, area, "YM2151", role, accent);
+    // The bus, in the header after the title.
+    paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role)), true, accent);
 
     // The chip-wide settings: the LFO and the noise.
     {
@@ -280,6 +292,12 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
             g.fillPath(top);
             g.setColour(keyed ? accent.withAlpha(0.35f) : theme::gridBar.withAlpha(0.6f));
             g.fillRect(band.getX(), band.getBottom() - 1.0f, band.getWidth(), 1.0f);
+            // The channel's output now, a bar along the band's foot.
+            if (const float out = tracks_.channelMeter(ch); out > 0.0f)
+            {
+                g.setColour(accent);
+                g.fillRect(band.getX(), band.getBottom() - 3.0f, band.getWidth() * out, 3.0f);
+            }
         }
         c = c.reduced(10.0f, 4.0f);
         auto head = band.reduced(10.0f, 3.0f);
@@ -620,10 +638,55 @@ void ChipView::mouseMove(const juce::MouseEvent& e)
     repaint();
 }
 
+void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm, juce::Colour accent)
+{
+    // The writes of the last second as ticks, newest at the right, coloured
+    // by what they set; then how many a second, and the last one.
+    if (song_ == nullptr)
+        return;
+    tip(area, "BUS");
+    const auto& writes = fm ? song_->ym : song_->pcm;
+    const size_t end = fm ? ymNext_ : pcmNext_;
+    const double from = at_ - kVgmRate;
+    g.setFont(theme::mono(12.0f, true));
+    const auto text = area.removeFromRight(std::min(150.0f, area.getWidth()));
+    // The lane only where there is room for it beside the count.
+    const auto lane = area.getWidth() >= 80.0f ? area.reduced(0.0f, 5.0f) : juce::Rectangle<float>();
+    g.setColour(theme::background.withAlpha(0.6f));
+    g.fillRoundedRectangle(lane, 3.0f);
+    int count = 0;
+    for (size_t i = end; i-- > 0 && static_cast<double>(writes[i].time) >= from;)
+    {
+        const auto r = static_cast<int>(writes[i].address & 0xFF);
+        const float age = static_cast<float>((at_ - writes[i].time) / kVgmRate);
+        if (lane.isEmpty())
+        {
+            ++count;
+            continue;
+        }
+        const float x = lane.getRight() - 2.0f - (lane.getWidth() - 4.0f) * age;
+        // What it sets: notes on and off or triggers, pitch or volume, level, or the rest.
+        juce::Colour c = theme::dim;
+        if (fm)
+            c = r == 0x08 ? juce::Colours::white : (r >= 0x28 && r < 0x38) ? accent : (r >= 0x60 && r < 0x80) ? theme::yellow : theme::dim;
+        else
+            c = ((r & 0x87) == 0x86 && (writes[i].value & 1) == 0) ? juce::Colours::white : ((r & 0x87) == 0x02 || (r & 0x87) == 0x03) ? accent : theme::dim;
+        g.setColour(c.withAlpha(0.35f + 0.65f * (1.0f - age)));
+        g.fillRect(x, lane.getY() + 2.0f, 1.5f, lane.getHeight() - 4.0f);
+        ++count;
+    }
+    g.setColour(theme::dim);
+    const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
+    g.drawText(juce::String(count) + "/s  " + last, text, juce::Justification::centredRight, false);
+}
+
 void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::orange;
-    auto inner = section(g, area, "SEGAPCM", juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS"), accent);
+    const juce::String role = juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS");
+    auto inner = section(g, area, "SEGAPCM", role, accent);
+    // The bus, in the header after the title.
+    paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("SEGAPCM", role)), false, accent);
     // The channels at the YM2151's size at the bottom, the samples above in the rest.
     const float valueFont = fmFont_;
     const auto table = inner.removeFromBottom(valueFont * 1.6f * 16.7f);
@@ -718,9 +781,9 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
 {
     // A row per channel: whether it plays, where its sample starts, loops and
     // ends in the ROM, its rate, and its volume on each side as a bar.
-    static const char* kColumns[7] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R" };
+    static const char* kColumns[8] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R", "OUT" };
     const float rowH = inner.getHeight() / 16.7f;
-    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 7.0f;
+    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 8.0f;
     auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
     g.setFont(theme::mono(valueFont * 0.8f));
@@ -770,6 +833,14 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
             g.fillRoundedRectangle(r, 2.0f);
             g.setColour(on ? accent.withAlpha(0.6f + 0.4f * glow(false, side + base)) : theme::faint);
             g.fillRoundedRectangle(r.withWidth(r.getWidth() * static_cast<float>(volume) / 127.0f), 2.0f);
+        }
+        // Its output now.
+        {
+            const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.25f);
+            g.setColour(theme::gridBar.withAlpha(0.5f));
+            g.fillRoundedRectangle(r, 2.0f);
+            g.setColour(accent);
+            g.fillRoundedRectangle(r.withWidth(r.getWidth() * tracks_.channelMeter(8 + ch)), 2.0f);
         }
     }
 }

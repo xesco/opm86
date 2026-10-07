@@ -275,7 +275,7 @@ private:
     std::unique_ptr<juce::LookAndFeel> look_;
     AppModel model_;
     TrackerView view_ { model_ };
-    ChipView chipView_ { model_ }; // in the tracks' place while the tool bar's Chips is on
+    ChipView chipView_ { model_, view_ }; // in the tracks' place while the tool bar's Chips is on
     TopBar top_ { model_, view_ };
     ToolBar tools_ { model_, view_ };
     OverviewStrip overview_ { model_, view_ };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppModel.h"
+#include "TrackerView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -19,7 +20,7 @@ namespace opm86
 class ChipView : public juce::Component, public juce::TooltipClient
 {
 public:
-    explicit ChipView(AppModel& model);
+    ChipView(AppModel& model, const TrackerView& tracks); // tracks: whose meters give each channel's output
     void paint(juce::Graphics&) override;
     juce::String getTooltip() override; // what the abbreviation under the pointer means
 
@@ -37,8 +38,10 @@ private:
     void paintPcm(juce::Graphics&, juce::Rectangle<float> area);
     void paintSampleMap(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent); // the song's samples, by bank, lit as they play
     void paintPcmTable(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, float valueFont); // a row per channel
+    void paintBus(juce::Graphics&, juce::Rectangle<float> area, bool fm, juce::Colour accent); // the chip's writes in the last second
 
     AppModel& model_;
+    const TrackerView& tracks_;
     const VgmSong* song_ = nullptr; // the song the registers belong to
     size_t ymNext_ = 0, pcmNext_ = 0; // the next writes to apply
     double at_ = 0.0;                 // the song time they are applied up to
