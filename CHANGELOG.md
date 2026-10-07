@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.1 (2026-10-07)
+
+- Player: an app icon on macOS, Windows and Linux, and where the name comes from (#10)
+
 ## v0.1.0 (2026-10-07)
 
 - make release with a changelog, and builds only for pull requests and releases (#9)
