@@ -82,6 +82,8 @@ juce::String explain(const juce::String& label)
         { "LOAD", "Which timers run" },
         { "IRQ", "Which timers interrupt the sound CPU when they fire" },
         { "CSM", "Composite sine mode: timer A keys every channel on, for speech" },
+        { "CONTROL", "The timers' control: which run, which interrupt, and composite sine mode" },
+        { "PINS", "The two control output pins" },
         { "CT1", "Control output pin 1, which some boards use to switch sound" },
         { "CT2", "Control output pin 2" },
         { "TEST", "The test register; bit 1 holds the LFO at its start" },
@@ -257,44 +259,111 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     // The bus, in the header after the title.
     paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role)), true, accent);
 
-    // The chip-wide settings: the LFO and the noise.
+    // The chip-wide settings, in a card of their own like a channel's: a
+    // header band, then groups side by side, each named over its values
+    // and set apart by a line: the LFO, the noise, the two timers (a sound
+    // driver often keeps time with them) and their control, the output pins
+    // and the test register.
     {
         static const char* kWaves[4] = { "SAW", "SQUARE", "TRIANGLE", "NOISE" };
-        auto row = inner.removeFromTop(26.0f);
-        g.setFont(theme::mono(15.0f, true));
-        // A label and its value; with no width given, as wide as the two need.
-        const auto item = [&](const juce::String& label, const juce::String& value, float glowing, float width) {
-            if (width <= 0.0f)
-                width = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label + value)) + 32.0f;
-            auto r = row.removeFromLeft(width);
-            g.setColour(theme::dim);
-            const auto at = r.removeFromLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 6.0f);
-            g.drawText(label, at, juce::Justification::centredLeft, false);
-            tip(at, label);
-            cell(g, r.removeFromLeft(r.getWidth() - 10.0f), value, glowing, accent);
-        };
-        item("LFO", juce::String(ym_[0x18]), glow(true, 0x18), 110.0f);
-        item("PMD", juce::String(pmd_), glow(true, 0x19), 110.0f);
-        item("AMD", juce::String(amd_), glow(true, 0x19), 110.0f);
-        item("WAVE", kWaves[ym_[0x1B] & 3], glow(true, 0x1B), 170.0f);
-        item("NOISE", (ym_[0x0F] & 0x80) ? "ON " + juce::String(ym_[0x0F] & 31) : juce::String("OFF"), glow(true, 0x0F), 150.0f);
-
-        // The timers, which a game's sound driver keeps time by, their
-        // control, the two output pins and the test register.
-        row = inner.removeFromTop(26.0f);
         const int timerA = ym_[0x10] << 2 | (ym_[0x11] & 3), timerB = ym_[0x12], control = ym_[0x14], pins = ym_[0x1B];
         const double rate = song_ != nullptr ? song_->fmRate : 62500.0; // the chip's samples a second
         auto hz = [](double f) { return juce::String(f, f < 100.0 ? 1 : 0) + "Hz"; };
         auto pair = [](bool a, bool b) { return juce::String(a ? "A" : "-") + " " + (b ? "B" : "-"); };
-        item("TIMER A", hex(timerA, 3) + " " + hz(rate / (1024 - timerA)), std::max(glow(true, 0x10), glow(true, 0x11)), 0.0f);
-        item("TIMER B", hex(timerB, 2) + " " + hz(rate / (16.0 * (256 - timerB))), glow(true, 0x12), 0.0f);
-        item("LOAD", pair(control & 1, control & 2), glow(true, 0x14), 0.0f);
-        item("IRQ", pair(control & 4, control & 8), glow(true, 0x14), 0.0f);
-        item("CSM", (control & 0x80) ? "ON" : "OFF", glow(true, 0x14), 0.0f);
-        item("CT1", juce::String((pins >> 6) & 1), glow(true, 0x1B), 0.0f);
-        item("CT2", juce::String((pins >> 7) & 1), glow(true, 0x1B), 0.0f);
-        item("TEST", hex(ym_[0x01], 2), glow(true, 0x01), 0.0f);
-        inner.removeFromTop(8.0f);
+        struct Item
+        {
+            juce::String label, tipKey, value;
+            float glowing;
+        };
+        struct Group
+        {
+            juce::String name;
+            std::vector<Item> items;
+        };
+        const std::vector<Group> groups = {
+            { "LFO", { { "RATE", "LFO", juce::String(ym_[0x18]), glow(true, 0x18) }, { "PMD", "PMD", juce::String(pmd_), glow(true, 0x19) },
+                       { "AMD", "AMD", juce::String(amd_), glow(true, 0x19) }, { "WAVE", "WAVE", kWaves[ym_[0x1B] & 3], glow(true, 0x1B) } } },
+            { "NOISE", { { "FREQ", "NOISE", (ym_[0x0F] & 0x80) ? juce::String(ym_[0x0F] & 31) : juce::String("OFF"), glow(true, 0x0F) } } },
+            { "TIMER A", { { "", "TIMER A", hex(timerA, 3), std::max(glow(true, 0x10), glow(true, 0x11)) },
+                           { "", "TIMER A", hz(rate / (1024 - timerA)), std::max(glow(true, 0x10), glow(true, 0x11)) } } },
+            { "TIMER B", { { "", "TIMER B", hex(timerB, 2), glow(true, 0x12) }, { "", "TIMER B", hz(rate / (16.0 * (256 - timerB))), glow(true, 0x12) } } },
+            { "CONTROL", { { "LOAD", "LOAD", pair(control & 1, control & 2), glow(true, 0x14) }, { "IRQ", "IRQ", pair(control & 4, control & 8), glow(true, 0x14) },
+                           { "CSM", "CSM", (control & 0x80) ? "ON" : "OFF", glow(true, 0x14) } } },
+            { "PINS", { { "CT1", "CT1", juce::String((pins >> 6) & 1), glow(true, 0x1B) }, { "CT2", "CT2", juce::String((pins >> 7) & 1), glow(true, 0x1B) } } },
+            { "TEST", { { "", "TEST", hex(ym_[0x01], 2), glow(true, 0x01) } } },
+        };
+
+        const auto card = inner.removeFromTop(78.0f);
+        inner.removeFromTop(10.0f);
+        g.setColour(theme::background.withAlpha(0.6f));
+        g.fillRoundedRectangle(card, 6.0f);
+        g.setColour(theme::gridBar.withAlpha(0.6f));
+        g.drawRoundedRectangle(card.reduced(0.5f), 6.0f, 1.0f);
+        auto c = card;
+        auto band = c.removeFromTop(28.0f);
+        {
+            juce::Path top;
+            top.addRoundedRectangle(band.getX(), band.getY(), band.getWidth(), band.getHeight(), 6.0f, 6.0f, true, true, false, false);
+            g.setColour(theme::panelLight.withAlpha(0.7f));
+            g.fillPath(top);
+            g.setColour(theme::gridBar.withAlpha(0.6f));
+            g.fillRect(band.getX(), band.getBottom() - 1.0f, band.getWidth(), 1.0f);
+            auto head = band.reduced(10.0f, 0.0f);
+            g.setFont(theme::mono(15.0f, true));
+            g.setColour(theme::text);
+            const float nameW = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), "CHIP")) + 12.0f;
+            g.drawText("CHIP", head.removeFromLeft(nameW), juce::Justification::centredLeft, false);
+            g.setFont(theme::mono(13.0f));
+            g.setColour(theme::dim);
+            g.drawText("SHARED BY ALL CHANNELS", head, juce::Justification::centredLeft, false);
+        }
+
+        // The groups, as wide as their values need, spread over the card.
+        const auto labelFont = theme::mono(12.0f), valueFont = theme::mono(14.0f, true), captionFont = theme::mono(11.0f);
+        auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
+        auto itemW = [&](const Item& it) { return (it.label.isEmpty() ? 0.0f : widthOf(labelFont, it.label) + 5.0f) + widthOf(valueFont, it.value) + 14.0f; };
+        std::vector<float> widths;
+        float total = 0.0f;
+        for (const Group& grp : groups)
+        {
+            float w = 0.0f;
+            for (const Item& it : grp.items)
+                w += itemW(it);
+            widths.push_back(std::max(w, widthOf(captionFont, grp.name) + 8.0f));
+            total += widths.back();
+        }
+        auto body = c.reduced(12.0f, 8.0f);
+        const float spare = std::max(0.0f, (body.getWidth() - total) / static_cast<float>(groups.size() - 1));
+        for (size_t k = 0; k < groups.size(); ++k)
+        {
+            auto slot = body.removeFromLeft(widths[k]);
+            if (k + 1 < groups.size())
+            {
+                // The line between this group and the next, in the middle of the space between them.
+                const auto between = body.removeFromLeft(spare);
+                g.setColour(theme::gridBar.withAlpha(0.6f));
+                g.fillRect(between.getCentreX(), body.getY() + 2.0f, 1.0f, body.getHeight() - 4.0f);
+            }
+            g.setFont(captionFont);
+            g.setColour(theme::dim);
+            const auto caption = slot.removeFromTop(14.0f);
+            g.drawText(groups[k].name, caption, juce::Justification::centredLeft, false);
+            tip(caption.withWidth(widthOf(captionFont, groups[k].name) + 4.0f), groups[k].name);
+            for (const Item& it : groups[k].items)
+            {
+                auto r = slot.removeFromLeft(itemW(it)).withTrimmedTop(2.0f);
+                if (it.label.isNotEmpty())
+                {
+                    g.setFont(labelFont);
+                    g.setColour(theme::dim);
+                    const auto at = r.removeFromLeft(widthOf(labelFont, it.label) + 5.0f);
+                    g.drawText(it.label, at, juce::Justification::centredLeft, false);
+                    tip(at, it.tipKey);
+                }
+                g.setFont(valueFont);
+                cell(g, r.withTrimmedRight(8.0f), it.value, it.glowing, accent);
+            }
+        }
     }
 
     // The channels, four down in each of two columns.
