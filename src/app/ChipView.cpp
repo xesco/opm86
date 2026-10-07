@@ -938,45 +938,23 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
 
 std::vector<ChipView::MapRow> ChipView::mapRows(float width) const
 {
-    // A bank takes as many rows as keep each of its tiles wide enough to show
-    // its address at full size, 2.6 font sizes and 6 points of margin, with
-    // the tiles laid out as paintSampleMap lays them; the rows share them
-    // evenly, in address order.
+    // A bank takes as few rows as give each of its tiles the width that shows
+    // its address at full size, and the rows share its samples evenly, in
+    // address order.
     constexpr float gap = 4.0f;
     const float room = width - fmFont_ * 4.2f; // less the bank's label
-    auto fits = [&](size_t from, size_t to) {
-        double total = 0;
-        for (size_t i = from; i < to; ++i)
-            total += tileLength(samples_[i]);
-        const float n = static_cast<float>(to - from);
-        const float share = room - gap * (n - 1.0f);
-        const float least = std::min(fmFont_ * 3.2f, share / n * 0.6f);
-        for (size_t i = from; i < to; ++i)
-            if (least + (share - least * n) * static_cast<float>(tileLength(samples_[i]) / total) < fmFont_ * 2.6f + 6.0f)
-                return false;
-        return true;
-    };
+    const auto perRow = static_cast<size_t>(std::max(1.0f, std::floor((room + gap) / (tileLeast(fmFont_) + gap))));
     std::vector<MapRow> rows;
     for (size_t k = 0; k < samples_.size();)
     {
         size_t n = k;
         while (n < samples_.size() && samples_[n].bank == samples_[k].bank)
             ++n;
-        const size_t count = n - k;
-        auto from = [&](size_t split, size_t r) { return k + count * r / split; };
-        auto rowsFit = [&](size_t split) {
-            for (size_t r = 0; r < split; ++r)
-                if (!fits(from(split, r), from(split, r + 1)))
-                    return false;
-            return true;
-        };
-        size_t split = 1;
-        while (split < count && !rowsFit(split))
-            ++split;
+        const size_t count = n - k, split = (count + perRow - 1) / perRow;
         for (size_t r = 0; r < split; ++r)
         {
             MapRow row { samples_[k].bank, {} };
-            for (size_t i = from(split, r); i < from(split, r + 1); ++i)
+            for (size_t i = k + count * r / split; i < k + count * (r + 1) / split; ++i)
                 row.tiles.push_back(&samples_[i]);
             rows.push_back(std::move(row));
         }
@@ -1017,7 +995,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             total += tileLength(*s);
         const float n = static_cast<float>(tiles.size());
         const float room = row.getWidth() - gap * (n - 1.0f);
-        const float least = std::min(font * 3.2f, room / n * 0.6f);
+        const float least = std::min(tileLeast(font), room / n); // each its address's width, the rest by length
         float x = row.getX();
         for (const Sample* s : tiles)
         {

@@ -81,6 +81,7 @@ private:
         std::vector<const Sample*> tiles;
     };
     std::vector<MapRow> mapRows(float width) const;
+    static float tileLeast(float font) { return font * 2.6f + 6.0f; } // a tile's width that shows its address at that size: four hex digits and the margin
     static double tileLength(const Sample& s) { return std::max<double>(1, s.end > s.start ? s.end - s.start : 1); } // what a tile's width follows
     float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
     std::array<bool, 8> drawn_ {};    // per FM channel: its operators drawn, not listed
