@@ -47,6 +47,7 @@ public:
     bool orderByPatch() const { return byPatch_; }
     int position(int track) const { return layout().position[static_cast<size_t>(track)]; } // its place top down
     bool follow() const { return follow_; }
+    void setSnapToBars(bool on) { snapBars_ = on; } // selections start and end on bar lines
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
@@ -158,6 +159,8 @@ private:
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
     bool follow_ = true;
+    bool snapBars_ = false;
+    double snapToBar(double songTime) const; // the nearest bar line, with snapping on; else songTime
     bool byPatch_ = false;
     double head_ = 0; // the playhead when this frame began
 

@@ -1089,6 +1089,16 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
 // Mouse -----------------------------------------------------------------------
 
+double TrackerView::snapToBar(double songTime) const
+{
+    if (!snapBars_ || !model_.hasTune())
+        return songTime;
+    // Bars of four beats from beat 1, as the ruler counts them.
+    const VgmSong& song = model_.tune().source();
+    const double bar = song.beatLength * 4;
+    return std::max(0.0, song.firstBeat + std::round((songTime - song.firstBeat) / bar) * bar);
+}
+
 int TrackerView::selectionEdgeAt(juce::Point<float> p) const
 {
     if (!model_.hasSelection() || p.x < lanesX())
@@ -1187,7 +1197,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     if (!model_.playing() && !e.mods.isShiftDown())
     {
         drag_ = Drag::Select;
-        selectFrom_ = std::max(0.0, xToTime(p.x));
+        selectFrom_ = snapToBar(std::max(0.0, xToTime(p.x)));
         return;
     }
     // Playing, or with Shift: a click moves the playhead there; held and
@@ -1220,7 +1230,7 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         if (e.getDistanceFromDragStart() > 3)
         {
             const double length = model_.selectionEnd() - model_.selectionStart();
-            const double start = std::max(0.0, xToTime(p.x) - selectFrom_);
+            const double start = snapToBar(std::max(0.0, xToTime(p.x) - selectFrom_));
             model_.setSelection(start, start + length);
         }
         return;
@@ -1229,13 +1239,13 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     {
         // Stopped, the playhead goes with the edge while it is the start;
         // playing, it stays unless it falls outside.
-        const double t = std::max(0.0, xToTime(p.x));
+        const double t = snapToBar(std::max(0.0, xToTime(p.x)));
         model_.setSelection(selectFrom_, t, model_.playing() || t > selectFrom_);
         return;
     }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
     {
-        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
+        model_.setSelection(selectFrom_, snapToBar(std::max(0.0, xToTime(p.x))));
         return;
     }
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)

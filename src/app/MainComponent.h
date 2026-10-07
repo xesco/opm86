@@ -12,7 +12,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Snap, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -102,6 +102,7 @@ private:
     IconButton follow_ { IconButton::Icon::Follow };         // on, the view follows the playhead
     IconButton loop_ { IconButton::Icon::Loop };             // on, the selection or the song plays over and over
     IconButton order_ { IconButton::Icon::Order };           // on, the tracks go by patch, FM 1 first; off, by voice
+    IconButton snap_ { IconButton::Icon::Snap };             // on, selections start and end on bar lines
     IconButton reset_ { IconButton::Icon::Reset }, invert_ { IconButton::Icon::Invert }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes

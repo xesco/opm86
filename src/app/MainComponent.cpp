@@ -215,6 +215,18 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(x0 + 0.5f, y1, x0 + 4.5f, y1 - 3.0f, x0 + 4.5f, y1 + 3.0f);
             break;
         }
+        case Icon::Snap: // a bar line, and an arrow to it from each side
+        {
+            const auto c = box.getCentre();
+            p.addRectangle(c.x - 0.75f, box.getY() - 1.0f, 1.5f, box.getHeight() + 2.0f);
+            for (const float side : { -1.0f, 1.0f })
+            {
+                const float from = c.x + side * 7.5f, tip = c.x + side * 2.0f;
+                p.addRectangle(std::min(from, tip + side * 3.0f), c.y - 0.75f, std::abs(from - (tip + side * 3.0f)), 1.5f);
+                p.addTriangle(tip, c.y, tip + side * 3.5f, c.y - 3.0f, tip + side * 3.5f, c.y + 3.0f);
+            }
+            break;
+        }
         case Icon::Order: // lines of falling length, and an arrow down: sorted
         {
             const float x0 = box.getX() - 1.0f, y0 = box.getY() + 1.0f;
@@ -603,6 +615,10 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     loop_.setClickingTogglesState(true);
     loop_.setTooltip("Loop the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
+    snap_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    snap_.setClickingTogglesState(true);
+    snap_.setTooltip("Snap the selection to bars");
+    snap_.onClick = [this] { view_.setSnapToBars(snap_.getToggleState()); };
     order_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     order_.setClickingTogglesState(true);
     order_.setTooltip("Order by patch");
@@ -649,7 +665,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &snap_, &order_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -833,6 +849,7 @@ void ToolBar::resized()
     button(keepPlayhead_);
     button(follow_);
     button(loop_);
+    button(snap_);
     button(order_);
     r.removeFromLeft(10);
     button(reset_);
