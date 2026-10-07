@@ -1,7 +1,5 @@
 # OPM86 Player
 
-![OPM86 Player playing Magical Sound Shower](docs/demo.webp)
-
 OPM86 Player is a desktop app for macOS, Linux and Windows that plays the music of Sega's
 arcade games from the late 1980s, such as Out Run, from VGM recordings of their sound
 chips. It plays each song exactly as the game did, shows its notes track by track, and

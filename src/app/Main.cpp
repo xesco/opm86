@@ -49,29 +49,14 @@ class TrackerApplication : public juce::JUCEApplication
 public:
     const juce::String getApplicationName() override { return "OPM86 Player"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
-    // One window, except for snapshots and recordings, which must not hand over to a running app.
-    bool moreThanOneInstanceAllowed() override
-    {
-        const auto line = getCommandLineParameters();
-        return line.startsWith("--snapshot") || line.startsWith("--record");
-    }
+    // One window, except for snapshots, which must not hand over to a running app.
+    bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--snapshot"); }
 
     void initialise(const juce::String& commandLine) override
     {
         const auto args = juce::StringArray::fromTokens(commandLine, true);
         // Hidden: --snapshot rip.vgz out.png [seconds] [lane height] [tracks to collapse, as 0,2] [tracks to mute]
         // draws the window to a PNG and quits.
-        // Hidden: --record rip.vgz folder seconds duration fps plays from seconds
-        // on, silently, and draws the window to folder/000.png, 001.png... fps
-        // times a second for duration seconds; folder/times.txt has each
-        // frame's song time, for assembling them at their own pace.
-        if (args.size() >= 6 && args[0] == "--record")
-        {
-            snapshot(juce::File(args[1].unquoted()), juce::File(args[2].unquoted()), args[3].getDoubleValue(), 0, {}, {});
-            snapshot_->frames = juce::roundToInt(args[4].getDoubleValue() * args[5].getDoubleValue());
-            snapshot_->frameMs = 1000.0 / args[5].getDoubleValue();
-            return;
-        }
         if (args.size() >= 3 && args[0] == "--snapshot")
         {
             snapshot(juce::File(args[1].unquoted()), juce::File(args[2].unquoted()), args.size() > 3 ? args[3].getDoubleValue() : 0.0,
@@ -138,10 +123,6 @@ private:
         int ticks = 0;
         bool play = false; // play silently first, so the meters show
         int playTicks = 0;
-        int frames = 0;          // recording: frames to draw into out, a folder; 0 for one snapshot
-        double frameMs = 100.0;  // and how often
-        double nextFrame = 0.0;  // ms
-        juce::StringArray times; // each frame's song time, in seconds
 
         void timerCallback() override
         {
@@ -160,26 +141,6 @@ private:
                 component->view().updateMeters(0.02);
                 if (++playTicks < 60)
                     return;
-            }
-            if (frames > 0)
-            {
-                // A frame each frameMs as the song plays, at its own size.
-                const double now = juce::Time::getMillisecondCounterHiRes();
-                if (now < nextFrame)
-                    return;
-                nextFrame = (nextFrame > 0.0 ? nextFrame : now) + frameMs;
-                times.add(juce::String(component->model().displayPosition() / kVgmRate, 4));
-                const auto image = component->createComponentSnapshot(component->getLocalBounds(), true, 1.0f);
-                juce::FileOutputStream stream(out.getChildFile(juce::String(times.size() - 1).paddedLeft('0', 3) + ".png"));
-                stream.setPosition(0), stream.truncate();
-                juce::PNGImageFormat().writeImageToStream(image, stream);
-                if (times.size() < frames)
-                    return;
-                stopTimer();
-                out.getChildFile("times.txt").replaceWithText(times.joinIntoString("\n") + "\n");
-                std::printf("%s\n", out.getFullPathName().toRawUTF8());
-                juce::JUCEApplication::getInstance()->systemRequestedQuit();
-                return;
             }
             stopTimer();
             const auto image = component->createComponentSnapshot(component->getLocalBounds(), true, 2.0f);
