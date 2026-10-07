@@ -651,39 +651,38 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
         ++count;
     const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
 
-    // As wide as its readouts, at the header's right end; short of room,
-    // the count alone.
+    // At the header's right end, each readout a label and then its value in
+    // a box of its own; short of room, the count alone.
     const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
     auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
+    const float gap = 14.0f, pad = 7.0f, labelGap = 6.0f;
+    auto fieldW = [&](const juce::String& label, const juce::String& value) { return widthOf(labelFont, label) + labelGap + widthOf(valueFont, value) + 2.0f * pad; };
     const juce::String rate = juce::String(count) + "/s";
-    const float writesW = widthOf(labelFont, "WRITES") + 6.0f + widthOf(valueFont, rate);
-    const float lastW = widthOf(labelFont, "LAST") + 6.0f + widthOf(valueFont, last);
-    const float gap = 14.0f, pad = 10.0f;
-    const bool both = area.getWidth() >= writesW + gap + lastW + 2.0f * pad;
-    const float boxW = (both ? writesW + gap + lastW : writesW) + 2.0f * pad;
-    if (area.getWidth() < boxW)
+    const float writesW = fieldW("WRITES", rate), lastW = fieldW("LAST", last);
+    const bool both = area.getWidth() >= writesW + gap + lastW;
+    if (area.getWidth() < writesW)
         return;
-    const auto box = area.removeFromRight(boxW).reduced(0.0f, 1.0f);
-    g.setColour(theme::background.withAlpha(0.6f));
-    g.fillRoundedRectangle(box, 5.0f);
-    g.setColour(accent.withAlpha(0.4f));
-    g.drawRoundedRectangle(box.reduced(0.5f), 5.0f, 1.0f);
-    auto inner = box.reduced(pad, 0.0f);
+    auto row = area.removeFromRight(both ? writesW + gap + lastW : writesW);
     const auto field = [&](float width, const juce::String& label, const juce::String& value) {
-        auto r = inner.removeFromLeft(width);
+        auto r = row.removeFromLeft(width);
         g.setFont(labelFont);
         g.setColour(theme::dim);
-        const auto at = r.removeFromLeft(widthOf(labelFont, label) + 6.0f);
+        const auto at = r.removeFromLeft(widthOf(labelFont, label) + labelGap);
         g.drawText(label, at, juce::Justification::centredLeft, false);
         tip(at, label);
+        const auto box = r.reduced(0.0f, 3.0f);
+        g.setColour(theme::background.withAlpha(0.6f));
+        g.fillRoundedRectangle(box, 4.0f);
+        g.setColour(accent.withAlpha(0.4f));
+        g.drawRoundedRectangle(box.reduced(0.5f), 4.0f, 1.0f);
         g.setFont(valueFont);
         g.setColour(theme::text);
-        g.drawText(value, r, juce::Justification::centredLeft, false);
+        g.drawText(value, box, juce::Justification::centred, false);
     };
     field(writesW, "WRITES", rate);
     if (both)
     {
-        inner.removeFromLeft(gap);
+        row.removeFromLeft(gap);
         field(lastW, "LAST", last);
     }
 }
