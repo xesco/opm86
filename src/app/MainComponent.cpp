@@ -629,10 +629,10 @@ void TopBar::paint(juce::Graphics& g)
         c.removeFromLeft(6);
         drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
         c.removeFromLeft(10);
-        g.setFont(theme::mono(13.0f, true));
+        g.setFont(theme::mono(17.0f, true));
         g.setColour(theme::text);
         g.drawText(model_.file().getFileName(), c.withTrimmedBottom(c.getHeight() / 2), juce::Justification::bottomLeft, true);
-        g.setFont(theme::mono(12.0f));
+        g.setFont(theme::mono(15.0f));
         g.setColour(theme::dim);
         g.drawText("length " + clock(song.length), c.withTrimmedTop(c.getHeight() / 2 + 2), juce::Justification::topLeft, true);
     }
