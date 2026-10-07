@@ -14,6 +14,7 @@ namespace
 {
 
 constexpr double kGlow = 0.25 * kVgmRate; // a written value glows this long
+constexpr float kBankRow = 56.0f;          // the tallest a bank's row in the sample map grows
 constexpr double kNever = -1.0e18;
 
 // The operators in register order, and each one's key-on bit in a 0x08 write.
@@ -858,14 +859,20 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     // The bus, in the header after the title.
     paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("SEGAPCM", role)), false, accent);
     // The channels at the YM2151's size at the bottom, the samples above in the rest.
+    // The samples as tall as their banks need, out of the room the channels
+    // leave at their least; then a line, and the channels in the rest.
     const float valueFont = fmFont_;
-    const auto table = inner.removeFromBottom(valueFont * 1.6f * 16.7f);
-    // A line between the samples and the channels.
-    const auto between = inner.removeFromBottom(20.0f);
+    size_t banks = 0;
+    for (size_t k = 0; k < samples_.size(); ++k)
+        if (k == 0 || samples_[k].bank != samples_[k - 1].bank)
+            ++banks;
+    const float roomForMap = std::max(0.0f, inner.getHeight() - valueFont * 1.6f * 16.7f - 20.0f);
+    const float mapH = banks == 0 ? std::min(roomForMap, 40.0f) : std::min(roomForMap, kBankRow * static_cast<float>(banks));
+    paintSampleMap(g, inner.removeFromTop(mapH), accent);
+    const auto between = inner.removeFromTop(20.0f);
     g.setColour(theme::gridBar.withAlpha(0.6f));
     g.fillRect(between.getX(), between.getCentreY(), between.getWidth(), 1.0f);
-    paintSampleMap(g, inner, accent);
-    paintPcmTable(g, table, accent, valueFont);
+    paintPcmTable(g, inner, accent, valueFont);
 }
 
 void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour accent)
@@ -884,8 +891,8 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         g.drawText("No samples in this song", area, juce::Justification::centred, false);
         return;
     }
-    // The rows share the room, short of growing past 56 pixels each.
-    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), 56.0f);
+    // The rows share the room, short of growing past kBankRow each.
+    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), kBankRow);
     const float font = std::clamp(rowH * 0.5f, 10.0f, fmFont_); // as big as the YM2151 values, short of half a row
     const float labelW = font * 4.2f, gap = 4.0f;
     for (size_t b = 0; b < banks.size(); ++b)
@@ -941,7 +948,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             g.setFont(theme::mono(font, playing));
             g.setColour(playing ? theme::text : theme::faint);
             if (tile.getWidth() > font * 2.8f)
-                g.drawText(hex(static_cast<int>(s->start), 4), tile.reduced(4.0f, 2.0f), playing ? juce::Justification::bottomLeft : juce::Justification::centred, false);
+                g.drawText(hex(static_cast<int>(s->start), 4), tile.reduced(4.0f, 2.0f), juce::Justification::centred, false); // in place, lit or not
             if (playing)
             {
                 g.setColour(accent);
