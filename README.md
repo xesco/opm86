@@ -46,7 +46,11 @@ open "OPM86 Player.app"
 ```
 
 The first `make` configures the `build` folder, and `make clean` removes the app from the
-repository root. On Linux and Windows, build with CMake directly:
+repository root. When your keychain has a code-signing certificate named `OPM86 Dev`,
+`make` signs the app with it. macOS then sees every build as the same app and remembers
+the folders you allowed it to read, such as Downloads. Without the certificate, macOS asks
+again after every build. To use a certificate with another name, run
+`make SIGN_ID="its name"`. On Linux and Windows, build with CMake directly:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

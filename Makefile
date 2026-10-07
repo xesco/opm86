@@ -1,5 +1,5 @@
 # Builds OPM86 Player and copies it to the repository root.
-#   make          build "./OPM86 Player.app" (macOS)
+#   make          build "./OPM86 Player.app" (macOS), signed as SIGN_ID if the keychain has it
 #   make linux    build and test on Linux, in a Docker container (build-linux)
 #   make release VERSION=0.2.0
 #                 set the version, tag it v0.2.0 and push: GitHub publishes the release
@@ -8,6 +8,10 @@
 BUILD_DIR ?= build
 CONFIG ?= Release
 PLAYER_APP = OPM86 Player.app
+# A local certificate that keeps the app's identity across builds, so macOS
+# remembers its folder permissions; without it the app keeps the ad hoc
+# signature, and macOS asks again after every build.
+SIGN_ID ?= OPM86 Dev
 
 .PHONY: player linux release clean
 
@@ -15,6 +19,8 @@ player: $(BUILD_DIR)/CMakeCache.txt
 	cmake --build $(BUILD_DIR) --target opm86_player --config $(CONFIG) --parallel
 	rm -rf "./$(PLAYER_APP)"
 	cp -R "$(BUILD_DIR)/opm86_player_artefacts/$(CONFIG)/$(PLAYER_APP)" "./$(PLAYER_APP)"
+	if security find-identity -p codesigning | grep -q '"$(SIGN_ID)"'; then \
+		codesign --force --deep -s "$(SIGN_ID)" "./$(PLAYER_APP)"; fi
 
 # The container builds in build-linux, with the compiler cache in it too, so a
 # second run recompiles only what changed.
