@@ -11,7 +11,7 @@ namespace
 {
 
 constexpr int kTopHeight = 64;
-constexpr int kToolHeight = 58;
+constexpr int kToolHeight = 62;
 constexpr int kOverviewHeight = 54; // the overview's least height
 constexpr int kPianoHeight = 66;    // the keys' least height
 constexpr int kStripMaxHeight = 132; // both strips' greatest height; they open at 70% of it
@@ -876,11 +876,11 @@ void ToolBar::resized()
     auto r = getLocalBounds().reduced(14, 0).withTrimmedTop(6).withTrimmedBottom(10); // room under the top edge and above the stripe
     groupCaptions_.clear();
     dividers_.clear();
-    constexpr int kButton = 34, kGap = 6, kCaption = 12, kBetween = 22;
+    constexpr int kButton = 34, kGap = 6, kCaption = 12, kUnder = 6, kBetween = 22; // kUnder: from a caption to its controls
     auto captioned = [&](juce::Rectangle<int> area, const juce::String& name) {
-        area = area.withSizeKeepingCentre(area.getWidth(), kCaption + 2 + 28);
+        area = area.withHeight(kCaption + kUnder + 28); // every caption on one line, every row of controls under it
         groupCaptions_.emplace_back(area.removeFromTop(kCaption), name);
-        area.removeFromTop(2);
+        area.removeFromTop(kUnder);
         return area;
     };
     auto buttons = [&](juce::Rectangle<int> area, const juce::String& name, std::initializer_list<juce::Component*> list) {
@@ -893,9 +893,9 @@ void ToolBar::resized()
     };
     auto width = [](size_t n) { return static_cast<int>(n) * kButton + static_cast<int>(n - 1) * kGap; };
     auto group = [&](juce::Slider& slider, juce::Rectangle<int>& caption, juce::Rectangle<int> g) {
-        g = g.withSizeKeepingCentre(g.getWidth(), kCaption + 2 + 22);
+        g = g.withHeight(kCaption + kUnder + 28);
         caption = g.removeFromTop(kCaption);
-        g.removeFromTop(2);
+        g.removeFromTop(kUnder);
         slider.setBounds(g);
     };
     auto divider = [&](bool left) {
@@ -915,10 +915,10 @@ void ToolBar::resized()
     r.removeFromLeft(kGap * 2);
     for (auto [editor, caption] : { std::pair { &selectionStart_, &startCaption_ }, std::pair { &selectionEnd_, &endCaption_ } })
     {
-        auto g = r.removeFromLeft(84).withSizeKeepingCentre(84, kCaption + 2 + 26);
+        auto g = r.removeFromLeft(84).withHeight(kCaption + kUnder + 28);
         *caption = g.removeFromTop(kCaption);
-        g.removeFromTop(2);
-        editor->setBounds(g);
+        g.removeFromTop(kUnder);
+        editor->setBounds(g.reduced(0, 1));
         r.removeFromLeft(kGap);
     }
     divider(true);
