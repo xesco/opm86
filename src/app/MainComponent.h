@@ -278,6 +278,7 @@ private:
     AppModel model_;
     TrackerView view_ { model_ };
     ChipView chipView_ { model_, view_ }; // in the tracks' place while the tool bar's Chips is on
+    bool pianoWasOpen_ = true, overviewWasOpen_ = true; // the strips as they were before the chips showed
     TopBar top_ { model_, view_ };
     ToolBar tools_ { model_, view_ };
     OverviewStrip overview_ { model_, view_ };

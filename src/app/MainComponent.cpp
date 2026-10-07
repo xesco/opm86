@@ -1424,9 +1424,18 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(tools_);
     addAndMakeVisible(view_);
     addChildComponent(chipView_);
+    // The chips take the strips' room too: KEYS and OVERVIEW slide down while
+    // they show, and come back as they were.
     tools_.onChips = [this](bool shown) {
         chipView_.setVisible(shown);
         view_.setVisible(!shown);
+        if (shown)
+        {
+            pianoWasOpen_ = piano_.isOpen(), overviewWasOpen_ = overview_.isOpen();
+            piano_.setOpen(false), overview_.setOpen(false);
+        }
+        else
+            piano_.setOpen(pianoWasOpen_), overview_.setOpen(overviewWasOpen_);
     };
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
