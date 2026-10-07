@@ -73,6 +73,15 @@ private:
         bool operator==(const Sample& o) const { return bank == o.bank && start == o.start && end == o.end; }
     };
     std::vector<Sample> samples_; // every one the song triggers, by bank and start
+    // The sample map's rows in a width: a bank's samples, split over as many
+    // rows as its tiles need to show their addresses at full size.
+    struct MapRow
+    {
+        uint32_t bank = 0;
+        std::vector<const Sample*> tiles;
+    };
+    std::vector<MapRow> mapRows(float width) const;
+    static double tileLength(const Sample& s) { return std::max<double>(1, s.end > s.start ? s.end - s.start : 1); } // what a tile's width follows
     float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
     std::array<bool, 8> drawn_ {};    // per FM channel: its operators drawn, not listed
     std::array<juce::Rectangle<float>, 8> drawToggle_ {}; // the switch between the two in each channel's header

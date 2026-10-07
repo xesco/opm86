@@ -926,12 +926,9 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     // The samples as tall as their banks need, out of the room the channels
     // leave at their least; then a line, and the channels in the rest.
     const float valueFont = fmFont_;
-    size_t banks = 0;
-    for (size_t k = 0; k < samples_.size(); ++k)
-        if (k == 0 || samples_[k].bank != samples_[k - 1].bank)
-            ++banks;
+    const size_t rows = mapRows(inner.getWidth()).size();
     const float roomForMap = std::max(0.0f, inner.getHeight() - valueFont * 1.6f * 16.7f - 20.0f);
-    const float mapH = banks == 0 ? std::min(roomForMap, 40.0f) : std::min(roomForMap, kBankRow * static_cast<float>(banks));
+    const float mapH = rows == 0 ? std::min(roomForMap, 40.0f) : std::min(roomForMap, kBankRow * static_cast<float>(rows));
     paintSampleMap(g, inner.removeFromTop(mapH), accent);
     const auto between = inner.removeFromTop(20.0f);
     g.setColour(theme::gridBar.withAlpha(0.6f));
@@ -939,16 +936,63 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     paintPcmTable(g, inner, accent, valueFont);
 }
 
+std::vector<ChipView::MapRow> ChipView::mapRows(float width) const
+{
+    // A bank takes as many rows as keep each of its tiles wide enough to show
+    // its address at full size, 2.6 font sizes and 6 points of margin, with
+    // the tiles laid out as paintSampleMap lays them; the rows share them
+    // evenly, in address order.
+    constexpr float gap = 4.0f;
+    const float room = width - fmFont_ * 4.2f; // less the bank's label
+    auto fits = [&](size_t from, size_t to) {
+        double total = 0;
+        for (size_t i = from; i < to; ++i)
+            total += tileLength(samples_[i]);
+        const float n = static_cast<float>(to - from);
+        const float share = room - gap * (n - 1.0f);
+        const float least = std::min(fmFont_ * 3.2f, share / n * 0.6f);
+        for (size_t i = from; i < to; ++i)
+            if (least + (share - least * n) * static_cast<float>(tileLength(samples_[i]) / total) < fmFont_ * 2.6f + 6.0f)
+                return false;
+        return true;
+    };
+    std::vector<MapRow> rows;
+    for (size_t k = 0; k < samples_.size();)
+    {
+        size_t n = k;
+        while (n < samples_.size() && samples_[n].bank == samples_[k].bank)
+            ++n;
+        const size_t count = n - k;
+        auto from = [&](size_t split, size_t r) { return k + count * r / split; };
+        auto rowsFit = [&](size_t split) {
+            for (size_t r = 0; r < split; ++r)
+                if (!fits(from(split, r), from(split, r + 1)))
+                    return false;
+            return true;
+        };
+        size_t split = 1;
+        while (split < count && !rowsFit(split))
+            ++split;
+        for (size_t r = 0; r < split; ++r)
+        {
+            MapRow row { samples_[k].bank, {} };
+            for (size_t i = from(split, r); i < from(split, r + 1); ++i)
+                row.tiles.push_back(&samples_[i]);
+            rows.push_back(std::move(row));
+        }
+        k = n;
+    }
+    return rows;
+}
+
 void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour accent)
 {
-    // A row per bank the song uses, a tile per sample in it, as wide as the
-    // sample is long, within limits. A tile lights while a channel plays it,
-    // fills as the channel goes through it, and shows the channel's number.
-    std::vector<uint32_t> banks;
-    for (const Sample& s : samples_)
-        if (banks.empty() || banks.back() != s.bank)
-            banks.push_back(s.bank);
-    if (banks.empty())
+    // A row per bank the song uses, or more when its tiles need them, a tile
+    // per sample in it, as wide as the sample is long, within limits. A tile
+    // lights while a channel plays it, fills as the channel goes through it,
+    // and shows the channel's number.
+    const auto rows = mapRows(area.getWidth());
+    if (rows.empty())
     {
         g.setFont(theme::mono(fmFont_));
         g.setColour(theme::faint);
@@ -956,29 +1000,28 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         return;
     }
     // The rows share the room, short of growing past kBankRow each.
-    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), kBankRow);
+    const float rowH = std::min(area.getHeight() / static_cast<float>(rows.size()), kBankRow);
     const float font = std::clamp(rowH * 0.5f, 10.0f, fmFont_); // as big as the YM2151 values, short of half a row
     const float labelW = font * 4.2f, gap = 4.0f;
-    for (size_t b = 0; b < banks.size(); ++b)
+    for (const MapRow& mapRow : rows)
     {
         auto row = area.removeFromTop(rowH).reduced(0.0f, 3.0f);
         g.setFont(theme::mono(font));
         g.setColour(theme::dim);
         const auto bankLabel = row.removeFromLeft(labelW);
-        g.drawText("BANK " + juce::String(banks[b] >> 16), bankLabel, juce::Justification::centredLeft, false);
+        g.drawText("BANK " + juce::String(mapRow.bank >> 16), bankLabel, juce::Justification::centredLeft, false);
         tip(bankLabel, "BANK ROW");
-        std::vector<const Sample*> tiles;
+        const auto& tiles = mapRow.tiles;
         double total = 0;
-        for (const Sample& s : samples_)
-            if (s.bank == banks[b])
-                tiles.push_back(&s), total += std::max<double>(1, s.end > s.start ? s.end - s.start : 1);
+        for (const Sample* s : tiles)
+            total += tileLength(*s);
         const float n = static_cast<float>(tiles.size());
         const float room = row.getWidth() - gap * (n - 1.0f);
         const float least = std::min(font * 3.2f, room / n * 0.6f);
         float x = row.getX();
         for (const Sample* s : tiles)
         {
-            const double length = std::max<double>(1, s->end > s->start ? s->end - s->start : 1);
+            const double length = tileLength(*s);
             const float w = least + (room - least * n) * static_cast<float>(length / total);
             const auto tile = juce::Rectangle<float>(x, row.getY(), w, row.getHeight());
             x += w + gap;
@@ -1002,10 +1045,14 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             const bool playing = players.isNotEmpty();
             g.setColour(playing ? accent.withAlpha(0.18f) : theme::background.withAlpha(0.6f));
             g.fillRoundedRectangle(tile, 4.0f);
-            if (fraction >= 0.0f)
+            if (fraction > 0.0f)
             {
+                // The tile's shape cut at the fraction, so a channel at its
+                // sample's start fills nothing.
+                const juce::Graphics::ScopedSaveState state(g);
+                g.reduceClipRegion(tile.withWidth(tile.getWidth() * fraction).toNearestInt());
                 g.setColour(accent.withAlpha(0.5f));
-                g.fillRoundedRectangle(tile.withWidth(std::max(4.0f, tile.getWidth() * fraction)), 4.0f);
+                g.fillRoundedRectangle(tile, 4.0f);
             }
             g.setColour(playing ? accent : theme::gridBar.withAlpha(0.7f));
             g.drawRoundedRectangle(tile.reduced(0.5f), 4.0f, playing ? 1.5f : 1.0f);
