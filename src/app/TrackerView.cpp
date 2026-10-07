@@ -20,6 +20,66 @@ struct SongLink
     const char* title;
     const char* url;
 };
+// A chip as it sits on the board, for the empty view: its body, its legs
+// and its markings in accent. The YM2151 is a long DIP, legs down its two
+// sides and a notch at its top; the SegaPCM a square flat pack, legs on all
+// four sides and a dot by pin 1. Under it, at nameY, the name it goes by.
+void drawChip(juce::Graphics& g, juce::Rectangle<float> body, bool square, int legsPerSide, juce::Colour accent,
+              const juce::String& maker, const juce::String& name, const juce::String& role, const juce::String& nickname, float nameY)
+{
+    const juce::Colour leg(150, 160, 200);
+    const float pitch = (square ? body.getWidth() : body.getHeight()) / static_cast<float>(legsPerSide);
+    const float legLength = square ? 12.0f : 16.0f, legWidth = pitch * 0.45f;
+    g.setColour(leg);
+    for (int i = 0; i < legsPerSide; ++i)
+    {
+        const float along = (static_cast<float>(i) + 0.5f) * pitch;
+        // Down the left and right sides; a square pack has them along its top and bottom too.
+        g.fillRect(body.getX() - legLength, body.getY() + along - legWidth * 0.5f, legLength, legWidth);
+        g.fillRect(body.getRight(), body.getY() + along - legWidth * 0.5f, legLength, legWidth);
+        if (square)
+        {
+            g.fillRect(body.getX() + along - legWidth * 0.5f, body.getY() - legLength, legWidth, legLength);
+            g.fillRect(body.getX() + along - legWidth * 0.5f, body.getBottom(), legWidth, legLength);
+        }
+    }
+    // The body, with a soft glow of its accent round it.
+    g.setColour(accent.withAlpha(0.08f));
+    g.fillRoundedRectangle(body.expanded(10.0f), 14.0f);
+    g.setColour(juce::Colour(16, 20, 38));
+    g.fillRoundedRectangle(body, 8.0f);
+    g.setColour(theme::gridBar);
+    g.drawRoundedRectangle(body.reduced(0.5f), 8.0f, 2.0f);
+    if (square)
+        g.fillEllipse(body.getX() + 16.0f, body.getY() + 16.0f, 12.0f, 12.0f); // pin 1
+    else
+    {
+        // The notch, a half circle cut into the top, its edge drawn.
+        const auto notch = juce::Rectangle<float>(28.0f, 28.0f).withCentre(body.getCentre().withY(body.getY()));
+        g.setColour(theme::background);
+        g.fillEllipse(notch);
+        g.setColour(theme::gridBar);
+        juce::Path edge;
+        edge.addCentredArc(notch.getCentreX(), notch.getCentreY(), 14.0f, 14.0f, 0.0f, juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi * 3.0f, true);
+        g.strokePath(edge, juce::PathStrokeType(2.0f));
+    }
+    // The markings, centred.
+    auto text = body.reduced(10.0f).withSizeKeepingCentre(body.getWidth() - 20.0f, 92.0f);
+    g.setColour(accent.withAlpha(0.7f));
+    g.setFont(theme::mono(15.0f, true));
+    g.drawText(maker, text.removeFromTop(24.0f), juce::Justification::centred, false);
+    g.setColour(accent);
+    g.setFont(theme::pixel(std::min(24.0f, (body.getWidth() - 24.0f) / static_cast<float>(name.length()))));
+    g.drawText(name, text.removeFromTop(42.0f), juce::Justification::centred, false);
+    g.setColour(theme::dim);
+    g.setFont(theme::mono(15.0f));
+    g.drawText(role, text, juce::Justification::centred, false);
+    g.setColour(accent);
+    g.setFont(theme::pixel(18.0f));
+    g.drawText(nickname, juce::Rectangle<float>(body.getX() - 60.0f, nameY, body.getWidth() + 120.0f, 24.0f),
+               juce::Justification::centred, false);
+}
+
 const SongLink kSongLinks[] = {
     { "Magical Sound Shower (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/01%20Magical%20Sound%20Shower.vgz" },
     { "Passing Breeze, extended (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/06%20Passing%20Breeze%20%28Extended%29.vgz" },
@@ -608,6 +668,21 @@ void TrackerView::paint(juce::Graphics& g)
         const float height = kTitle + 30.0f + kText + 44.0f + kText + 22.0f + kLink * static_cast<float>(std::size(kSongLinks));
         float y = (static_cast<float>(getHeight()) - height) * 0.5f;
         auto line = [&](float h) { const auto r = juce::Rectangle<float>(0.0f, y, width, h); y += h; return r; };
+        // The two chips beside the block, the YM2151 left and the SegaPCM
+        // right, when there is room for them beside its widest line.
+        {
+            const float block = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(kText), "No songs yet? Download one from vgmrips.net, then open it:"));
+            const float side = (width - block) * 0.5f - 60.0f; // the room each side leaves, short of a gap
+            const float size = std::min({ 260.0f, side - 40.0f, static_cast<float>(getHeight()) - 150.0f }); // with room for the name under it
+            if (size >= 150.0f)
+            {
+                const float cy = static_cast<float>(getHeight()) * 0.5f - 24.0f; // the chip and its name, centred together
+                const float leftX = (width - block) * 0.25f - 30.0f, rightX = width - leftX;
+                const float nameY = cy + size * 0.5f + 34.0f; // both names on one line, under the taller chip
+                drawChip(g, juce::Rectangle<float>(size * 0.5f, size).withCentre({ leftX, cy }), false, 12, theme::cyan, "YAMAHA", "YM2151", "FM, 8 voices", "OPM", nameY);
+                drawChip(g, juce::Rectangle<float>(size * 0.8f, size * 0.8f).withCentre({ rightX, cy }), true, 14, theme::orange, "SEGA", "315-5218", "PCM, 16 voices", "SEGA PCM", nameY);
+            }
+        }
         g.setColour(theme::dim);
         g.setFont(theme::pixel(18.0f));
         g.drawText("OPEN A VGM RIP TO START", line(kTitle), juce::Justification::centred, false);
