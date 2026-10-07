@@ -1,13 +1,15 @@
 # Builds OPM86 Player and copies it to the repository root.
 #   make          build "./OPM86 Player.app" (macOS)
 #   make linux    build and test on Linux, in a Docker container (build-linux)
+#   make release VERSION=0.2.0
+#                 set the version, tag it v0.2.0 and push: GitHub publishes the release
 #   make clean    remove "./OPM86 Player.app" (the build folders are kept)
 
 BUILD_DIR ?= build
 CONFIG ?= Release
 PLAYER_APP = OPM86 Player.app
 
-.PHONY: player linux clean
+.PHONY: player linux release clean
 
 player: $(BUILD_DIR)/CMakeCache.txt
 	cmake --build $(BUILD_DIR) --target opm86_player --config $(CONFIG) --parallel
@@ -22,6 +24,9 @@ linux:
 		cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=$(CONFIG) -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache >/dev/null && \
 		cmake --build build-linux && \
 		ctest --test-dir build-linux --output-on-failure'
+
+release:
+	scripts/release.sh "$(VERSION)"
 
 $(BUILD_DIR)/CMakeCache.txt:
 	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(CONFIG)

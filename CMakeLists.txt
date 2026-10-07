@@ -76,7 +76,7 @@ target_compile_definitions(opm86_player PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_APPLICATION_NAME_STRING="OPM86 Player"
-    JUCE_APPLICATION_VERSION_STRING="0.1.0")
+    JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}")
 target_link_libraries(opm86_player
     PRIVATE
         opm86_core

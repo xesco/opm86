@@ -63,7 +63,9 @@ first run takes about 5 minutes, and a run after a small change takes seconds.
 GitHub builds the app for all three systems on every push to `main` and every pull
 request, and runs the tests (see [Tests](#tests)). Each run keeps the three apps as
 downloads on its page under **Actions**. A tag that starts with `v`, such as `v0.2.0`, also
-publishes them as a release. The macOS app is not signed, so macOS blocks it the first time
+publishes them as a release. To release, run `make release VERSION=0.2.0` on an up-to-date
+`main` with no uncommitted changes. The command sets the version in `CMakeLists.txt`,
+commits it, tags it `v0.2.0`, and pushes the commit and the tag. The macOS app is not signed, so macOS blocks it the first time
 you open it. To open it anyway, click **Open Anyway** in **System Settings > Privacy &
 Security**.
 
