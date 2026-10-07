@@ -22,6 +22,7 @@ struct SongLink
 };
 const SongLink kSongLinks[] = {
     { "Magical Sound Shower (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/01%20Magical%20Sound%20Shower.vgz" },
+    { "Passing Breeze, extended (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/06%20Passing%20Breeze%20%28Extended%29.vgz" },
 };
 
 // A header's name and the tag right after it: the voice, V1 2, and the patch,
