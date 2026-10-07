@@ -65,6 +65,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      # The runtime is linked in (CMakeLists.txt), so a PC without Microsoft's
+      # Visual C++ runtime runs the app too.
+      - name: Check the Windows app needs no Visual C++ runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          dumpbin //dependents "build/opm86_player_artefacts/Release/OPM86 Player.exe" | tee deps.txt
+          if grep -iE "msvcp|vcruntime" deps.txt; then echo "the app still needs the Visual C++ runtime" >&2; exit 1; fi
+
       - name: Package
         shell: bash
         run: |

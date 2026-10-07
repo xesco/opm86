@@ -5,6 +5,9 @@ project(OPM86 VERSION 0.1.2 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
+# On Windows, the C++ runtime goes inside the app, so it runs on PCs without
+# Microsoft's Visual C++ runtime installed (MSVCP140.dll and the rest).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include(FetchContent)
 
