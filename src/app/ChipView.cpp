@@ -14,7 +14,7 @@ namespace
 {
 
 constexpr double kGlow = 0.25 * kVgmRate; // a written value glows this long
-constexpr float kBankRow = 56.0f;          // the tallest a bank's row in the sample map grows
+constexpr float kBankRow = 40.0f;          // the tallest a bank's row in the sample map grows
 constexpr float kMeterRoom = 150.0f;       // a chip header keeps this for its output meters before its write box
 constexpr float kRule = 20.0f;             // a divider in a chip header: its room, the line in its middle
 constexpr double kNever = -1.0e18;
