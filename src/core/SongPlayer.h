@@ -49,6 +49,16 @@ public:
         }
     }
 
+    // An operator's envelope as it runs: its stage (ymfm's envelope_state)
+    // and its attenuation, 0 loudest to 1023 silent. slot is the register
+    // slot, channel + 8 x (M1, M2, C1, C2).
+    void envelope(uint32_t slot, uint32_t& stage, uint32_t& attenuation) const
+    {
+        const auto* op = m_fm.debug_operator(slot);
+        stage = op->debug_eg_state();
+        attenuation = op->debug_eg_attenuation();
+    }
+
     // Each channel at its own gain (one per channel), then through the
     // chip's output stage; the peaks are after the gain. Every channel is
     // computed, as above.
@@ -127,6 +137,18 @@ struct ChannelMix
     std::array<std::vector<Change>, kChannels> changes;
 };
 
+// The chips as they play, for a view of them: each FM operator's envelope
+// and each PCM channel's place in the ROM.
+struct ChipState
+{
+    enum class Stage : uint8_t { Off, Attack, Decay, Sustain, Release };
+    std::array<Stage, 32> stage {};         // per FM operator, by register slot: channel + 8 x (M1, M2, C1, C2)
+    std::array<float, 32> level {};         // and its envelope's level, 1 loudest, 0 silent
+    std::array<uint32_t, 16> pcmAddress {}; // per PCM channel: the ROM address it plays from now
+    uint16_t pcmPlaying = 0;                // bit n: PCM channel n is playing
+    bool valid = false;                     // false until the chips have played
+};
+
 // Plays a VGM song exactly, from any point, with a choice of channels.
 // Everything here runs on the audio thread and does not allocate.
 class SongPlayer
@@ -156,6 +178,9 @@ public:
     // last call, 1 at a chip's full scale. Safe to call from another thread.
     static constexpr int kMeterChannels = 24;
     std::array<float, kMeterChannels> takePeaks();
+    // The playing chips as of the last block rendered. Safe to call from
+    // another thread.
+    ChipState chipState() const;
 
     // Play from a song time in VGM samples; a negative time starts with
     // silence. While playing, the change crossfades over 3 ms. Returns
@@ -228,6 +253,9 @@ private:
     float fmLevel_ = 0.7f, pcmLevel_ = 0.7f;
     std::vector<uint8_t> state_; // scratch for restoring a snapshot
     std::array<std::atomic<float>, kMeterChannels> peaks_ {};
+    void publishChips(const Deck& deck); // after each block, for chipState
+    ChipState chips_;                    // written by the audio thread under chipsSequence_
+    mutable std::atomic<uint32_t> chipsSequence_ { 0 }; // odd while chips_ is being written
 };
 
 } // namespace opm86

@@ -30,6 +30,14 @@ public:
 
     void write(int offset, uint8_t value);
     uint8_t read(int offset) const { return ram_[offset & 0xFF]; }
+    // A channel as it plays: whether it does, and the ROM address it plays
+    // from now, its bank's included.
+    bool playing(int ch) const { return (ram_[static_cast<size_t>(0x86 + ch * 8)] & 1) == 0; }
+    uint32_t address(int ch) const
+    {
+        const auto* regs = &ram_[static_cast<size_t>(ch * 8)];
+        return (static_cast<uint32_t>(regs[0x86] & 0x70) << 12) + (static_cast<uint32_t>(regs[0x85]) << 8 | regs[0x84]);
+    }
 
     // Advance by one sample at kSampleRate. Channels outside the mask
     // still play on, but are left out of the output. With peaks (one per

@@ -44,6 +44,8 @@ private:
     std::array<uint8_t, 8> keyOn_ {}; // per FM channel, its operators keyed on: bit 0 M1, 1 C1, 2 M2, 3 C2
     std::array<double, 8> keyWritten_ {};
     uint8_t pmd_ = 0, amd_ = 0;       // the LFO's depths, which share register 0x19
+    ChipState live_;                  // the chips as they play, read each paint
+    float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
     std::array<bool, 8> drawn_ {};    // per FM channel: its operators drawn, not listed
     std::array<juce::Rectangle<float>, 8> drawToggle_ {}; // the switch between the two in each channel's header
 };

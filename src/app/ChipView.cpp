@@ -101,6 +101,8 @@ juce::String explain(const juce::String& label)
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "LOOPS", "Whether the sample loops at its end" },
+        { "PLAY", "Where the channel is in its sample now, from start to end" },
+        { "ROM", "The sample ROM, 512 KB in 8 banks, with each playing channel's place in it" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
@@ -175,6 +177,11 @@ void ChipView::catchUp()
     at_ = now;
 }
 
+float ChipView::liveLevel(int slot) const
+{
+    return live_.valid ? live_.level[static_cast<size_t>(slot)] : 0.0f;
+}
+
 float ChipView::glow(bool fm, int reg) const
 {
     const double written = (fm ? ymWritten_ : pcmWritten_)[static_cast<size_t>(reg & 0xFF)];
@@ -188,6 +195,7 @@ void ChipView::paint(juce::Graphics& g)
     if (!model_.hasTune())
         return;
     catchUp();
+    live_ = model_.chipState();
     // The FM chip on the left, the PCM chip on the right, apart.
     auto area = getLocalBounds().toFloat().reduced(12.0f);
     const auto pcm = area.removeFromRight(std::max(360.0f, area.getWidth() * 0.34f));
@@ -355,13 +363,15 @@ void ChipView::paintOperatorTable(juce::Graphics& g, juce::Rectangle<float> c, i
         const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
         auto label = row.removeFromLeft(labelW);
         tip(label, kOperators[op]); // the light and the name
+        // The light: as bright as the operator's envelope is loud now.
+        const float live = liveLevel(slot);
         const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
-        if (on)
+        if (live > 0.0f)
         {
-            g.setColour(accent.withAlpha(0.3f));
+            g.setColour(accent.withAlpha(0.35f * live));
             g.fillEllipse(light.expanded(3.0f));
         }
-        g.setColour(on ? accent : theme::gridBar);
+        g.setColour(live > 0.0f ? theme::gridBar.interpolatedWith(accent, 0.25f + 0.75f * live) : theme::gridBar);
         g.fillEllipse(light);
         g.setColour(on ? theme::text : theme::dim);
         g.drawText(kOperators[op], label, juce::Justification::centredLeft, false);
@@ -434,11 +444,11 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         return juce::Rectangle<float>(boxW, boxH).withCentre({ diagram.getX() + (alg.column[d] + 0.5f) * cellW, diagram.getY() + (alg.row[d] + 0.5f) * cellH });
     };
     const auto out = juce::Rectangle<float>(boxW, boxH).withCentre({ diagram.getRight() - cellW * 0.5f, diagram.getCentreY() });
+    // An operator's light: its envelope now, as loud as its level allows.
     auto level = [&](int d) {
-        const int op = kRegisterOrder[d];
-        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
-        const int tl = ym_[static_cast<size_t>(0x60 + ch + op * 8)] & 0x7F;
-        return on ? 0.25f + 0.75f * static_cast<float>(127 - tl) / 127.0f : 0.0f;
+        const int slot = ch + kRegisterOrder[d] * 8;
+        const int tl = ym_[static_cast<size_t>(0x60 + slot)] & 0x7F;
+        return liveLevel(slot) * (0.25f + 0.75f * static_cast<float>(127 - tl) / 127.0f);
     };
     for (const auto& [from, to] : alg.wires)
     {
@@ -527,12 +537,38 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         shape.lineTo(x(t += decay * 0.25f), y(sustain));
         shape.lineTo(x(t += 0.3f), y(held));
         shape.lineTo(x(t += release * 0.25f), y(0.0f));
+
+        // Where the envelope is now: on its stage's stretch, at its level.
+        const float times[5] = { 0.0f, attack * 0.25f, attack * 0.25f + decay * 0.25f, attack * 0.25f + decay * 0.25f + 0.3f, t };
+        const auto stage = live_.valid ? live_.stage[static_cast<size_t>(slot)] : ChipState::Stage::Off;
+        const float now = liveLevel(slot);
+        auto along = [](float value, float from, float to) { return std::abs(to - from) < 1e-4f ? 0.0f : std::clamp((value - from) / (to - from), 0.0f, 1.0f); };
+        int segment = -1;
+        float fraction = 0.0f;
+        switch (stage)
+        {
+            case ChipState::Stage::Attack: segment = 0, fraction = along(now, 0.0f, 1.0f); break;
+            case ChipState::Stage::Decay: segment = 1, fraction = along(now, 1.0f, sustain); break;
+            case ChipState::Stage::Sustain: segment = 2, fraction = along(now, sustain, held); break;
+            case ChipState::Stage::Release: segment = 3, fraction = along(now, held, 0.0f); break;
+            case ChipState::Stage::Off: break;
+        }
+        juce::Point<float> dot;
+        if (segment >= 0)
+            dot = { x(times[segment] + (times[segment + 1] - times[segment]) * fraction), y(now) };
         juce::Path fill(shape);
         fill.closeSubPath();
         g.setColour(accent.withAlpha(on ? 0.3f : 0.08f));
         g.fillPath(fill);
         g.setColour(on ? accent : accent.withAlpha(0.35f));
         g.strokePath(shape, juce::PathStrokeType(on ? 1.8f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (segment >= 0)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.25f));
+            g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre(dot));
+            g.setColour(juce::Colours::white);
+            g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(dot));
+        }
         g.setFont(theme::mono(nameFont, true));
         g.setColour(on ? theme::text : theme::dim);
         g.drawText(kChipOrder[d], nameStrip, juce::Justification::centredLeft, false);
@@ -563,12 +599,39 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     const juce::Colour accent = theme::orange;
     auto inner = section(g, area, "SEGAPCM", juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS"), accent);
 
+    // The ROM: 512 KB in 8 banks, each playing channel's place in it lit.
+    {
+        auto map = inner.removeFromTop(std::clamp(inner.getHeight() * 0.07f, 20.0f, 34.0f));
+        tip(map, "ROM");
+        const float bankW = map.getWidth() / 8.0f;
+        g.setFont(theme::mono(std::clamp(map.getHeight() * 0.4f, 9.0f, 12.0f)));
+        for (int bank = 0; bank < 8; ++bank)
+        {
+            const auto r = juce::Rectangle<float>(map.getX() + static_cast<float>(bank) * bankW, map.getY(), bankW, map.getHeight()).reduced(1.5f, 0.0f);
+            g.setColour(theme::background.withAlpha(0.6f));
+            g.fillRoundedRectangle(r, 3.0f);
+            g.setColour(theme::faint);
+            g.drawText("BANK " + juce::String(bank), r, juce::Justification::centred, false);
+        }
+        for (int ch = 0; live_.valid && ch < 16; ++ch)
+            if ((live_.pcmPlaying >> ch) & 1)
+            {
+                const float x = map.getX() + map.getWidth() * static_cast<float>(live_.pcmAddress[static_cast<size_t>(ch)]) / static_cast<float>(SegaPcm::kRomSize);
+                g.setColour(accent.withAlpha(0.3f));
+                g.fillRect(x - 2.5f, map.getY(), 5.0f, map.getHeight());
+                g.setColour(accent);
+                g.fillRect(x - 0.75f, map.getY(), 1.5f, map.getHeight());
+            }
+        inner.removeFromTop(10.0f);
+    }
+
     // A row per channel: whether it plays, where its sample starts, loops and
-    // ends in the ROM, its rate, and its volume on each side as a bar.
-    static const char* kColumns[7] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R" };
+    // ends in the ROM, its rate, where it is in its sample now, and its
+    // volume on each side as a bar.
+    static const char* kColumns[8] = { "START", "LOOP", "END", "RATE", "LOOPS", "PLAY", "VOL L", "VOL R" };
     const float rowH = inner.getHeight() / 16.7f;
     const float valueFont = std::clamp(std::min(rowH * 0.72f, inner.getWidth() / 8.0f * 0.3f), 10.0f, 22.0f);
-    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 7.0f;
+    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 8.0f;
     auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
     g.setFont(theme::mono(valueFont * 0.8f));
@@ -610,6 +673,22 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
         cell(g, row.removeFromLeft(colW), hex(pcm_[static_cast<size_t>(0x06 + base)], 2) + "00", glow(false, 0x06 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), juce::String(pcm_[static_cast<size_t>(0x07 + base)]), glow(false, 0x07 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), (flags & 2) ? "-" : "YES", glow(false, 0x86 + base), accent, !on);
+        // Where it is now, from its sample's start to its end.
+        {
+            const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);
+            g.setColour(theme::gridBar.withAlpha(0.5f));
+            g.fillRoundedRectangle(r, 2.0f);
+            if (live_.valid && ((live_.pcmPlaying >> ch) & 1))
+            {
+                const double from = start, to = (pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8;
+                const double now = live_.pcmAddress[static_cast<size_t>(ch)] & 0xFFFF;
+                const float fraction = to > from ? static_cast<float>(std::clamp((now - from) / (to - from), 0.0, 1.0)) : 0.0f;
+                g.setColour(accent.withAlpha(0.45f));
+                g.fillRoundedRectangle(r.withWidth(r.getWidth() * fraction), 2.0f);
+                g.setColour(juce::Colours::white);
+                g.fillRect(r.getX() + r.getWidth() * fraction - 1.0f, r.getY() - 2.0f, 2.0f, r.getHeight() + 4.0f);
+            }
+        }
         for (const int side : { 0x02, 0x03 })
         {
             const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);

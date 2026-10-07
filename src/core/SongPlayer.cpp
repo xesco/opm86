@@ -496,6 +496,53 @@ void SongPlayer::render(float* left, float* right, int count)
     for (Deck& deck : decks_)
         if (deck.on)
             renderDeck(deck, left, right, count);
+    if (const Deck& deck = decks_[static_cast<size_t>(active_)]; deck.on)
+        publishChips(deck);
+}
+
+void SongPlayer::publishChips(const Deck& deck)
+{
+    ChipState state;
+    for (uint32_t slot = 0; slot < 32; ++slot)
+    {
+        uint32_t stage = 0, attenuation = 0;
+        deck.fm.envelope(slot, stage, attenuation);
+        // A release that has reached silence is off.
+        state.stage[slot] = stage == ymfm::EG_ATTACK    ? ChipState::Stage::Attack
+                            : stage == ymfm::EG_DECAY   ? ChipState::Stage::Decay
+                            : stage == ymfm::EG_SUSTAIN ? ChipState::Stage::Sustain
+                            : attenuation >= 0x3FF      ? ChipState::Stage::Off
+                                                        : ChipState::Stage::Release;
+        state.level[slot] = 1.0f - static_cast<float>(std::min<uint32_t>(attenuation, 0x3FF)) / 1023.0f;
+    }
+    for (int ch = 0; ch < SegaPcm::kChannels; ++ch)
+    {
+        state.pcmAddress[static_cast<size_t>(ch)] = deck.pcm.address(ch);
+        if (deck.pcm.playing(ch))
+            state.pcmPlaying = static_cast<uint16_t>(state.pcmPlaying | (1 << ch));
+    }
+    state.valid = true;
+    // A sequence counter, odd while writing: the reader copies and retries
+    // until it reads the same even count before and after.
+    const uint32_t sequence = chipsSequence_.load(std::memory_order_relaxed);
+    chipsSequence_.store(sequence + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    chips_ = state;
+    chipsSequence_.store(sequence + 2, std::memory_order_release);
+}
+
+ChipState SongPlayer::chipState() const
+{
+    for (;;)
+    {
+        const uint32_t before = chipsSequence_.load(std::memory_order_acquire);
+        if (before & 1)
+            continue;
+        const ChipState copy = chips_;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (chipsSequence_.load(std::memory_order_relaxed) == before)
+            return copy;
+    }
 }
 
 } // namespace opm86
