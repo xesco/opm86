@@ -47,7 +47,6 @@ public:
     bool orderByPatch() const { return byPatch_; }
     int position(int track) const { return layout().position[static_cast<size_t>(track)]; } // its place top down
     bool follow() const { return follow_; }
-    void setSnapToBars(bool on) { snapBars_ = on; } // a selection let go goes to bar lines
 
     // Vertical zoom: the height of every lane, kept around the pointer.
     int laneHeight() const { return laneHeight_; }
@@ -147,7 +146,6 @@ private:
     double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
     enum class Drag { None, Lanes, Pan, Select, SelectEdge, SelectMove, Ruler, Knob };
-    void snapSelection(Drag finished); // a selection drag let go, with snapping on
 
     AppModel& model_;
     mutable Layout layout_;
@@ -160,8 +158,6 @@ private:
     double lastActivity_ = 0; // milliseconds, when wake() was last called
     bool keepPlayhead_ = false;
     bool follow_ = true;
-    bool snapBars_ = false;
-    double barLine(double songTime, int way = 0) const; // the nearest bar line, or at or before (-1), or at or after (1)
     bool byPatch_ = false;
     double head_ = 0; // the playhead when this frame began
 

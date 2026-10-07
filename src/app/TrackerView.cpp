@@ -1089,36 +1089,6 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
 // Mouse -----------------------------------------------------------------------
 
-// Bar lines as the ruler counts them, four beats from beat 1.
-double TrackerView::barLine(double songTime, int way) const
-{
-    const VgmSong& song = model_.tune().source();
-    const double bar = song.beatLength * 4;
-    const double bars = (songTime - song.firstBeat) / bar;
-    const double n = way < 0 ? std::floor(bars) : way > 0 ? std::ceil(bars) : std::round(bars);
-    return std::max(0.0, song.firstBeat + n * bar);
-}
-
-// While dragging, a selection follows the pointer; let go, each end goes to
-// the nearest bar line, or, when that would close it up, out to the bar it
-// lies in. A moved selection keeps its length. The playhead goes with the
-// start as it did while dragging: always for a new selection, and when
-// stopped for a move or the start edge.
-void TrackerView::snapSelection(Drag finished)
-{
-    if (!model_.hasSelection())
-        return;
-    const double from = model_.selectionStart(), to = model_.selectionEnd();
-    double start = barLine(from);
-    double end = finished == Drag::SelectMove ? start + (to - from) : barLine(to);
-    if (end <= start)
-        start = barLine(from, -1), end = barLine(to, 1);
-    const bool keep = finished == Drag::Select       ? false
-                      : finished == Drag::SelectMove ? model_.playing()
-                                                     : model_.playing() || selectFrom_ <= from;
-    model_.setSelection(start, end, keep);
-}
-
 int TrackerView::selectionEdgeAt(juce::Point<float> p) const
 {
     if (!model_.hasSelection() || p.x < lanesX())
@@ -1281,9 +1251,6 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
-    if (snapBars_ && e.getDistanceFromDragStart() > 3
-        && (finished == Drag::Select || finished == Drag::SelectEdge || finished == Drag::SelectMove))
-        snapSelection(finished);
     // A click on the lanes puts the playhead there, and playing goes on
     // from it; stopped, it also drops the selection.
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
