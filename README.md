@@ -21,7 +21,7 @@ release, and every release is listed on the
 | Windows 10 or later | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) | Unzip it and run **OPM86 Player.exe** |
 | Linux, x86-64 | [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz) | Unpack it with `tar -xzf OPM86-Player-linux.tar.gz` and run `./OPM86\ Player` |
 
-The apps are not signed, so the first launch needs one extra step:
+The three downloads are not signed, so the first launch needs one extra step:
 
 | System | What it says | What to do |
 | --- | --- | --- |
@@ -93,15 +93,15 @@ and its compiler cache in `build-linux`, so a second run recompiles only what ch
 first run takes about 5 minutes, and a run after a small change takes seconds.
 
 When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the app for
-all three systems, runs the tests (see [Tests](#tests)), and publishes the three apps as a
-release. GitHub also builds and tests the three apps for every pull request, but not for a
-push to a branch. A pull request's run, or a run of the **Build** workflow started by hand
-under **Actions**, keeps the apps as downloads on its page. To release, run
-`make release VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The
-command sets the version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with
-the title of each pull request merged since the last release. It then commits both, tags
-the commit `v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the
-same list as its notes.
+all three systems, runs the tests (see [Tests](#tests)), and publishes the three builds as
+a release. GitHub also builds and tests the app for all three systems for every pull
+request, but not for a push to a branch. A pull request's run, or a run of the **Build**
+workflow started by hand under **Actions**, keeps the three builds as downloads on its
+page. To release, run `make release VERSION=0.2.0` on an up-to-date `main` with no
+uncommitted changes. The command sets the version in `CMakeLists.txt` and adds the release
+to `CHANGELOG.md`, with the title of each pull request merged since the last release. It
+then commits both, tags the commit `v0.2.0`, and pushes the commit and the tag. The
+release on GitHub shows the same list as its notes.
 
 ## Get songs
 
@@ -299,9 +299,9 @@ OPM86 Player is free software under the GNU Affero General Public License, versi
 [LICENSE](LICENSE)). You may use, change and share it. When you share a changed version,
 you must also share its source under the same licence.
 
-The app is built on these parts, each under its own licence:
+OPM86 Player is built on these parts, each under its own licence:
 
-| Part | What it does in the app | Licence |
+| Part | What it does in OPM86 Player | Licence |
 | --- | --- | --- |
 | [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3 or a commercial licence; OPM86 Player uses JUCE under the AGPLv3 |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Emulates the YM2151 | BSD 3-Clause |
