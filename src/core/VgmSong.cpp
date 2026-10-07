@@ -70,13 +70,14 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
     BeatGrid grid;
     std::sort(raw.begin(), raw.end());
     raw.erase(std::unique(raw.begin(), raw.end()), raw.end());
-    // Starts closer than 15 ms are one: a drum and the note that follows it,
-    // or a strummed chord. Counted apart, their gaps would vote for a step
-    // that is not the music's.
+    // Starts within 30 ms of a first one are one start, at the first: the
+    // game starts a chord's voices and its drum one after another over a
+    // driver tick or two. Counted apart, their gaps would vote for a step
+    // that is not the music's, and the grid would sit between them.
     {
         std::vector<uint32_t> merged;
         for (uint32_t t : raw)
-            if (merged.empty() || t - merged.back() > 660)
+            if (merged.empty() || t - merged.back() > 1323)
                 merged.push_back(t);
         raw = std::move(merged);
     }
