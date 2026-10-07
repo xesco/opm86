@@ -255,7 +255,23 @@ The app differs from the arcade board in these ways:
 - The app reads VGM files only. A dump of the arcade's sample memory does not say where
   each sample starts, because the game's program holds that information.
 
-The emulation comes from [ymfm](https://github.com/aaronsgiles/ymfm) for the YM2151, and
-from the behaviour of `segapcm.cpp` in [MAME](https://github.com/mamedev/mame) for the Sega
-PCM chip. The [VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt) defines the
-VGM format, and [JUCE](https://juce.com) is the app framework.
+## Licence
+
+OPM86 Player is free software under the GNU Affero General Public License, version 3 (see
+[LICENSE](LICENSE)). You may use, change and share it. When you share a changed version,
+you must also share its source under the same licence.
+
+The app is built on these parts, each under its own licence:
+
+| Part | What it does in the app | Licence |
+| --- | --- | --- |
+| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3, the terms the app uses it under |
+| [ymfm](https://github.com/aaronsgiles/ymfm) | Emulates the YM2151 | BSD 3-Clause |
+| [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
+| [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |
+
+The Sega PCM emulation is the project's own code, written to behave as `segapcm.cpp` in
+[MAME](https://github.com/mamedev/mame) does. The
+[VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt)
+defines the format of the files the app reads. The app includes no music, and the songs in
+VGM files belong to their rights holders.
