@@ -460,9 +460,9 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     rewind_.onClick = [this] { rewind(); };
     play_.onClick = [this] { model_.play(); };
     stop_.onClick = [this] {
-        // A second stop returns to the start.
+        // A second stop returns to beat 1.
         if (!model_.playing())
-            model_.setPosition(0);
+            model_.setPosition(model_.hasTune() ? model_.tune().source().firstBeat : 0.0);
         model_.stop();
     };
     open_.onClick = [this] {
@@ -496,7 +496,8 @@ void TopBar::rewind()
         view_.setViewStart(model_.selectionStart() - model_.tune().source().beatLength);
         return;
     }
-    model_.setPosition(0);
+    // Beat 1, where the first note starts.
+    model_.setPosition(model_.hasTune() ? model_.tune().source().firstBeat : 0.0);
     if (model_.hasTune())
         view_.setViewStart(model_.tune().source().firstBeat - model_.tune().source().beatLength);
 }
@@ -1406,6 +1407,7 @@ bool MainComponent::open(const juce::File& file)
     const double width = std::max(200, view_.getWidth() - view_.headerWidth());
     view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
     view_.setViewStart(model_.tune().source().firstBeat - bar * 0.25);
+    model_.setPosition(model_.tune().source().firstBeat); // the playhead on beat 1
     tools_.songOpened();
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());

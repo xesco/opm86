@@ -100,9 +100,35 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
     std::nth_element(near.begin(), near.begin() + static_cast<long>(near.size() / 2), near.end());
     double step = near[near.size() / 2];
 
+    // The median gap is close but not exact, and over a whole song a step a
+    // fraction off puts later starts on the wrong step number. So try steps
+    // within 2% of it, and keep the one the starts agree with best: each
+    // start an angle round the step, the step whose angles line up most.
+    double origin = raw.front();
+    {
+        constexpr double kTwoPi = 6.283185307179586;
+        const double rough = step;
+        double bestLength = -1.0;
+        for (int i = -400; i <= 400; ++i)
+        {
+            const double candidate = rough * (1.0 + i * 0.00005);
+            double c = 0.0, sn = 0.0;
+            for (uint32_t t : raw)
+            {
+                const double a = kTwoPi * std::fmod(static_cast<double>(t), candidate) / candidate;
+                c += std::cos(a);
+                sn += std::sin(a);
+            }
+            if (const double length = std::hypot(c, sn); length > bestLength)
+            {
+                bestLength = length;
+                step = candidate;
+                origin = std::atan2(sn, c) / kTwoPi * candidate;
+            }
+        }
+    }
+
     // Least squares: each start's step number against its time.
-    const double t0 = raw.front();
-    double origin = t0;
     for (int pass = 0; pass < 2; ++pass)
     {
         double sn = 0, st = 0, snn = 0, snt = 0, count = 0;
@@ -139,8 +165,10 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
         if (hits > bestCount)
             bestCount = hits, bestShift = shift;
     }
+    // Beat 1 is the beat of the first start, or the one just before it.
     grid.length = beat;
-    grid.first = std::fmod(std::fmod(origin + bestShift * step, beat) + beat, beat);
+    const double phase = origin + bestShift * step;
+    grid.first = phase + std::floor((raw.front() - phase) / beat + 0.25) * beat;
     return grid;
 }
 

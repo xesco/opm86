@@ -44,7 +44,7 @@ struct VgmSong
 };
 
 // A beat grid fitted to note start times, in VGM samples: beat k starts
-// at first + k x length, with first from 0 to length.
+// at first + k x length, with first the beat of the first start.
 struct BeatGrid
 {
     double length = kVgmRate / 2.0;
