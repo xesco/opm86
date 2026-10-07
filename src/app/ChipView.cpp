@@ -67,6 +67,13 @@ float titleWidth(const juce::String& name, const juce::String& role)
            + static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(15.0f, true), role)) + 20.0f;
 }
 
+// The write box at its narrowest, WRITES alone, as paintBus draws it.
+float writesBoxWidth()
+{
+    auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
+    return widthOf(theme::mono(11.0f), "WRITES") + 6.0f + widthOf(theme::mono(14.0f, true), "9999/s") + 2.0f * 8.0f + 2.0f * 8.0f;
+}
+
 juce::String hex(int value, int digits) { return juce::String::toHexString(value).toUpperCase().paddedLeft('0', digits); }
 
 // What each label means, shown when the pointer rests on it.
@@ -887,7 +894,10 @@ void ChipView::paintChipOutput(juce::Graphics& g, juce::Rectangle<float> area, b
 void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::orange;
-    const juce::String role = juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS");
+    // The subtitle gives way when the output meters would have no room.
+    const juce::String full = juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS");
+    const float headerW = area.reduced(14.0f, 10.0f).getWidth();
+    const juce::String role = headerW - titleWidth("SEGAPCM", full) - writesBoxWidth() - 12.0f >= 100.0f ? full : juce::String();
     auto inner = section(g, area, "SEGAPCM", role, accent);
     // The bus, in the header after the title.
     {
