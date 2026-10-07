@@ -1698,9 +1698,9 @@ void MainComponent::frame(double timestamp)
         hide ? mouse.hideCursor() : mouse.revealCursor();
         cursorHidden_ = hide;
     }
-    // Playing, everything moves each frame. Stopped, the playhead's fade and
-    // the meters falling back last a moment after the last activity; past
-    // that, nothing changes until an event repaints what it touches.
+    // Playing, everything moves each frame. Stopped, the playhead fades and
+    // the meters fall back for 2s after the last activity, so they repaint
+    // for that long; after that, only an event repaints what it touches.
     if (model_.playing() || (model_.hasTune() && view_.idleSeconds() < 2.0))
     {
         view_.repaint();

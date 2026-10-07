@@ -85,7 +85,7 @@ private:
 namespace
 {
 
-constexpr size_t kFewestStarts = 8;                        // fewer, and the grid stays as it is
+constexpr size_t kFewestStarts = 8;                        // with fewer starts the grid keeps its default, a beat of 0.5s
 constexpr double kMergeWindow = 0.030 * kVgmRate;          // starts this close to a first are one
 constexpr double kShortestGap = 0.025 * kVgmRate;          // gaps that vote for the step, from this...
 constexpr double kLongestGap = 0.400 * kVgmRate;           // ...to this
@@ -93,7 +93,7 @@ constexpr double kBinWidth = 1.01;                         // a vote's bin, 1% w
 constexpr double kNearStep = 0.02;                         // gaps this close to the winning bins give the step, and steps this close are tried
 constexpr int kSearchSteps = 400;                          // tried each way from the rough step, in kNearStep / kSearchSteps strides
 constexpr double kOnGrid = 0.2;                            // a start within this many steps of the grid counts for the fit
-constexpr double kOnBeat = 0.25;                           // and within this many, for the beats and bars
+constexpr double kOnBeat = 0.25;                           // and within this many, for the beats, the bars and beat 1
 constexpr double kShortestBeat = 60.0 / 160.0 * kVgmRate;  // a beat is at least this long: 160 BPM
 constexpr double kClearlyThrees = 0.2;                     // threes win when their bars repeat by this much more
 
