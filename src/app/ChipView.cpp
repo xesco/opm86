@@ -101,12 +101,10 @@ juce::String explain(const juce::String& label)
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "LOOPS", "Whether the sample loops at its end" },
-        { "ROM", "The samples the song plays, a row per bank: a sample lights and fills as a channel plays it, with the channel's number" },
+        { "BANK", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
-    if (label.startsWith("SAMPLE "))
-        return label.substring(7);
     if (label.startsWith("CH"))
         return "Channel " + label.substring(2);
     const auto it = kMeaning.find(label);
@@ -600,7 +598,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         g.setFont(theme::mono(nameFont, true));
         g.setColour(on ? theme::text : theme::dim);
         g.drawText(kChipOrder[d], nameStrip, juce::Justification::centredLeft, false);
-        tip(r, kChipOrder[d]);
+        tip(nameStrip, kChipOrder[d]);
     }
 }
 
@@ -643,7 +641,6 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
     for (const Sample& s : samples_)
         if (banks.empty() || banks.back() != s.bank)
             banks.push_back(s.bank);
-    tip(area, "ROM");
     if (banks.empty())
     {
         g.setFont(theme::mono(fmFont_));
@@ -659,7 +656,9 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         auto row = area.removeFromTop(rowH).reduced(0.0f, 3.0f);
         g.setFont(theme::mono(font));
         g.setColour(theme::dim);
-        g.drawText("BANK " + juce::String(banks[b] >> 16), row.removeFromLeft(labelW), juce::Justification::centredLeft, false);
+        const auto bankLabel = row.removeFromLeft(labelW);
+        g.drawText("BANK " + juce::String(banks[b] >> 16), bankLabel, juce::Justification::centredLeft, false);
+        tip(bankLabel, "BANK");
         std::vector<const Sample*> tiles;
         double total = 0;
         for (const Sample& s : samples_)
@@ -711,8 +710,6 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
                 g.setColour(accent);
                 g.drawText(players, tile.reduced(4.0f, 2.0f), juce::Justification::topRight, false);
             }
-            tip(tile, "SAMPLE Bank " + juce::String(s->bank >> 16) + ", " + hex(static_cast<int>(s->start), 4) + " to " + hex(static_cast<int>(s->end), 4)
-                          + ", " + juce::String(static_cast<int>(length)) + " bytes");
         }
     }
 }
