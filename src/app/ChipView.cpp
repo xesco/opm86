@@ -651,18 +651,24 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
         ++count;
     const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
 
-    // At the header's right end, each readout a label and then its value in
-    // a box of its own; short of room, the count alone.
+    // A frame at the header's right end; inside, each readout a label and
+    // then its value in a box as wide as its widest value, so nothing moves
+    // as the numbers change. Short of room, the count alone.
     const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
     auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
-    const float gap = 14.0f, pad = 7.0f, labelGap = 6.0f;
-    auto fieldW = [&](const juce::String& label, const juce::String& value) { return widthOf(labelFont, label) + labelGap + widthOf(valueFont, value) + 2.0f * pad; };
-    const juce::String rate = juce::String(count) + "/s";
-    const float writesW = fieldW("WRITES", rate), lastW = fieldW("LAST", last);
-    const bool both = area.getWidth() >= writesW + gap + lastW;
-    if (area.getWidth() < writesW)
+    const float gap = 12.0f, pad = 8.0f, framePad = 8.0f, labelGap = 6.0f;
+    auto fieldW = [&](const juce::String& label, const juce::String& widest) { return widthOf(labelFont, label) + labelGap + widthOf(valueFont, widest) + 2.0f * pad; };
+    const float writesW = fieldW("WRITES", "9999/s"), lastW = fieldW("LAST", "FF=FF");
+    const bool both = area.getWidth() >= writesW + gap + lastW + 2.0f * framePad;
+    const float frameW = (both ? writesW + gap + lastW : writesW) + 2.0f * framePad;
+    if (area.getWidth() < frameW)
         return;
-    auto row = area.removeFromRight(both ? writesW + gap + lastW : writesW);
+    const auto frame = area.removeFromRight(frameW).reduced(0.0f, 1.0f);
+    g.setColour(theme::background.withAlpha(0.4f));
+    g.fillRoundedRectangle(frame, 6.0f);
+    g.setColour(accent.withAlpha(0.3f));
+    g.drawRoundedRectangle(frame.reduced(0.5f), 6.0f, 1.0f);
+    auto row = frame.reduced(framePad, 0.0f);
     const auto field = [&](float width, const juce::String& label, const juce::String& value) {
         auto r = row.removeFromLeft(width);
         g.setFont(labelFont);
@@ -670,16 +676,16 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
         const auto at = r.removeFromLeft(widthOf(labelFont, label) + labelGap);
         g.drawText(label, at, juce::Justification::centredLeft, false);
         tip(at, label);
-        const auto box = r.reduced(0.0f, 3.0f);
-        g.setColour(theme::background.withAlpha(0.6f));
+        const auto box = r.reduced(0.0f, 4.0f);
+        g.setColour(theme::background.withAlpha(0.7f));
         g.fillRoundedRectangle(box, 4.0f);
-        g.setColour(accent.withAlpha(0.4f));
+        g.setColour(accent.withAlpha(0.45f));
         g.drawRoundedRectangle(box.reduced(0.5f), 4.0f, 1.0f);
         g.setFont(valueFont);
         g.setColour(theme::text);
         g.drawText(value, box, juce::Justification::centred, false);
     };
-    field(writesW, "WRITES", rate);
+    field(writesW, "WRITES", juce::String(count) + "/s");
     if (both)
     {
         row.removeFromLeft(gap);
