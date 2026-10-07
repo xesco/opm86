@@ -160,7 +160,9 @@ private:
     bool keepPlayhead_ = false;
     bool follow_ = true;
     bool snapBars_ = false;
-    double snapToBar(double songTime) const; // the nearest bar line, with snapping on; else songTime
+    // With snapping on, a bar line: the nearest, or the one at or before
+    // (way -1) or at or after (way 1); else songTime itself.
+    double snapToBar(double songTime, int way = 0) const;
     bool byPatch_ = false;
     double head_ = 0; // the playhead when this frame began
 

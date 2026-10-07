@@ -1089,14 +1089,16 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
 // Mouse -----------------------------------------------------------------------
 
-double TrackerView::snapToBar(double songTime) const
+double TrackerView::snapToBar(double songTime, int way) const
 {
     if (!snapBars_ || !model_.hasTune())
         return songTime;
     // Bars of four beats from beat 1, as the ruler counts them.
     const VgmSong& song = model_.tune().source();
     const double bar = song.beatLength * 4;
-    return std::max(0.0, song.firstBeat + std::round((songTime - song.firstBeat) / bar) * bar);
+    const double bars = (songTime - song.firstBeat) / bar;
+    const double n = way < 0 ? std::floor(bars) : way > 0 ? std::ceil(bars) : std::round(bars);
+    return std::max(0.0, song.firstBeat + n * bar);
 }
 
 int TrackerView::selectionEdgeAt(juce::Point<float> p) const
@@ -1197,7 +1199,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     if (!model_.playing() && !e.mods.isShiftDown())
     {
         drag_ = Drag::Select;
-        selectFrom_ = snapToBar(std::max(0.0, xToTime(p.x)));
+        selectFrom_ = std::max(0.0, xToTime(p.x));
         return;
     }
     // Playing, or with Shift: a click moves the playhead there; held and
@@ -1245,7 +1247,9 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
     {
-        model_.setSelection(selectFrom_, snapToBar(std::max(0.0, xToTime(p.x))));
+        // Snapping, the selection takes in every bar the drag touches.
+        const double here = std::max(0.0, xToTime(p.x));
+        model_.setSelection(snapToBar(std::min(selectFrom_, here), -1), snapToBar(std::max(selectFrom_, here), 1));
         return;
     }
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
