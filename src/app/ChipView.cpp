@@ -94,6 +94,7 @@ juce::String explain(const juce::String& label)
         { "KC", "Key code: octave and note" },
         { "KF", "Key fraction: pitch between notes" },
         { "PMS", "Pitch modulation sensitivity: how much the LFO bends this channel" },
+        { "BANK", "The 64 KB bank of the sample ROM its sample is in" },
         { "AMS", "Amplitude modulation sensitivity: how much the LFO moves its volume" },
         { "M1", "Operator M1, modulator 1: in most algorithms it shapes another operator's sound; it can feed back into itself" },
         { "M2", "Operator M2, modulator 2: in most algorithms it shapes another operator's sound" },
@@ -117,8 +118,8 @@ juce::String explain(const juce::String& label)
         { "LOOP", "Where the sample loops back to" },
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
-        { "LOOPS", "Whether the sample loops at its end" },
-        { "BANK", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
+        { "FLAGS", "The channel's flag register: bit 0 stops it, bit 1 stops it at its end instead of looping, bits 4 to 6 its bank" },
+        { "BANK ROW", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number and where it reads" },
         { "OUT", "The channel's output now" },
         { "WRITES", "How many writes reached the chip in the last second" },
         { "LAST", "The last write: the register, then the value written" },
@@ -867,7 +868,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         g.setColour(theme::dim);
         const auto bankLabel = row.removeFromLeft(labelW);
         g.drawText("BANK " + juce::String(banks[b] >> 16), bankLabel, juce::Justification::centredLeft, false);
-        tip(bankLabel, "BANK");
+        tip(bankLabel, "BANK ROW");
         std::vector<const Sample*> tiles;
         double total = 0;
         for (const Sample& s : samples_)
@@ -918,6 +919,19 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             {
                 g.setColour(accent);
                 g.drawText(players, tile.reduced(4.0f, 2.0f), juce::Justification::topRight, false);
+                // Where the first of them reads now, in the bank, room allowing.
+                if (fraction >= 0.0f && tile.getWidth() > font * 6.5f)
+                {
+                    int now = 0;
+                    for (int ch = 0; ch < 16; ++ch)
+                        if (players.containsWholeWord(juce::String(ch + 1)))
+                        {
+                            now = static_cast<int>(live_.pcmAddress[static_cast<size_t>(ch)] & 0xFFFF);
+                            break;
+                        }
+                    g.setColour(theme::text);
+                    g.drawText(hex(now, 4), tile.reduced(4.0f, 2.0f), juce::Justification::bottomRight, false);
+                }
             }
         }
     }
@@ -927,9 +941,9 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
 {
     // A row per channel: whether it plays, where its sample starts, loops and
     // ends in the ROM, its rate, and its volume on each side as a bar.
-    static const char* kColumns[8] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R", "OUT" };
+    static const char* kColumns[9] = { "START", "LOOP", "END", "RATE", "FLAGS", "BANK", "VOL L", "VOL R", "OUT" };
     const float rowH = inner.getHeight() / 16.7f;
-    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 8.0f;
+    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 9.0f;
     auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
     g.setFont(theme::mono(valueFont * 0.8f));
@@ -970,7 +984,8 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
         cell(g, row.removeFromLeft(colW), hex(loop, 4), std::max(glow(false, 0x04 + base), glow(false, 0x05 + base)), accent, !on);
         cell(g, row.removeFromLeft(colW), hex(pcm_[static_cast<size_t>(0x06 + base)], 2) + "00", glow(false, 0x06 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), juce::String(pcm_[static_cast<size_t>(0x07 + base)]), glow(false, 0x07 + base), accent, !on);
-        cell(g, row.removeFromLeft(colW), (flags & 2) ? "-" : "YES", glow(false, 0x86 + base), accent, !on);
+        cell(g, row.removeFromLeft(colW), hex(flags, 2), glow(false, 0x86 + base), accent, !on);
+        cell(g, row.removeFromLeft(colW), juce::String((flags >> 4) & 7), glow(false, 0x86 + base), accent, !on);
         for (const int side : { 0x02, 0x03 })
         {
             const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);
