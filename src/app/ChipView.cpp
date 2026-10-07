@@ -194,6 +194,13 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         const juce::Colour pitch = theme::pitchColour(midi);
         g.setColour(keyed ? pitch : pitch.withAlpha(0.18f));
         g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
+        // A new note, keyed on or its pitch written, rings the pill white.
+        const float struck = std::max(glow(true, 0x28 + ch), static_cast<float>(std::clamp(1.0 - (at_ - keyWritten_[static_cast<size_t>(ch)]) / kGlow, 0.0, 1.0)));
+        if (struck > 0.0f)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.9f * struck));
+            g.drawRoundedRectangle(pill.reduced(0.75f), pill.getHeight() * 0.5f, 1.5f);
+        }
         g.setColour(keyed ? theme::background : theme::faint);
         g.drawText(theme::noteName(midi).removeCharacters("-"), pill, juce::Justification::centred, false);
         const int rl = ym_[static_cast<size_t>(0x20 + ch)];
@@ -209,6 +216,18 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         g.setColour(theme::dim);
         g.drawText("ALG", head.removeFromLeft(unit * 3.5f), juce::Justification::centredLeft, false);
         cell(g, head.removeFromLeft(unit * 2.0f), juce::String(rl & 7), glow(true, 0x20 + ch), accent);
+        // The pitch as written, key code and key fraction, and the LFO's depths on this channel.
+        const int pmsAms = ym_[static_cast<size_t>(0x38 + ch)];
+        const auto field = [&](const juce::String& name, const juce::String& value, int reg, float chars) {
+            head.removeFromLeft(unit);
+            g.setColour(theme::dim);
+            g.drawText(name, head.removeFromLeft(unit * (static_cast<float>(name.length()) + 0.5f)), juce::Justification::centredLeft, false);
+            cell(g, head.removeFromLeft(unit * chars), value, glow(true, reg), accent);
+        };
+        field("KC", hex(kc, 2), 0x28 + ch, 3.0f);
+        field("KF", juce::String(ym_[static_cast<size_t>(0x30 + ch)] >> 2), 0x30 + ch, 3.0f);
+        field("PMS", juce::String((pmsAms >> 4) & 7), 0x38 + ch, 2.0f);
+        field("AMS", juce::String(pmsAms & 3), 0x38 + ch, 2.0f);
 
         // Its operators: a row each, the key-on light and the eleven values.
         const float rowH = c.getHeight() / 4.7f;
