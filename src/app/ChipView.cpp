@@ -884,8 +884,8 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         g.drawText("No samples in this song", area, juce::Justification::centred, false);
         return;
     }
-    // The rows share the room, short of growing past 90 pixels each.
-    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), 90.0f);
+    // The rows share the room, short of growing past 56 pixels each.
+    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), 56.0f);
     const float font = std::clamp(rowH * 0.5f, 10.0f, fmFont_); // as big as the YM2151 values, short of half a row
     const float labelW = font * 4.2f, gap = 4.0f;
     for (size_t b = 0; b < banks.size(); ++b)
