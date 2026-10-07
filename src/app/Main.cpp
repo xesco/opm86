@@ -82,6 +82,9 @@ public:
         else if (last.existsAsFile())
             content->open(last);
         window_ = std::make_unique<MainWindow>(std::move(content));
+        // Where the window was when the app last quit, if that is still on a screen.
+        if (auto* user = settings_.getUserSettings(); user && user->containsKey("window"))
+            window_->restoreWindowStateFromString(user->getValue("window"));
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override
@@ -94,6 +97,8 @@ public:
 
     void shutdown() override
     {
+        if (auto* user = settings_.getUserSettings(); user && window_)
+            user->setValue("window", window_->getWindowStateAsString()), user->saveIfNeeded();
         window_ = nullptr;
         snapshot_ = nullptr;
     }
