@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <tuple>
 #include <vector>
 
 namespace opm86
@@ -34,6 +35,8 @@ private:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
     void paintPcm(juce::Graphics&, juce::Rectangle<float> area);
+    void paintSampleMap(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent); // the song's samples, by bank, lit as they play
+    void paintPcmTable(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, float valueFont); // a row per channel
 
     AppModel& model_;
     const VgmSong* song_ = nullptr; // the song the registers belong to
@@ -46,6 +49,15 @@ private:
     std::array<double, 8> keyWritten_ {};
     uint8_t pmd_ = 0, amd_ = 0;       // the LFO's depths, which share register 0x19
     ChipState live_;                  // the chips as they play, read each paint
+    float fmFont_ = 13.0f;            // the YM2151 values' size, which the SegaPCM's follow
+    // A sample the song plays: its bank, and its start and end in the bank.
+    struct Sample
+    {
+        uint32_t bank = 0, start = 0, end = 0;
+        bool operator<(const Sample& o) const { return std::tie(bank, start, end) < std::tie(o.bank, o.start, o.end); }
+        bool operator==(const Sample& o) const { return bank == o.bank && start == o.start && end == o.end; }
+    };
+    std::vector<Sample> samples_; // every one the song triggers, by bank and start
     float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
     std::array<bool, 8> drawn_ {};    // per FM channel: its operators drawn, not listed
     std::array<juce::Rectangle<float>, 8> drawToggle_ {}; // the switch between the two in each channel's header

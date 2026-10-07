@@ -101,11 +101,12 @@ juce::String explain(const juce::String& label)
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "LOOPS", "Whether the sample loops at its end" },
-        { "PLAY", "Where the channel is in its sample now, from start to end" },
-        { "ROM", "The sample ROM, 512 KB in 8 banks: each playing channel's sample shaded, and a line and its number where it plays now" },
+        { "ROM", "The samples the song plays, a row per bank: a sample lights and fills as a channel plays it, with the channel's number" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
+    if (label.startsWith("SAMPLE "))
+        return label.substring(7);
     if (label.startsWith("CH"))
         return "Channel " + label.substring(2);
     const auto it = kMeaning.find(label);
@@ -166,6 +167,26 @@ void ChipView::catchUp()
     // A new song, or the playhead moved back: replayed from the start.
     if (&song != song_ || now < at_)
     {
+        if (&song != song_)
+        {
+            // The song's samples: at each trigger, the channel's bank, start and end.
+            samples_.clear();
+            std::array<uint8_t, 256> regs {};
+            for (const VgmWrite& w : song.pcm)
+            {
+                const auto r = static_cast<size_t>(w.address & 0xFF);
+                regs[r] = w.value;
+                if ((r & 0x87) == 0x86 && (w.value & 1) == 0)
+                {
+                    const size_t base = r & 0x78; // the channel's eight registers, as ch x 8
+                    samples_.push_back({ static_cast<uint32_t>(w.value & 0x70) << 12,
+                                         static_cast<uint32_t>(regs[base | 0x84] | regs[base | 0x85] << 8),
+                                         static_cast<uint32_t>((regs[base | 0x06] + 1) << 8) });
+                }
+            }
+            std::sort(samples_.begin(), samples_.end());
+            samples_.erase(std::unique(samples_.begin(), samples_.end()), samples_.end());
+        }
         song_ = &song;
         ymNext_ = pcmNext_ = 0;
         ym_.fill(0), pcm_.fill(0), keyOn_.fill(0);
@@ -353,6 +374,7 @@ void ChipView::paintOperatorTable(juce::Graphics& g, juce::Rectangle<float> c, i
     auto columns = c.removeFromTop(rowH * 0.7f);
     const float valueFont = std::clamp(std::min(rowH * 0.78f, (c.getWidth() / 12.5f) * 0.55f), 10.0f, 24.0f);
     const float labelW = valueFont * 2.8f, colW = (c.getWidth() - labelW) / 11.0f;
+    fmFont_ = valueFont;
     columns.removeFromLeft(labelW);
     g.setFont(theme::mono(valueFont * 0.8f));
     g.setColour(theme::dim);
@@ -604,70 +626,104 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::orange;
     auto inner = section(g, area, "SEGAPCM", juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS"), accent);
+    // The channels at the YM2151's size at the bottom, the samples above in the rest.
+    const float valueFont = fmFont_;
+    const auto table = inner.removeFromBottom(valueFont * 1.6f * 16.7f);
+    inner.removeFromBottom(12.0f);
+    paintSampleMap(g, inner, accent);
+    paintPcmTable(g, table, accent, valueFont);
+}
 
-    // The ROM: 512 KB in 8 banks. Each playing channel shades its sample,
-    // from start to end, and marks where it plays now with a line and its
-    // number; numbers close together stagger so each can be read.
+void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour accent)
+{
+    // A row per bank the song uses, a tile per sample in it, as wide as the
+    // sample is long, within limits. A tile lights while a channel plays it,
+    // fills as the channel goes through it, and shows the channel's number.
+    std::vector<uint32_t> banks;
+    for (const Sample& s : samples_)
+        if (banks.empty() || banks.back() != s.bank)
+            banks.push_back(s.bank);
+    tip(area, "ROM");
+    if (banks.empty())
     {
-        auto map = inner.removeFromTop(std::clamp(inner.getHeight() * 0.11f, 30.0f, 48.0f));
-        tip(map, "ROM");
-        const auto tags = map.removeFromTop(map.getHeight() * 0.4f);
-        const float bankW = map.getWidth() / 8.0f;
-        g.setFont(theme::mono(std::clamp(map.getHeight() * 0.4f, 9.0f, 12.0f)));
-        for (int bank = 0; bank < 8; ++bank)
-        {
-            const auto r = juce::Rectangle<float>(map.getX() + static_cast<float>(bank) * bankW, map.getY(), bankW, map.getHeight()).reduced(1.5f, 0.0f);
-            g.setColour(theme::background.withAlpha(0.6f));
-            g.fillRoundedRectangle(r, 3.0f);
-            g.setColour(theme::faint);
-            g.drawText("BANK " + juce::String(bank), r, juce::Justification::centred, false);
-        }
-        auto xOf = [&](double address) { return map.getX() + map.getWidth() * static_cast<float>(address / static_cast<double>(SegaPcm::kRomSize)); };
-        const float tagFont = std::clamp(tags.getHeight() * 0.8f, 9.0f, 12.0f);
-        g.setFont(theme::mono(tagFont, true));
-        // Left to right, so each tag is weighed against the one beside it.
-        std::vector<int> playing;
-        for (int ch = 0; live_.valid && ch < 16; ++ch)
-            if ((live_.pcmPlaying >> ch) & 1)
-                playing.push_back(ch);
-        std::sort(playing.begin(), playing.end(), [&](int a, int b) { return live_.pcmAddress[static_cast<size_t>(a)] < live_.pcmAddress[static_cast<size_t>(b)]; });
-        float lastTagRight = -1.0e9f;
-        bool raised = false;
-        for (const int ch : playing)
-        {
-            const int base = ch * 8;
-            const double bank = static_cast<double>((pcm_[static_cast<size_t>(0x86 + base)] & 0x70) << 12);
-            const double start = bank + (pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8);
-            const double end = bank + ((pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8);
-            const float x = xOf(live_.pcmAddress[static_cast<size_t>(ch)]);
-            if (end > start)
-            {
-                g.setColour(accent.withAlpha(0.18f));
-                g.fillRect(juce::Rectangle<float>(xOf(start), map.getY(), std::max(2.0f, xOf(end) - xOf(start)), map.getHeight()));
-            }
-            g.setColour(accent);
-            g.fillRect(x - 0.75f, map.getY(), 1.5f, map.getHeight());
-            // The channel's number above its line, a step up when it would touch the last.
-            const juce::String number = juce::String(ch + 1);
-            const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), number)) + 6.0f;
-            raised = x - w * 0.5f < lastTagRight + 2.0f ? !raised : false;
-            const auto tag = juce::Rectangle<float>(w, tagFont + 2.0f).withCentre({ x, tags.getCentreY() - (raised ? tagFont * 0.6f : 0.0f) });
-            g.setColour(accent);
-            g.fillRoundedRectangle(tag, 3.0f);
-            g.setColour(theme::background);
-            g.drawText(number, tag, juce::Justification::centred, false);
-            lastTagRight = std::max(lastTagRight, tag.getRight());
-        }
-        inner.removeFromTop(10.0f);
+        g.setFont(theme::mono(fmFont_));
+        g.setColour(theme::faint);
+        g.drawText("No samples in this song", area, juce::Justification::centred, false);
+        return;
     }
+    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), fmFont_ * 4.0f);
+    const float font = std::clamp(rowH * 0.28f, 9.0f, fmFont_);
+    const float labelW = font * 4.2f, gap = 4.0f;
+    for (size_t b = 0; b < banks.size(); ++b)
+    {
+        auto row = area.removeFromTop(rowH).reduced(0.0f, 3.0f);
+        g.setFont(theme::mono(font));
+        g.setColour(theme::dim);
+        g.drawText("BANK " + juce::String(banks[b] >> 16), row.removeFromLeft(labelW), juce::Justification::centredLeft, false);
+        std::vector<const Sample*> tiles;
+        double total = 0;
+        for (const Sample& s : samples_)
+            if (s.bank == banks[b])
+                tiles.push_back(&s), total += std::max<double>(1, s.end > s.start ? s.end - s.start : 1);
+        const float n = static_cast<float>(tiles.size());
+        const float room = row.getWidth() - gap * (n - 1.0f);
+        const float least = std::min(font * 3.2f, room / n * 0.6f);
+        float x = row.getX();
+        for (const Sample* s : tiles)
+        {
+            const double length = std::max<double>(1, s->end > s->start ? s->end - s->start : 1);
+            const float w = least + (room - least * n) * static_cast<float>(length / total);
+            const auto tile = juce::Rectangle<float>(x, row.getY(), w, row.getHeight());
+            x += w + gap;
 
+            // The channels playing it, and how far the first one is.
+            juce::String players;
+            float fraction = -1.0f;
+            for (int ch = 0; live_.valid && ch < 16; ++ch)
+            {
+                const int base = ch * 8;
+                if (((live_.pcmPlaying >> ch) & 1) == 0 || static_cast<uint32_t>(pcm_[static_cast<size_t>(0x86 + base)] & 0x70) << 12 != s->bank)
+                    continue;
+                const uint32_t start = static_cast<uint32_t>(pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8);
+                const uint32_t end = static_cast<uint32_t>((pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8);
+                if (start != s->start || end != s->end)
+                    continue;
+                players << (players.isEmpty() ? "" : " ") << (ch + 1);
+                if (fraction < 0.0f && end > start)
+                    fraction = static_cast<float>(std::clamp(((live_.pcmAddress[static_cast<size_t>(ch)] & 0xFFFF) - static_cast<double>(start)) / (end - start), 0.0, 1.0));
+            }
+            const bool playing = players.isNotEmpty();
+            g.setColour(playing ? accent.withAlpha(0.18f) : theme::background.withAlpha(0.6f));
+            g.fillRoundedRectangle(tile, 4.0f);
+            if (fraction >= 0.0f)
+            {
+                g.setColour(accent.withAlpha(0.5f));
+                g.fillRoundedRectangle(tile.withWidth(std::max(4.0f, tile.getWidth() * fraction)), 4.0f);
+            }
+            g.setColour(playing ? accent : theme::gridBar.withAlpha(0.7f));
+            g.drawRoundedRectangle(tile.reduced(0.5f), 4.0f, playing ? 1.5f : 1.0f);
+            g.setFont(theme::mono(font, playing));
+            g.setColour(playing ? theme::text : theme::faint);
+            if (tile.getWidth() > font * 2.8f)
+                g.drawText(hex(static_cast<int>(s->start), 4), tile.reduced(4.0f, 2.0f), playing ? juce::Justification::bottomLeft : juce::Justification::centred, false);
+            if (playing)
+            {
+                g.setColour(accent);
+                g.drawText(players, tile.reduced(4.0f, 2.0f), juce::Justification::topRight, false);
+            }
+            tip(tile, "SAMPLE Bank " + juce::String(s->bank >> 16) + ", " + hex(static_cast<int>(s->start), 4) + " to " + hex(static_cast<int>(s->end), 4)
+                          + ", " + juce::String(static_cast<int>(length)) + " bytes");
+        }
+    }
+}
+
+void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, juce::Colour accent, float valueFont)
+{
     // A row per channel: whether it plays, where its sample starts, loops and
-    // ends in the ROM, its rate, where it is in its sample now, and its
-    // volume on each side as a bar.
-    static const char* kColumns[8] = { "START", "LOOP", "END", "RATE", "LOOPS", "PLAY", "VOL L", "VOL R" };
+    // ends in the ROM, its rate, and its volume on each side as a bar.
+    static const char* kColumns[7] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R" };
     const float rowH = inner.getHeight() / 16.7f;
-    const float valueFont = std::clamp(std::min(rowH * 0.72f, inner.getWidth() / 8.0f * 0.3f), 10.0f, 22.0f);
-    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 8.0f;
+    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 7.0f;
     auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
     g.setFont(theme::mono(valueFont * 0.8f));
@@ -690,6 +746,7 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
             g.fillRoundedRectangle(row, 3.0f);
         }
         auto label = row.removeFromLeft(labelW);
+        tip(label, "CH" + juce::String(ch + 1));
         const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
         if (on)
         {
@@ -700,7 +757,6 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
         g.fillEllipse(light);
         g.setColour(on ? theme::text : theme::dim);
         g.drawText("CH" + juce::String(ch + 1), label, juce::Justification::centredLeft, false);
-        tip(label, "CH" + juce::String(ch + 1));
 
         const int start = pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8;
         const int loop = pcm_[static_cast<size_t>(0x04 + base)] | pcm_[static_cast<size_t>(0x05 + base)] << 8;
@@ -709,22 +765,6 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
         cell(g, row.removeFromLeft(colW), hex(pcm_[static_cast<size_t>(0x06 + base)], 2) + "00", glow(false, 0x06 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), juce::String(pcm_[static_cast<size_t>(0x07 + base)]), glow(false, 0x07 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), (flags & 2) ? "-" : "YES", glow(false, 0x86 + base), accent, !on);
-        // Where it is now, from its sample's start to its end.
-        {
-            const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);
-            g.setColour(theme::gridBar.withAlpha(0.5f));
-            g.fillRoundedRectangle(r, 2.0f);
-            if (live_.valid && ((live_.pcmPlaying >> ch) & 1))
-            {
-                const double from = start, to = (pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8;
-                const double now = live_.pcmAddress[static_cast<size_t>(ch)] & 0xFFFF;
-                const float fraction = to > from ? static_cast<float>(std::clamp((now - from) / (to - from), 0.0, 1.0)) : 0.0f;
-                g.setColour(accent.withAlpha(0.45f));
-                g.fillRoundedRectangle(r.withWidth(r.getWidth() * fraction), 2.0f);
-                g.setColour(juce::Colours::white);
-                g.fillRect(r.getX() + r.getWidth() * fraction - 1.0f, r.getY() - 2.0f, 2.0f, r.getHeight() + 4.0f);
-            }
-        }
         for (const int side : { 0x02, 0x03 })
         {
             const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);
