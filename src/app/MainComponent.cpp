@@ -1419,8 +1419,11 @@ bool MainComponent::open(const juce::File& file)
 
 void MainComponent::openDialog()
 {
-    chooser_ = std::make_unique<juce::FileChooser>("Open a VGM rip", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                   "*.vgz;*.vgm");
+    // In the folder of the file opened last, the one open now; else the home folder.
+    const juce::File folder = model_.hasTune() && model_.file().getParentDirectory().isDirectory()
+                                  ? model_.file().getParentDirectory()
+                                  : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    chooser_ = std::make_unique<juce::FileChooser>("Open a VGM rip", folder, "*.vgz;*.vgm");
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this](const juce::FileChooser& c) {
                               if (c.getResult().existsAsFile())
