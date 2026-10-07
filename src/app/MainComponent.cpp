@@ -1002,18 +1002,24 @@ void SlidingStrip::resized()
 
 void SlidingStrip::mouseMove(const juce::MouseEvent& e)
 {
-    setMouseCursor(!open_ ? juce::MouseCursor::NormalCursor : e.y < kEdge ? juce::MouseCursor::UpDownResizeCursor : contentCursor());
+    setMouseCursor(!open_                   ? juce::MouseCursor::NormalCursor
+                   : e.y < kEdge             ? juce::MouseCursor::UpDownResizeCursor
+                   : e.x >= headerWidth_     ? contentCursor()
+                                             : juce::MouseCursor::NormalCursor);
 }
 
 void SlidingStrip::mouseDown(const juce::MouseEvent& e)
 {
+    // The top edge resizes; the content, right of the header, takes the
+    // rest; the header itself takes no clicks but its buttons'.
     resizing_ = open_ && e.y < kEdge;
+    inContent_ = open_ && !resizing_ && e.x >= headerWidth_;
     if (resizing_)
     {
         resizeFromY_ = e.getScreenY();
         resizeFromHeight_ = getHeight();
     }
-    else if (open_)
+    else if (inContent_)
         contentDown(e);
 }
 
@@ -1025,14 +1031,15 @@ void SlidingStrip::mouseDrag(const juce::MouseEvent& e)
         if (onHeight)
             onHeight(resizeFromHeight_ + resizeFromY_ - e.getScreenY());
     }
-    else if (open_)
+    else if (inContent_)
         contentDrag(e);
 }
 
 void SlidingStrip::mouseUp(const juce::MouseEvent& e)
 {
-    if (!resizing_ && open_)
+    if (inContent_)
         contentUp(e);
+    inContent_ = false;
 }
 
 float SlidingStrip::contentAlpha() const

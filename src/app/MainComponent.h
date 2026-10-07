@@ -169,6 +169,7 @@ private:
     bool open_ = true;
     int headerWidth_ = 200;
     bool resizing_ = false;
+    bool inContent_ = false; // the press began in the content, right of the header
     int resizeFromY_ = 0, resizeFromHeight_ = 0; // screen y and height where the edge drag began
 };
 
