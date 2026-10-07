@@ -267,7 +267,7 @@ levels, how many commands it receives a second (WRITES), and its last command (L
 
 | Chip | What its section shows |
 | --- | --- |
-| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a row of settings for each of its four operators. The switch in a card's header draws the channel instead: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. |
+| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
 | Sega PCM | A map of the samples the song plays, in rows by 64KB bank, where a playing sample lights up and, when its tile has room, shows the address being read. Below it, a row for each of the 16 channels with its start, loop and end addresses, its playback rate, its flags, its bank, its two volumes and its output level. |
 
 Rest the pointer on any label in the view to see what it means.
