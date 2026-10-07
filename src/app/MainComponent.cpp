@@ -1308,8 +1308,8 @@ void PianoStrip::paint(juce::Graphics& g)
     const float blackWidth = keyWidth * 0.57f, blackHeight = area.getHeight() * 0.58f; // a black key, against a white one
     // Names grow with the keys: the octave on each C, and the notes sounding.
     const float octaveSize = juce::jlimit(7.0f, 24.0f, std::min(keyWidth * 0.5f, area.getHeight() * 0.32f));
-    const float nameSize = juce::jlimit(13.0f, 32.0f, std::min(keyWidth * 0.6f, area.getHeight() * 0.42f));
-    const float blackNameSize = std::max(11.0f, nameSize * 0.75f); // the black keys are smaller
+    // The notes' names, one size on white and black keys: as a black key allows.
+    const float nameSize = std::max(11.0f, 0.75f * juce::jlimit(13.0f, 32.0f, std::min(keyWidth * 0.6f, area.getHeight() * 0.42f)));
 
     // White keys, then black keys over them.
     float x = area.getX();
@@ -1364,7 +1364,7 @@ void PianoStrip::paint(juce::Graphics& g)
         if (!on[static_cast<size_t>(k)] || !names_.getToggleState())
             continue;
         const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
-        const float size = black ? blackNameSize : nameSize;
+        const float size = nameSize;
         juce::GlyphArrangement glyphs;
         glyphs.addLineOfText(theme::mono(size, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
         const auto bounds = glyphs.getBoundingBox(0, -1, true);
