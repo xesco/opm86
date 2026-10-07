@@ -1,11 +1,11 @@
-# Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and keeps
-# each app as a build artifact. A tag such as v0.2.0 also publishes the three
-# apps as a GitHub release.
+# Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and
+# publishes the three apps as a GitHub release, when make release pushes a tag
+# such as v0.2.0. For a pull request, or run by hand from the Actions tab, it
+# builds and tests only, and keeps the apps as downloads on the run's page.
 name: Build
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -81,10 +81,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+      # The release's notes are its section of CHANGELOG.md, which make release wrote.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" OPM86-Player-* --repo "${{ github.repository }}" --title "OPM86 Player ${{ github.ref_name }}" --generate-notes
+        run: |
+          awk -v tag="${{ github.ref_name }}" '/^## / { on = ($2 == tag); next } on' CHANGELOG.md > notes.md
+          gh release create "${{ github.ref_name }}" OPM86-Player-* --title "OPM86 Player ${{ github.ref_name }}" --notes-file notes.md
