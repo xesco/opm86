@@ -802,7 +802,7 @@ juce::Rectangle<float> ChipView::paintBus(juce::Graphics& g, juce::Rectangle<flo
         ++count;
     const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
 
-    // A frame at the header's right end; inside, each readout a label and
+    // At the header's right end, after a divider, each readout a label and
     // then its value in a box as wide as its widest value, so nothing moves
     // as the numbers change. Short of room, the count alone.
     const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
@@ -814,11 +814,10 @@ juce::Rectangle<float> ChipView::paintBus(juce::Graphics& g, juce::Rectangle<flo
     const float frameW = (both ? writesW + gap + lastW : writesW) + 2.0f * framePad;
     if (area.getWidth() < frameW)
         return area;
-    const auto frame = area.removeFromRight(frameW).expanded(0.0f, 3.0f); // taller than the header line, for room above and below
-    g.setColour(theme::background.withAlpha(0.4f));
-    g.fillRoundedRectangle(frame, 6.0f);
-    g.setColour(accent.withAlpha(0.3f));
-    g.drawRoundedRectangle(frame.reduced(0.5f), 6.0f, 1.0f);
+    // No frame: a divider before the readouts, as around the meters.
+    const auto frame = area.removeFromRight(frameW).expanded(0.0f, 3.0f);
+    g.setColour(theme::gridBar.withAlpha(0.7f));
+    g.fillRect(frame.getX(), frame.getY() + 4.0f, 1.0f, frame.getHeight() - 8.0f);
     auto row = frame.reduced(framePad, 0.0f);
     const auto field = [&](float width, const juce::String& label, const juce::String& value) {
         auto r = row.removeFromLeft(width);
