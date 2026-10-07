@@ -526,11 +526,6 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     }
 }
 
-juce::String TopBar::getTooltip()
-{
-    return model_.hasTune() && fileArea_.contains(getMouseXYRelative()) ? model_.file().getFullPathName() : juce::String();
-}
-
 void TopBar::rewind()
 {
     // To the selection's start if there is one, else the song's; the view a beat before.
@@ -619,7 +614,6 @@ void TopBar::paint(juce::Graphics& g)
         c.removeFromLeft(10);
         g.setFont(theme::mono(13.0f, true));
         g.setColour(theme::text);
-        fileArea_ = c;
         g.drawText(model_.file().getFileName(), c.withTrimmedBottom(c.getHeight() / 2), juce::Justification::bottomLeft, true);
         g.setFont(theme::mono(12.0f));
         g.setColour(theme::dim);

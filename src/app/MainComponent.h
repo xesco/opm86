@@ -52,7 +52,7 @@ private:
 
 // The transport and song display along the top: title, rewind, play, stop
 // and to the end, LED counters, the file, the master volume and Open.
-class TopBar : public juce::Component, public juce::TooltipClient
+class TopBar : public juce::Component
 {
 public:
     TopBar(AppModel& model, TrackerView& view);
@@ -62,7 +62,6 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    juce::String getTooltip() override; // the file's full path, over its name
 
     std::function<void()> onOpen;
 
@@ -73,7 +72,7 @@ private:
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
     VolumeKnob master_;
-    juce::Rectangle<int> counters_, fileArea_, masterArea_;
+    juce::Rectangle<int> counters_, masterArea_;
 };
 
 // The tool bar under the top bar: the playhead, follow and loop toggles, the
