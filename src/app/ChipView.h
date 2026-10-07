@@ -41,7 +41,9 @@ private:
     // How many writes a second, and the last, at the area's right end;
     // returns the room left beside it.
     juce::Rectangle<float> paintBus(juce::Graphics&, juce::Rectangle<float> area, bool fm, juce::Colour accent);
-    void paintChipOutput(juce::Graphics&, juce::Rectangle<float> area, bool fm); // the chip's output, left and right meters
+    // The chip's output, left and right meters: at the room's right end, or
+    // at its left end between two dividers when leading.
+    void paintChipOutput(juce::Graphics&, juce::Rectangle<float> area, bool fm, bool leading = false);
     // A meter as a track's, level 0..1 along it; hold: which peak hold it
     // keeps, 0 to 23 the chip channels, 24 to 27 the chips' outputs.
     void paintMeter(juce::Graphics&, juce::Rectangle<float> area, float level, int hold);

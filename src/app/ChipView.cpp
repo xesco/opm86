@@ -276,8 +276,8 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     auto inner = section(g, area, "YM2151", role, accent);
     // The bus, in the header after the title.
     {
-        const auto rest = paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role)), true, accent);
-        paintChipOutput(g, rest.withTrimmedRight(12.0f), true);
+        const auto rest = paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role) - 10.0f), true, accent);
+        paintChipOutput(g, rest.withTrimmedRight(12.0f), true, true); // right after the title, between dividers
     }
 
     // The chip-wide settings, in a card of their own like a channel's: a
@@ -869,13 +869,21 @@ void ChipView::paintMeter(juce::Graphics& g, juce::Rectangle<float> area, float 
     }
 }
 
-void ChipView::paintChipOutput(juce::Graphics& g, juce::Rectangle<float> area, bool fm)
+void ChipView::paintChipOutput(juce::Graphics& g, juce::Rectangle<float> area, bool fm, bool leading)
 {
-    // Two thin meters, left over right, at the room's right end, labelled.
-    const float width = std::min(area.getWidth(), 200.0f);
+    // Two thin meters, left over right, labelled; leading, they follow the
+    // title between two dividers.
+    constexpr float kRule = 14.0f; // a divider's room, the line in its middle
+    const float width = std::min(area.getWidth() - (leading ? 2.0f * kRule : 0.0f), 200.0f);
     if (width < 60.0f)
         return;
-    auto box = area.removeFromRight(width).withSizeKeepingCentre(width, 22.0f);
+    auto box = (leading ? area.withTrimmedLeft(kRule).removeFromLeft(width) : area.removeFromRight(width)).withSizeKeepingCentre(width, 22.0f);
+    if (leading)
+    {
+        g.setColour(theme::gridBar.withAlpha(0.7f));
+        for (const float x : { box.getX() - kRule * 0.5f, box.getRight() + kRule * 0.5f })
+            g.fillRect(x, box.getY() - 2.0f, 1.0f, box.getHeight() + 4.0f);
+    }
     g.setFont(theme::mono(11.0f));
     const auto labels = box.removeFromLeft(14.0f);
     const int first = fm ? 0 : 2;
