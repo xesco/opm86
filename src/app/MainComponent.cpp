@@ -11,7 +11,7 @@ namespace
 {
 
 constexpr int kTopHeight = 64;
-constexpr int kToolHeight = 44;
+constexpr int kToolHeight = 52;
 constexpr int kOverviewHeight = 54; // the overview's least height
 constexpr int kPianoHeight = 66;    // the keys' least height
 constexpr int kStripMaxHeight = 132; // both strips' greatest height; they open at 70% of it
@@ -838,7 +838,7 @@ void ToolBar::refresh()
 void ToolBar::resized()
 {
     // Groups left to right, a wider gap between them; the zoom at the right.
-    auto r = getLocalBounds().reduced(14, 0).withTrimmedBottom(2);
+    auto r = getLocalBounds().reduced(14, 0).withTrimmedBottom(10); // room above the stripe
     auto button = [&](juce::Component& c, int width = 34) {
         c.setBounds(r.removeFromLeft(width).withSizeKeepingCentre(width, 28));
         r.removeFromLeft(6);
