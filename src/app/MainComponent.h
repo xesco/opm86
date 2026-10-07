@@ -13,7 +13,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames, Close };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -62,8 +62,10 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    void songChanged(); // a song opened or closed: the close button follows its name
 
     std::function<void()> onOpen;
+    std::function<void()> onClose;
 
 private:
     AppModel& model_;
@@ -71,6 +73,7 @@ private:
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
+    IconButton close_ { IconButton::Icon::Close }; // after the song's name
     VolumeKnob master_;
     juce::Rectangle<int> counters_, masterArea_;
 };
@@ -84,6 +87,7 @@ public:
     ToolBar(AppModel& model, TrackerView& view);
 
     void songOpened(); // a new song: its first time zoom as the zoom's home
+    void showTracks(); // the chips' view off, if it is on
     void syncZoom();   // the zoom sliders follow the view, however it was zoomed
     void syncSelection(); // the start and end fields follow the selection, unless being typed in
     void refresh();    // the M/S shortcuts light up as the tracks' solos stand
@@ -234,6 +238,8 @@ public:
     bool open(const juce::File& file);
     void openDialog();
     std::function<void(const juce::File&)> onOpened; // a file was opened
+    std::function<void()> onClosed;                  // the song was closed
+    void close();                                    // closes the song, back to the songs to start with
     std::function<void()> onColoursChanged;            // a pitch colour was chosen or reset
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }

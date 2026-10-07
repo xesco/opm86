@@ -77,6 +77,11 @@ public:
             if (auto* user = settings_.getUserSettings())
                 user->setValue("lastFile", file.getFullPathName()), user->saveIfNeeded();
         };
+        // Closed, the next launch opens on the songs to start with.
+        content->onClosed = [this] {
+            if (auto* user = settings_.getUserSettings())
+                user->removeValue("lastFile"), user->saveIfNeeded();
+        };
         content->onColoursChanged = [this] {
             if (auto* user = settings_.getUserSettings())
                 user->setValue("pitchColours", theme::pitchColoursText()), user->saveIfNeeded();

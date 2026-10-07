@@ -121,6 +121,10 @@ Click **Open** in the top bar or press Cmd+O to choose a `.vgz` or `.vgm` file, 
 file on the window. When the app starts, it opens the song you played last. The app also
 remembers the size and place of its window and the pitch colours you chose.
 
+To close the song, click the **×** after its name in the top bar or press Cmd+W. The window
+then shows the links to songs to start with (see [Get songs](#get-songs)), and the next
+launch opens on them instead of the last song.
+
 ### The window
 
 The window has six areas, from top to bottom:
@@ -190,6 +194,7 @@ The keyboard controls the song like this:
 | Cmd+= and Cmd+- | Zooms in and out in time |
 | Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
 | Escape | Drops the selection |
+| Cmd+W | Closes the song |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
 the song plays to its end, the playhead goes back to the start 1s later. The mouse moves

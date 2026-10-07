@@ -221,6 +221,15 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
         case Icon::Stop:
             p.addRectangle(box.reduced(1.0f));
             break;
+        case Icon::Close: // an X
+        {
+            const auto x = box.reduced(3.0f);
+            juce::Path cross;
+            cross.startNewSubPath(x.getTopLeft()), cross.lineTo(x.getBottomRight());
+            cross.startNewSubPath(x.getTopRight()), cross.lineTo(x.getBottomLeft());
+            juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, cross);
+            break;
+        }
         case Icon::Playhead: // the playhead: a line under a small triangle
             p.addTriangle(box.getCentreX() - 5.0f, box.getY(), box.getCentreX() + 5.0f, box.getY(), box.getCentreX(), box.getY() + 6.0f);
             p.addRectangle(box.getCentreX() - 1.0f, box.getY(), 2.0f, box.getHeight());
@@ -524,6 +533,13 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
     }
+    close_.setTooltip("Close (Cmd+W)");
+    close_.setWantsKeyboardFocus(false);
+    close_.onClick = [this] {
+        if (onClose)
+            onClose();
+    };
+    addChildComponent(close_); // shown while a song is open
 }
 
 void TopBar::rewind()
@@ -571,6 +587,21 @@ void TopBar::resized()
     masterArea_ = r.removeFromRight(80);
     r.removeFromRight(14);
     counters_ = r;
+    songChanged();
+}
+
+void TopBar::songChanged()
+{
+    // Right after the name, which paint draws after the three counters, in
+    // the top half of what they leave.
+    close_.setVisible(model_.hasTune());
+    if (!model_.hasTune())
+        return;
+    const int nameX = counters_.getX() + 130 + 6 + 120 + 6 + 80 + 10;
+    const int nameW = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), model_.file().getFileName());
+    const int x = std::min(nameX + nameW + 8, masterArea_.getX() - 34);
+    close_.setBounds(x, counters_.getY() + counters_.getHeight() / 2 - 18, 20, 20);
+    repaint();
 }
 
 void TopBar::paint(juce::Graphics& g)
@@ -750,6 +781,15 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     heightZoom_.onValueChange = [this] {
         view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
     };
+}
+
+void ToolBar::showTracks()
+{
+    if (!chips_.getToggleState())
+        return;
+    chips_.setToggleState(false, juce::dontSendNotification);
+    if (onChips)
+        onChips(false);
 }
 
 void ToolBar::songOpened()
@@ -1441,6 +1481,7 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
+    top_.onClose = [this] { close(); };
     overview_.onHeight = [this](int height) {
         overviewHeight_ = std::clamp(height, kOverviewHeight, kStripMaxHeight);
         overview_.openHeight = overviewHeight_;
@@ -1505,9 +1546,25 @@ bool MainComponent::open(const juce::File& file)
     overview_.setHeaderWidth(view_.headerWidth());
     view_.grabKeyboardFocus();
     updateTitle();
+    top_.songChanged();
     if (onOpened)
         onOpened(file);
     return true;
+}
+
+void MainComponent::close()
+{
+    if (!model_.hasTune())
+        return;
+    model_.close();
+    tools_.showTracks(); // the songs to start with are in the tracks' place
+    status_ = {};
+    updateTitle();
+    top_.songChanged();
+    view_.repaint();
+    repaint();
+    if (onClosed)
+        onClosed();
 }
 
 void MainComponent::openDialog()
@@ -1709,6 +1766,8 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
             model_.play();
         return true;
     }
+    if (key == juce::KeyPress('w', juce::ModifierKeys::commandModifier, 0))
+        return close(), true;
     if (key == juce::KeyPress('o', juce::ModifierKeys::commandModifier, 0))
         return openDialog(), true;
     if (key == juce::KeyPress::returnKey || key == juce::KeyPress::homeKey)

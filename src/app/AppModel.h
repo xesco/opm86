@@ -26,6 +26,7 @@ public:
     ~AppModel() override;
 
     bool open(const juce::File& file, juce::String& error);
+    void close(); // stops, and leaves no song open
     bool hasTune() const { return tune_ != nullptr; }
     const Tune& tune() const { return *tune_; }
     const juce::File& file() const { return file_; } // the rip open now

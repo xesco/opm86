@@ -255,7 +255,10 @@ void ChipView::paint(juce::Graphics& g)
     g.fillAll(theme::background);
     tips_.clear();
     if (!model_.hasTune())
+    {
+        song_ = nullptr; // so a song opened next is read from its start, wherever it lands
         return;
+    }
     catchUp();
     live_ = model_.chipState();
     const double started = juce::Time::getMillisecondCounterHiRes();
