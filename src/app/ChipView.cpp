@@ -597,9 +597,13 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
             case ChipState::Stage::Release: segment = 3, fraction = along(now, held, 0.0f); break;
             case ChipState::Stage::Off: break;
         }
+        // On the drawn line: across its stretch by how far the stage has
+        // gone, at the line's height there.
+        const float levels[5] = { 0.0f, 1.0f, sustain, held, 0.0f };
         juce::Point<float> dot;
         if (segment >= 0)
-            dot = { x(times[segment] + (times[segment + 1] - times[segment]) * fraction), y(now) };
+            dot = { x(times[segment] + (times[segment + 1] - times[segment]) * fraction),
+                    y(levels[segment] + (levels[segment + 1] - levels[segment]) * fraction) };
         juce::Path fill(shape);
         fill.closeSubPath();
         g.setColour(accent.withAlpha(on ? 0.3f : 0.08f));
