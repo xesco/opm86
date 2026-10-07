@@ -832,7 +832,10 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     // The channels at the YM2151's size at the bottom, the samples above in the rest.
     const float valueFont = fmFont_;
     const auto table = inner.removeFromBottom(valueFont * 1.6f * 16.7f);
-    inner.removeFromBottom(12.0f);
+    // A line between the samples and the channels.
+    const auto between = inner.removeFromBottom(20.0f);
+    g.setColour(theme::gridBar.withAlpha(0.6f));
+    g.fillRect(between.getX(), between.getCentreY(), between.getWidth(), 1.0f);
     paintSampleMap(g, inner, accent);
     paintPcmTable(g, table, accent, valueFont);
 }
@@ -853,7 +856,8 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
         g.drawText("No samples in this song", area, juce::Justification::centred, false);
         return;
     }
-    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), fmFont_ * 4.0f);
+    // The rows share the room, short of growing past 90 pixels each.
+    const float rowH = std::min(area.getHeight() / static_cast<float>(banks.size()), 90.0f);
     const float font = std::clamp(rowH * 0.5f, 10.0f, fmFont_); // as big as the YM2151 values, short of half a row
     const float labelW = font * 4.2f, gap = 4.0f;
     for (size_t b = 0; b < banks.size(); ++b)
