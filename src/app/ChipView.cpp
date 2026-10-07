@@ -947,14 +947,21 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             g.drawRoundedRectangle(tile.reduced(0.5f), 4.0f, playing ? 1.5f : 1.0f);
             g.setFont(theme::mono(font, playing));
             g.setColour(playing ? theme::text : theme::faint);
-            if (tile.getWidth() > font * 2.8f)
-                g.drawText(hex(static_cast<int>(s->start), 4), tile.reduced(4.0f, 2.0f), juce::Justification::centred, false); // in place, lit or not
+            // The address in place, lit or not, smaller in a narrow tile; left
+            // out only where even 8 points do not fit.
+            const auto text = tile.reduced(3.0f, 2.0f);
+            const float fits = std::min(font, text.getWidth() / 2.6f); // four hex digits are about 2.6 font sizes wide
+            if (fits >= 8.0f)
+            {
+                g.setFont(theme::mono(fits, playing));
+                g.drawText(hex(static_cast<int>(s->start), 4), text, juce::Justification::centred, false);
+            }
             if (playing)
             {
                 g.setColour(accent);
                 g.drawText(players, tile.reduced(4.0f, 2.0f), juce::Justification::topRight, false);
                 // Where the first of them reads now, in the bank, room allowing.
-                if (fraction >= 0.0f && tile.getWidth() > font * 6.5f)
+                if (fraction >= 0.0f && fits >= 8.0f)
                 {
                     int now = 0;
                     for (int ch = 0; ch < 16; ++ch)
@@ -964,7 +971,8 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
                             break;
                         }
                     g.setColour(theme::text);
-                    g.drawText(hex(now, 4), tile.reduced(4.0f, 2.0f), juce::Justification::bottomRight, false);
+                    g.setFont(theme::mono(fits * 0.85f, true));
+                    g.drawText(hex(now, 4), text, juce::Justification::bottomRight, false);
                 }
             }
         }
