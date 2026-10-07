@@ -16,6 +16,7 @@ namespace
 constexpr double kGlow = 0.25 * kVgmRate; // a written value glows this long
 constexpr float kBankRow = 56.0f;          // the tallest a bank's row in the sample map grows
 constexpr float kMeterRoom = 150.0f;       // a chip header keeps this for its output meters before its write box
+constexpr float kRule = 20.0f;             // a divider in a chip header: its room, the line in its middle
 constexpr double kNever = -1.0e18;
 
 // The operators in register order, and each one's key-on bit in a 0x08 write.
@@ -266,15 +267,29 @@ void ChipView::paint(juce::Graphics& g)
 void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::cyan;
-    const juce::String role; // the chip's name alone, its meters right after it
-    auto inner = section(g, area, "YM2151", role, accent);
-    // The bus, in the header after the title.
+    auto inner = section(g, area, "YM2151", {}, accent);
+    // The header after the name: the output meters, then what the chip is,
+    // then the write readouts at the right end, a line between each.
     {
-        // The meters keep kMeterRoom after the title; the write box takes
-        // its share of the rest, and the meters any it leaves.
-        const auto header = area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role) - 10.0f);
-        const auto rest = paintBus(g, header.withTrimmedLeft(kMeterRoom), true, accent);
-        paintChipOutput(g, header.withRight(rest.getRight()).withTrimmedRight(12.0f), true, true); // right after the title, between dividers
+        const juce::String role = juce::String::fromUTF8("FM  \xc2\xb7  8 CHANNELS  \xc2\xb7  4 OPERATORS EACH");
+        const auto roleFont = theme::mono(15.0f, true);
+        const float roleW = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(roleFont, role)) + kRule;
+        auto header = area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", {}) - 10.0f);
+        const auto rest = paintBus(g, header.withTrimmedLeft(kMeterRoom + roleW), true, accent);
+        header = header.withRight(rest.getRight());
+        // The role as wide as its text after its line; the meters fill the
+        // rest, so every line has the same room on each side.
+        const bool roleFits = header.getWidth() - roleW >= kMeterRoom;
+        auto roleArea = roleFits ? header.removeFromRight(roleW) : juce::Rectangle<float>();
+        paintChipOutput(g, header.withTrimmedRight(kRule * 0.5f), true, true);
+        if (roleFits)
+        {
+            g.setColour(theme::gridBar.withAlpha(0.7f));
+            g.fillRect(roleArea.getX(), roleArea.getCentreY() - 13.0f, 1.0f, 26.0f);
+            g.setFont(roleFont);
+            g.setColour(theme::dim);
+            g.drawText(role, roleArea.withTrimmedLeft(kRule * 0.5f), juce::Justification::centredLeft, false);
+        }
     }
 
     // The chip-wide settings, in a card of their own like a channel's: a
@@ -800,7 +815,7 @@ juce::Rectangle<float> ChipView::paintBus(juce::Graphics& g, juce::Rectangle<flo
     // as the numbers change. Short of room, the count alone.
     const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
     auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
-    const float gap = 12.0f, pad = 8.0f, framePad = 8.0f, labelGap = 6.0f;
+    const float gap = 12.0f, pad = 8.0f, framePad = kRule * 0.5f, labelGap = 6.0f;
     auto fieldW = [&](const juce::String& label, const juce::String& widest) { return widthOf(labelFont, label) + labelGap + widthOf(valueFont, widest) + 2.0f * pad; };
     const float writesW = fieldW("WRITES", "9999/s"), lastW = fieldW("LAST", "FF=FF");
     const bool both = area.getWidth() >= writesW + gap + lastW + 2.0f * framePad;
@@ -869,8 +884,7 @@ void ChipView::paintChipOutput(juce::Graphics& g, juce::Rectangle<float> area, b
 {
     // Two thin meters, left over right, labelled; leading, they follow the
     // title after a divider.
-    constexpr float kRule = 14.0f; // a divider's room, the line in its middle
-    const float width = std::min(area.getWidth() - (leading ? 2.0f * kRule : 0.0f), 200.0f);
+    const float width = leading ? area.getWidth() - kRule : std::min(area.getWidth(), 200.0f); // leading, they fill the room
     if (width < 60.0f)
         return;
     auto box = (leading ? area.withTrimmedLeft(kRule).removeFromLeft(width) : area.removeFromRight(width)).withSizeKeepingCentre(width, 22.0f);
@@ -906,7 +920,7 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
         // its share of the rest, and the meters any it leaves.
         const auto header = area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("SEGAPCM", role) - 10.0f);
         const auto rest = paintBus(g, header.withTrimmedLeft(kMeterRoom), false, accent);
-        paintChipOutput(g, header.withRight(rest.getRight()).withTrimmedRight(12.0f), false, true); // right after the title, between dividers
+        paintChipOutput(g, header.withRight(rest.getRight()).withTrimmedRight(kRule * 0.5f), false, true); // after the name, filling to the write box
     }
     // The channels at the YM2151's size at the bottom, the samples above in the rest.
     // The samples as tall as their banks need, out of the room the channels
