@@ -16,7 +16,7 @@
 namespace opm86
 {
 
-// The tracker's state: the open tune and its edits, undo, the background
+// The player's state: the open tune and its edits, undo, the background
 // builds, and exact playback on the audio device. Message thread, except
 // where marked.
 class AppModel : public juce::ChangeBroadcaster, private juce::Timer, private juce::AudioIODeviceCallback
@@ -37,6 +37,8 @@ public:
 
     // Per chip channel, 8 FM then 16 PCM: the loudest output since the last call.
     std::array<float, SongPlayer::kMeterChannels> takePeaks() { return player_.takePeaks(); }
+    ChipState chipState() const { return player_.chipState(); } // the chips as they play, from the audio thread
+    std::array<float, 4> takeChipPeaks() { return player_.takeChipPeaks(); } // each chip's output: FM left, right, PCM left, right
     bool ready() const { return built_ != nullptr; } // a build exists to play
 
     // Change the tune, as one step of undo; with newStep false, as part of the
@@ -48,10 +50,30 @@ public:
     void stop();
     bool playing() const { return playing_.load(); }
     double position() const { return position_.load(); } // song time, VGM samples
+    bool takeEnded() { return ended_.exchange(false); } // whether playing stopped at the song's end since the last call
     // The position now, between audio blocks, for a playhead that moves smoothly.
     double displayPosition() const;
     void setPosition(double songTime);
+    // Stopped, move to a song time and let a moment of it sound; a run of
+    // these sounds on while they come.
+    void scrub(double songTime);
     void setMonitor(bool on) { monitor_.store(on); } // off: plays and meters, but outputs silence
+    void setSpeed(double speed) { speed_.store(speed); } // tempo, 1 as made; the pitch stays
+    // The whole output, in dB; this app's sound only, under the system volume.
+    void setMasterVolume(float dB) { master_.store(dB <= TuneTrack::kSilent ? 0.0f : juce::Decibels::decibelsToGain(dB)); }
+    double speed() const { return speed_.load(); }
+
+    // A section of the song, in VGM samples: the playhead goes to its start,
+    // and playing from inside it stops at its end, or loops. Moving the
+    // playhead out of it clears it.
+    void setSelection(double start, double end, bool keepPlayhead = false); // keepPlayhead: unless it falls outside
+    void clearSelection();
+    bool hasSelection() const { return selectionEnd_.load() > selectionStart_.load(); }
+    double selectionStart() const { return selectionStart_.load(); }
+    double selectionEnd() const { return selectionEnd_.load(); }
+    // Loop: the selection over and over, or the whole song without one.
+    void setLoop(bool on) { loop_.store(on); }
+    bool loop() const { return loop_.load(); }
 
 private:
     class TracksChange;
@@ -59,6 +81,7 @@ private:
 
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
+    void sendMix(); // sends the tracks' mute, solo and volume to the player
     void timerCallback() override;
 
     // AudioIODeviceCallback (audio thread)
@@ -75,7 +98,10 @@ private:
     BuildReport report_;
     int reportRevision_ = 0;
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
+    std::atomic<double> selectionStart_ { 0.0 }, selectionEnd_ { 0.0 }; // empty when the end is not past the start
+    std::atomic<bool> loop_ { false };
     std::deque<TuneVersion> keep_;          // recent versions, freed here, never on the audio thread
+    std::deque<std::shared_ptr<const ChannelMix>> mixes_; // and recent mixes
 
     juce::AudioDeviceManager devices_;
     SongPlayer player_; // audio thread
@@ -85,17 +111,23 @@ private:
     {
         std::shared_ptr<const VgmSong> song;
         std::shared_ptr<const SongSnapshots> snapshots;
+        std::shared_ptr<const ChannelMix> mix;
         size_t ymUnchanged = 0, pcmUnchanged = 0;
         bool newSong = false, sameSong = false, fresh = false;
         bool play = false, stop = false;
+        bool scrub = false; // the play is a scrub's moment
         double playAt = 0;
     };
     juce::SpinLock commandLock_;
     Commands commands_;
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
+    int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
 
     std::atomic<bool> playing_ { false };
+    std::atomic<bool> ended_ { false }; // set where playing stops at the song's end
     std::atomic<bool> monitor_ { true };
+    std::atomic<double> speed_ { 1.0 };
+    std::atomic<float> master_ { 1.0f }; // the master volume as a gain
     std::atomic<double> position_ { 0.0 };
     std::atomic<double> positionStamp_ { 0.0 }; // when position_ was set, in ms
     double sampleRate_ = 48000.0;

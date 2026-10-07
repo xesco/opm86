@@ -43,14 +43,22 @@ struct VgmSong
     double beatTime(int beat) const { return firstBeat + beat * beatLength; }
 };
 
-// A beat grid fitted to note start times, in VGM samples: beat k starts
-// at first + k x length, with first from 0 to length.
+// When notes start, in VGM samples: the pitched notes' (the FM key-ons in a
+// rip) and the drum hits' that make a sound.
+struct NoteStarts
+{
+    std::vector<uint32_t> notes, drums;
+};
+
+// A beat grid fitted to note starts: beat k starts at first + k x length,
+// in VGM samples, with beat 1 the beat of the first start. How it is found
+// is told in VgmSong.cpp, before fitBeatGrid.
 struct BeatGrid
 {
     double length = kVgmRate / 2.0;
     double first = 0.0;
 };
-BeatGrid fitBeatGrid(std::vector<uint32_t> starts);
+BeatGrid fitBeatGrid(const NoteStarts& starts);
 
 // Read a .vgm or .vgz file. Returns nullptr and sets error when it holds no
 // YM2151 or SegaPCM writes; a late parse error is set but keeps the song.

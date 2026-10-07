@@ -13,7 +13,7 @@
 namespace opm86
 {
 
-// A song as the tracker edits it: tracks of notes over the split VGM log.
+// A song as the player shows it: tracks of notes over the split VGM log.
 // A track is one part: an FM patch on one chip voice, or one drum sound. A
 // note points at its part of the log and records only what was edited: its
 // start, length, transposition and channel. Building the tune rewrites the
@@ -48,7 +48,7 @@ struct TuneTrack
     std::vector<TuneNote> notes; // in order of start
 };
 
-// What a build did with each note, for the tracker to show.
+// What a build did with each note, for the player to show.
 struct BuildReport
 {
     // Per track, per note: the chip channel it plays on, or -1 when every
@@ -84,7 +84,10 @@ public:
     int pitch(const TuneTrack& track, const TuneNote& note) const;
 
     bool audible(const TuneTrack& track) const;
-    bool audible(const TuneTrack& track, const TuneNote& note) const; // with the voice mutes
+    bool audible(const TuneTrack& track, const TuneNote& note) const; // with the voice mutes, and never a silent hit
+    // A drum hit the game triggers at volume 0 on both sides: a driver
+    // restarting a channel, which makes no sound.
+    bool silentHit(const TuneTrack& track, const TuneNote& note) const;
 
     // The chip channels an FM track's notes came from, highest sounding first;
     // a chord part has one per note of the chord. Empty for a drum track.
@@ -93,8 +96,10 @@ public:
     // An id no note in the tune uses yet, for a copy or a new note.
     int newNoteId() const;
 
-    // The song with every edit applied, ready for the exact player.
-    std::shared_ptr<VgmSong> build(BuildReport* report = nullptr) const;
+    // The song with every edit applied, ready for the exact player. With mix
+    // false, mute, solo and volume are left out, for the player to apply
+    // with a ChannelMix (see mixOf).
+    std::shared_ptr<VgmSong> build(BuildReport* report = nullptr, bool mix = true) const;
 
 private:
     void splitParts(); // one track per FM patch and chip voice, in voice order

@@ -197,8 +197,9 @@ void Tune::splitParts()
 {
     // An FM track is one patch on one chip voice, so every line can be muted,
     // soloed and set apart: a voice plays one note at a time. The tracks go in
-    // voice order, V1 first; a voice that plays several patches has a track for
-    // each, V1 · 1, V1 · 2, most used first. Drum tracks follow, as they were.
+    // voice order, V1 first, each numbered by its patch on the voice, V1 1,
+    // V1 2, most used first, even when the voice plays one patch. Drum tracks
+    // follow, as they were.
     std::vector<TuneTrack> fm, drums;
     for (TuneTrack& track : tracks)
     {
@@ -222,15 +223,11 @@ void Tune::splitParts()
     std::stable_sort(fm.begin(), fm.end(), [&](const TuneTrack& a, const TuneTrack& b) {
         return voiceOf(a) != voiceOf(b) ? voiceOf(a) < voiceOf(b) : a.notes.size() > b.notes.size();
     });
-    std::array<int, 8> count {}, seen {};
-    for (const TuneTrack& t : fm)
-        ++count[static_cast<size_t>(voiceOf(t))];
+    std::array<int, 8> seen {};
     for (TuneTrack& t : fm)
     {
         const auto v = static_cast<size_t>(voiceOf(t));
-        t.name = "V" + std::to_string(v + 1);
-        if (count[v] > 1)
-            t.name += " \xc2\xb7 " + std::to_string(++seen[v]);
+        t.name = "V" + std::to_string(v + 1) + " " + std::to_string(++seen[v]);
     }
     tracks = std::move(fm);
     for (TuneTrack& t : drums)
@@ -279,14 +276,22 @@ int Tune::newNoteId() const
 bool Tune::audible(const TuneTrack& track) const
 {
     const bool anySolo = std::any_of(tracks.begin(), tracks.end(), [](const TuneTrack& t) { return t.solo; });
-    return anySolo ? track.solo : !track.mute;
+    return !track.mute && (!anySolo || track.solo); // a mute wins over a solo
 }
 
 bool Tune::audible(const TuneTrack& track, const TuneNote& note) const
 {
-    if (!audible(track))
+    if (!audible(track) || silentHit(track, note))
         return false;
     return track.kind != TuneTrack::Kind::Fm || ((track.mutedVoices >> originalChannel(track, note)) & 1) == 0;
+}
+
+bool Tune::silentHit(const TuneTrack& track, const TuneNote& note) const
+{
+    if (track.kind != TuneTrack::Kind::Drum || note.source < 0 || static_cast<size_t>(note.source) >= data_->pcmState.size())
+        return false;
+    const auto& regs = data_->pcmState[static_cast<size_t>(note.source)].regs;
+    return regs[0] == 0 && regs[1] == 0; // left and right volume
 }
 
 std::vector<int> Tune::voices(const TuneTrack& track) const
@@ -311,7 +316,7 @@ std::vector<int> Tune::voices(const TuneTrack& track) const
     return result;
 }
 
-std::shared_ptr<VgmSong> Tune::build(BuildReport* report) const
+std::shared_ptr<VgmSong> Tune::build(BuildReport* report, bool mix) const
 {
     BuildReport local;
     BuildReport& rep = report ? *report : local;
@@ -368,8 +373,8 @@ std::shared_ptr<VgmSong> Tune::build(BuildReport* report) const
             }
             busyUntil[static_cast<size_t>(ch)] = std::max(busyUntil[static_cast<size_t>(ch)], note.start + note.length);
 
-            const bool muted = !audible(track, note) || track.volume <= TuneTrack::kSilent;
-            const float volume = std::min(track.volume, TuneTrack::kMaxVolume);
+            const bool muted = mix && (!audible(track, note) || track.volume <= TuneTrack::kSilent);
+            const float volume = mix ? std::min(track.volume, TuneTrack::kMaxVolume) : 0.0f;
             const int steps = static_cast<int>(std::lround(-volume / 0.75f));
             const float gain = std::pow(10.0f, volume / 20.0f);
             const bool moved = note.start != originalStart(track, note) || ch != original;

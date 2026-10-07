@@ -13,91 +13,59 @@ namespace opm86
 namespace
 {
 
-constexpr float kEdge = 6.0f;      // pixels at a note's right end that resize it
-constexpr double kMinLength = 441; // 10 ms, the shortest note
-
-// A small editor for a note's pitch, shown in a callout.
-class PitchEditor : public juce::Component
+// A header's name and the tag right after it: the voice, V1 2, and the patch,
+// FM 6; in patch order the other way round, the voice without its number,
+// V1. Drums have their name alone.
+juce::String headName(const TuneTrack& t, bool byPatch)
 {
-public:
-    PitchEditor(const juce::String& current, std::function<void(int)> apply) : apply_(std::move(apply))
-    {
-        label_.setText("PITCH", juce::dontSendNotification);
-        label_.setFont(theme::pixel(8.0f));
-        label_.setColour(juce::Label::textColourId, theme::orange);
-        addAndMakeVisible(label_);
-        editor_.setFont(theme::mono(18.0f, true));
-        editor_.setText(current, false);
-        editor_.setJustification(juce::Justification::centred);
-        editor_.setColour(juce::TextEditor::backgroundColourId, theme::background);
-        editor_.setColour(juce::TextEditor::textColourId, theme::text);
-        editor_.setColour(juce::TextEditor::outlineColourId, theme::gridBar);
-        editor_.setColour(juce::TextEditor::focusedOutlineColourId, theme::cyan);
-        editor_.onReturnKey = [this] { commit(); };
-        addAndMakeVisible(editor_);
-        setSize(150, 70);
-    }
+    return byPatch && t.kind == TuneTrack::Kind::Fm ? "FM " + juce::String(t.instrument + 1) : juce::String(t.name).toUpperCase();
+}
 
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced(8);
-        label_.setBounds(area.removeFromTop(16));
-        editor_.setBounds(area.removeFromTop(32));
-    }
+juce::String tagName(const TuneTrack& t, bool byPatch)
+{
+    return t.kind != TuneTrack::Kind::Fm ? juce::String()
+           : byPatch                     ? juce::String(t.name).upToFirstOccurrenceOf(" ", false, false).toUpperCase()
+                                         : "FM " + juce::String(t.instrument + 1);
+}
 
-    void visibilityChanged() override
-    {
-        if (isShowing())
-        {
-            editor_.grabKeyboardFocus();
-            editor_.selectAll();
-        }
-    }
+// The width an FM part's tag takes after the name, gap included; 0 for drums.
+int instrumentWidth(const TuneTrack& t, bool byPatch)
+{
+    return t.kind == TuneTrack::Kind::Fm ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), tagName(t, byPatch)) : 0;
+}
 
-private:
-    // Accepts "C#5", "c-4", "Bb3", "60".
-    void commit()
-    {
-        const juce::String t = editor_.getText().trim().toUpperCase().removeCharacters("-");
-        int note = -1;
-        if (t.containsOnly("0123456789"))
-            note = t.getIntValue();
-        else if (t.isNotEmpty())
-        {
-            static const int kBase[7] = { 9, 11, 0, 2, 4, 5, 7 }; // A..G
-            const juce::juce_wchar letter = t[0];
-            if (letter >= 'A' && letter <= 'G')
-            {
-                int pc = kBase[letter - 'A'];
-                int i = 1;
-                if (t[i] == '#')
-                    ++pc, ++i;
-                else if (t[i] == 'B')
-                    --pc, ++i;
-                const juce::String octave = t.substring(i);
-                if (octave.isNotEmpty() && octave.trimCharactersAtStart("-").containsOnly("0123456789"))
-                    note = (octave.getIntValue() + 1) * 12 + pc;
-            }
-        }
-        if (note >= 0 && note <= 127)
-        {
-            apply_(note);
-            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
-                box->dismiss();
-        }
-        else
-            editor_.setColour(juce::TextEditor::outlineColourId, theme::danger);
-    }
-
-    juce::Label label_;
-    juce::TextEditor editor_;
-    std::function<void(int)> apply_;
-};
+// Header layout; see the comment before voicePill.
+constexpr int kVoiceColumn = 44; // width of the voice toggles' column
+constexpr int kChipColumn = 24;  // width of the chip's column, at the left edge
+constexpr int kKnobColumn = 48;  // width of the dB under the knob
+constexpr int kKnob = 32;        // the knob's size
+constexpr int kBlock = 44;       // height of the name and meter block
+constexpr int kMinHeaderWidth = 150; // room for TRACKS and the strips' names and chevrons
+constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
 
 } // namespace
 
+const TrackerView::LabelShapes& TrackerView::labelShapes(const juce::String& label, float height) const
+{
+    // Sizes to half a pixel, so a zoom makes only a few new ones.
+    const int size = static_cast<int>(std::lround(height * 2.0f));
+    const auto key = std::make_pair(label, size);
+    if (auto it = labels_.find(key); it != labels_.end())
+        return it->second;
+    if (labels_.size() > 2000)
+        labels_.clear();
+    const float h = static_cast<float>(size) * 0.5f;
+    LabelShapes shapes;
+    juce::GlyphArrangement glyphs;
+    glyphs.addLineOfText(theme::mono(h, true), label, 0.0f, 0.0f);
+    glyphs.createPath(shapes.text);
+    juce::PathStrokeType(std::max(2.0f, h * 0.16f), juce::PathStrokeType::curved).createStrokedPath(shapes.outline, shapes.text);
+    return labels_.emplace(key, std::move(shapes)).first->second;
+}
+
 TrackerView::TrackerView(AppModel& model) : model_(model)
 {
+    setOpaque(true); // it paints every pixel, so nothing behind it repaints
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
 }
@@ -109,9 +77,6 @@ TrackerView::~TrackerView()
 
 void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
 {
-    // Drop selected notes that no longer exist.
-    for (auto it = selection_.begin(); it != selection_.end();)
-        it = indexOf(*it) < 0 ? selection_.erase(it) : std::next(it);
     repaint();
 }
 
@@ -175,11 +140,53 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.voices.push_back(std::move(voices));
         const bool collapsed = layout_.rows.back() > 1 && collapsed_.count(static_cast<int>(layout_.shown.size())) > 0;
         layout_.shown.push_back(collapsed ? 1 : layout_.rows.back());
-        layout_.firstRow.push_back(layout_.totalRows);
         layout_.totalRows += layout_.shown.back();
         layout_.longest.push_back(longest);
         layout_.index.push_back(std::move(index));
+
+        // The names, each with its tag, share a column as wide as the widest,
+        // so mute and solo line up; the knobs go after them.
+        const int left = kChipColumn + (layout_.rows.back() > 1 ? 28 : 14);
+        // The name and, right after it, the tag: the patch or the voice. The
+        // wider of the two orders, so the header keeps its width when the
+        // order changes.
+        auto width = [&](bool byPatch) {
+            return std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch)) + 2, 96)
+                   + instrumentWidth(t, byPatch);
+        };
+        const int name = std::max(width(false), width(true));
+        layout_.nameEnd = std::max(layout_.nameEnd, left + name);
     }
+    // The order shown: voice order as the tune has it, or with the FM tracks
+    // by patch, then by their voice and number; drums stay last.
+    std::vector<int> order(tracks.size());
+    for (size_t t = 0; t < order.size(); ++t)
+        order[t] = static_cast<int>(t);
+    if (byPatch_)
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            const TuneTrack &x = tracks[static_cast<size_t>(a)], &y = tracks[static_cast<size_t>(b)];
+            const bool xd = x.kind == TuneTrack::Kind::Drum, yd = y.kind == TuneTrack::Kind::Drum;
+            if (xd || yd)
+                return !xd && yd;
+            return x.instrument < y.instrument;
+        });
+    layout_.firstRow.assign(tracks.size(), 0);
+    layout_.position.assign(tracks.size(), 0);
+    int rowsAbove = 0;
+    for (size_t k = 0; k < order.size(); ++k)
+    {
+        const auto t = static_cast<size_t>(order[k]);
+        layout_.position[t] = static_cast<int>(k);
+        layout_.firstRow[t] = rowsAbove;
+        rowsAbove += layout_.shown[t];
+    }
+    layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + 8;
+    // The header ends past the knobs' column and the dB under them, with
+    // room for the voice toggles when a chord part shows them.
+    bool toggles = false;
+    for (size_t t = 0; t < tracks.size(); ++t)
+        toggles = toggles || (!layout_.voices[t].empty() && layout_.shown[t] > 1);
+    layout_.headerWidth = std::max(kMinHeaderWidth, layout_.knobX + (kKnob + kKnobColumn) / 2 + 6 + (toggles ? kVoiceColumn : 0));
     return layout_;
 }
 
@@ -194,7 +201,7 @@ int TrackerView::indexOf(NoteRef ref) const
 
 double TrackerView::visibleSamples() const
 {
-    return (getWidth() - kHeaderWidth) * samplesPerPixel_;
+    return (getWidth() - headerWidth()) * samplesPerPixel_;
 }
 
 void TrackerView::setViewStart(double songTime)
@@ -208,30 +215,115 @@ void TrackerView::setViewStart(double songTime)
 void TrackerView::zoomAround(double factor, float x)
 {
     const double anchor = xToTime(x);
-    samplesPerPixel_ = std::clamp(samplesPerPixel_ / factor, 4.0, 20000.0);
-    setViewStart(anchor - (x - kHeaderWidth) * samplesPerPixel_);
+    samplesPerPixel_ = std::clamp(samplesPerPixel_ / factor, kMinSamplesPerPixel, kMaxSamplesPerPixel);
+    setViewStart(anchor - (x - lanesX()) * samplesPerPixel_);
+    centrePlayhead();
+}
+
+void TrackerView::centrePlayhead()
+{
+    // Following playback, a zoom puts the playhead in the middle at once,
+    // short of the song start, unless the whole song is in view.
+    if (!follow_ || !model_.playing() || !model_.hasTune())
+        return;
+    gliding_ = false;
+    if (viewStart_ <= 0 && viewStart_ + visibleSamples() >= static_cast<double>(model_.tune().source().length))
+        return;
+    setViewStart(std::max(0.0, playhead() - visibleSamples() * 0.5));
 }
 
 void TrackerView::followPlayhead()
 {
-    if (!model_.playing())
+    // One time for the frame: the view, the line and the notes lit all use it.
+    head_ = model_.displayPosition();
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    // While the view is dragged or scrolled by hand, and for a moment after,
+    // it is left alone.
+    if (!follow_ || !model_.playing() || drag_ == Drag::Pan || !model_.hasTune() || now - movedByHand_ < kHandsOffMs)
+    {
+        gliding_ = false;
         return;
-    // The playhead runs to the middle, then the song moves under it.
-    const double p = model_.displayPosition();
+    }
+    // Where reveal would put the view; a jump further than kGlideFrom pixels,
+    // after a click ahead, or any way back after the view was moved by hand,
+    // glides there instead of cutting.
+    const double p = head_;
+    const double before = viewStart_;
+    reveal(p);
+    const double target = viewStart_;
+    viewStart_ = before;
+    const bool moves = std::abs(target - before) > 0.5;
+    if (!moves)
+        pulledAway_ = false;
+    if (!gliding_ && moves && (pulledAway_ || std::abs(target - before) > kGlideFrom * samplesPerPixel_))
+    {
+        gliding_ = true;
+        glideFrom_ = before;
+        glideStart_ = now;
+    }
+    if (!gliding_ || !moves)
+    {
+        gliding_ = false;
+        if (moves)
+            setViewStart(target);
+        return;
+    }
+    // Ease in and out towards the target, which moves on with the playhead.
+    const double t = (now - glideStart_) / kGlideMs;
+    if (t >= 1.0)
+    {
+        gliding_ = pulledAway_ = false;
+        setViewStart(target);
+        return;
+    }
+    const double eased = t < 0.5 ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3) / 2;
+    setViewStart(glideFrom_ + (target - glideFrom_) * eased);
+}
+
+void TrackerView::reveal(double p)
+{
+    // With the whole song in view, the view stays still.
+    if (!model_.hasTune() || (viewStart_ <= 0 && viewStart_ + visibleSamples() >= static_cast<double>(model_.tune().source().length)))
+        return;
+    // The playhead runs to the middle, then the song moves under it; behind
+    // the view, the view goes back to put it in the middle, short of the start.
     if (p > viewStart_ + visibleSamples() * 0.5)
         setViewStart(p - visibleSamples() * 0.5);
     else if (p < viewStart_)
-        setViewStart(p - visibleSamples() * 0.1);
+        setViewStart(std::max(0.0, p - visibleSamples() * 0.5));
+}
+
+void TrackerView::fitTime()
+{
+    // The whole rip across, from its start to its end, with a little room either side.
+    if (!model_.hasTune())
+        return;
+    const double length = static_cast<double>(model_.tune().source().length);
+    const double width = std::max(1.0, static_cast<double>(getWidth() - headerWidth()));
+    samplesPerPixel_ = std::clamp(length * 1.04 / width, kMinSamplesPerPixel, kMaxSamplesPerPixel);
+    setViewStart(-length * 0.02);
+    // Too long to fit: on the playhead, rather than at the start and gliding back.
+    centrePlayhead();
+}
+
+void TrackerView::fitTracks()
+{
+    if (!model_.hasTune() || layout().totalRows == 0)
+        return;
+    const double room = getHeight() - kRulerHeight;
+    laneHeightExact_ = std::clamp(std::floor(room / layout().totalRows), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
+    laneHeight_ = static_cast<int>(laneHeightExact_);
+    setScrollY(0);
 }
 
 double TrackerView::xToTime(float x) const
 {
-    return viewStart_ + (x - kHeaderWidth) * samplesPerPixel_;
+    return viewStart_ + (x - lanesX()) * samplesPerPixel_;
 }
 
 float TrackerView::timeToX(double t) const
 {
-    return static_cast<float>(kHeaderWidth + (t - viewStart_) / samplesPerPixel_);
+    return static_cast<float>(headerWidth() + (t - viewStart_) / samplesPerPixel_);
 }
 
 int TrackerView::yToTrack(float y) const
@@ -239,10 +331,10 @@ int TrackerView::yToTrack(float y) const
     if (y < kRulerHeight || !model_.hasTune())
         return -1;
     const int row = static_cast<int>((y - static_cast<float>(kRulerHeight - scrollY_)) / static_cast<float>(laneHeight_));
-    const auto& first = layout().firstRow;
-    if (row >= layout().totalRows)
-        return -1;
-    return static_cast<int>(std::upper_bound(first.begin(), first.end(), row) - first.begin()) - 1;
+    for (size_t t = 0; t < layout().firstRow.size(); ++t)
+        if (row >= layout().firstRow[t] && row < layout().firstRow[t] + layout().shown[t])
+            return static_cast<int>(t);
+    return -1;
 }
 
 int TrackerView::trackTop(int track) const
@@ -253,6 +345,14 @@ int TrackerView::trackTop(int track) const
 int TrackerView::trackHeight(int track) const
 {
     return layout().shown[static_cast<size_t>(track)] * laneHeight_;
+}
+
+void TrackerView::setOrderByPatch(bool byPatch)
+{
+    byPatch_ = byPatch;
+    layoutRevision_ = -1;
+    setScrollY(scrollY_);
+    sendChangeMessage(); // the overview follows the order
 }
 
 void TrackerView::setCollapsed(int track, bool collapsed)
@@ -272,15 +372,7 @@ bool TrackerView::expanded(int track) const
 
 juce::Rectangle<int> TrackerView::disclosure(int track) const
 {
-    return { 10, nameBounds(track).getY(), 14, nameBounds(track).getHeight() };
-}
-
-double TrackerView::snapTime(double t) const
-{
-    if (snap_ <= 0 || !model_.hasTune())
-        return t;
-    const double origin = model_.tune().source().firstBeat;
-    return origin + std::round((t - origin) / snap_) * snap_;
+    return { kChipColumn + 10, nameBounds(track).getY(), 14, nameBounds(track).getHeight() };
 }
 
 juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
@@ -301,11 +393,10 @@ juce::Rectangle<float> TrackerView::noteBounds(int track, int note) const
     return { x0, y, std::max(2.0f, x1 - x0), h };
 }
 
-TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge) const
+TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p) const
 {
-    onRightEdge = false;
     const int t = yToTrack(p.y);
-    if (t < 0 || p.x < kHeaderWidth)
+    if (t < 0 || p.x < lanesX())
         return {};
     const auto& notes = model_.tune().tracks[static_cast<size_t>(t)].notes;
     const double time = xToTime(p.x);
@@ -313,16 +404,13 @@ TrackerView::NoteRef TrackerView::noteAt(juce::Point<float> p, bool& onRightEdge
     for (int i = static_cast<int>(notes.size()) - 1; i >= 0; --i)
     {
         const TuneNote& n = notes[static_cast<size_t>(i)];
-        if (static_cast<double>(n.start) > time + kEdge * samplesPerPixel_)
+        if (static_cast<double>(n.start) > time)
             continue;
         if (static_cast<double>(n.start + n.length + layout().longest[static_cast<size_t>(t)]) < time)
             break;
         const auto r = noteBounds(t, i);
-        if (r.expanded(1.0f, 0.0f).contains(p) || (p.x >= r.getRight() - kEdge && p.x <= r.getRight() + 2 && r.getY() <= p.y && p.y <= r.getBottom()))
-        {
-            onRightEdge = p.x >= r.getRight() - kEdge;
+        if (r.expanded(1.0f, 0.0f).contains(p))
             return { t, n.id };
-        }
     }
     return {};
 }
@@ -357,23 +445,24 @@ void TrackerView::updateMeters(double seconds)
             std::stable_sort(o.begin(), o.end());
     }
 
-    // Peak-meter ballistics, in dB: a hit shows at once and the level falls
-    // back at kMeterRelease; the peak hold waits a second, then falls too.
+    // Channel levels fall back over about a third of a second; a track shows its loudest channel.
     const auto peaks = model_.takePeaks();
+    const float fall = static_cast<float>(std::pow(0.82, seconds * 60.0));
     for (size_t c = 0; c < peaks.size(); ++c)
-        channelLevel_[c] = model_.playing() ? peaks[c] : 0.0f;
-    level_.resize(tracks.size(), kMeterFloor);
-    hold_.resize(tracks.size(), kMeterFloor);
+        channelLevel_[c] = model_.playing() ? std::max(peaks[c], channelLevel_[c] * fall) : channelLevel_[c] * fall;
+    level_.resize(tracks.size(), 0.0f);
+    hold_.resize(tracks.size(), 0.0f);
     holdAge_.resize(tracks.size(), 0.0);
-    const float fall = static_cast<float>(seconds) * kMeterRelease;
     for (size_t t = 0; t < tracks.size(); ++t)
     {
+        // A dB scale from kMeterFloor to full scale, so a volume change moves
+        // the meter by as much as it changes the sound.
         const float db = juce::Decibels::gainToDecibels(trackLevel(static_cast<int>(t)), kMeterFloor);
-        level_[t] = std::max(db, level_[t] - fall);
+        level_[t] = (db - kMeterFloor) / -kMeterFloor;
         if (level_[t] >= hold_[t])
             hold_[t] = level_[t], holdAge_[t] = 0.0;
         else if ((holdAge_[t] += seconds) > 1.0)
-            hold_[t] = std::max(level_[t], hold_[t] - fall * 0.5f);
+            hold_[t] = std::max(level_[t], hold_[t] - static_cast<float>(seconds) * 0.6f);
     }
 }
 
@@ -389,6 +478,12 @@ float TrackerView::trackLevel(int track) const
             loudest = std::max(loudest, channelLevel_[c]);
     }
     return loudest;
+}
+
+void TrackerView::wake()
+{
+    lastActivity_ = juce::Time::getMillisecondCounterHiRes();
+    repaint();
 }
 
 void TrackerView::resized()
@@ -415,67 +510,73 @@ void TrackerView::zoomLanes(double factor, float y)
 }
 
 // Header layout. In a track's first row: the name with mute and solo on its
-// right, and under them the level meter; right of both, the volume knob. At
+// right, and under them the level meter; right next to both, the volume knob
+// with the level in dB under it. Compact lanes keep only the name line. At
 // the right edge, a chord part's voice toggles, one beside each row.
-namespace
-{
-constexpr int kVoiceColumn = 44; // width of the voice toggles' column
-constexpr int kKnobColumn = 40;  // width of the volume knob's column
-constexpr int kBlock = 44;       // height of the name and meter block
-constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob turns 135 degrees each way
-}
 
 juce::Rectangle<int> TrackerView::voicePill(int track, int k) const
 {
-    return { kHeaderWidth - kVoiceColumn + 4, trackTop(track) + k * laneHeight_ + (laneHeight_ - 18) / 2, 30, 18 };
+    const int h = std::min(18, laneHeight_ - 4);
+    return { headerWidth() - kVoiceColumn + 4, trackTop(track) + k * laneHeight_ + (laneHeight_ - h) / 2, 30, h };
 }
 
 juce::Rectangle<int> TrackerView::nameBounds(int track) const
 {
-    // After the arrow of a chord part; as wide as the name, up to a limit.
-    const int left = layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14;
-    const juce::String name = juce::String(model_.tune().tracks[static_cast<size_t>(track)].name).toUpperCase();
-    const int width = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), name) + 2, 96);
-    return { left, trackTop(track) + (laneHeight_ - kBlock) / 2, width, 17 };
+    // After the arrow of a chord part, up to the names' shared column, but
+    // leaving mute and solo room before the knob, or before the voice
+    // toggles in a compact lane. Centred in a compact lane.
+    const int left = kChipColumn + (layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14);
+    const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
+    const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
+    const int room = right - left - 2 * (pillWidth() + 3) - 5;
+    const int width = std::min(layout().nameEnd - left, std::max(24, room));
+    const int height = minimal() ? laneHeight_ - 6 : 17;
+    return { left, trackTop(track) + (laneHeight_ - (compact() ? height : kBlock)) / 2, width, height };
 }
 
 juce::Rectangle<int> TrackerView::pill(int track, int which) const
 {
     const auto name = nameBounds(track);
-    return { name.getRight() + 8 + which * 26, name.getY(), 23, 17 };
+    return { name.getRight() + 8 + which * (pillWidth() + 3), name.getY(), pillWidth(), name.getHeight() };
 }
 
 juce::Rectangle<int> TrackerView::knobBounds(int track) const
 {
-    // Beside the block, before the voice column when a chord part shows its toggles.
+    // In one column for all tracks, right after the widest name line, but
+    // never into the voice column when a chord part shows its toggles.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
-    const int right = kHeaderWidth - (toggles ? kVoiceColumn : 0) - 4;
-    return { right - kKnobColumn + 4, top + (kBlock - 34) / 2, 34, 34 };
+    const int right = headerWidth() - (toggles ? kVoiceColumn : 0) - 4 - (kKnobColumn + kKnob) / 2;
+    return { std::min(layout().knobX, right), top, kKnob, kKnob };
 }
 
 juce::Rectangle<int> TrackerView::meterBounds(int track) const
 {
-    // The width up to the knob.
+    // The width up to the knob and the level in dB under it.
     const int top = trackTop(track) + (laneHeight_ - kBlock) / 2;
-    return { 14, top + 25, knobBounds(track).getX() - 8 - 14, 16 };
+    return { kChipColumn + 14, top + 25, knobBounds(track).getCentreX() - kKnobColumn / 2 - 4 - kChipColumn - 14, 16 };
 }
 
-// The knob law: amplitude goes with the cube of the position, so full right
-// is +6 dB, 0 dB sits at four fifths, -12 dB near the middle, and the first
-// twelfth is silence.
+// The knob law: 0 dB, as the game played it, sits at the middle, so the
+// right half boosts, evenly in dB up to +6 at full right. In the left half
+// amplitude goes with the cube of the position: -18 dB at a quarter, and the
+// first twentieth is silence.
 float TrackerView::knobPosition(float volume)
 {
     if (volume <= TuneTrack::kSilent)
         return 0.0f;
-    return std::pow(10.0f, (std::min(volume, TuneTrack::kMaxVolume) - TuneTrack::kMaxVolume) / 60.0f);
+    if (volume <= 0.0f)
+        return 0.5f * std::pow(10.0f, volume / 60.0f);
+    return 0.5f + 0.5f * std::min(volume, TuneTrack::kMaxVolume) / TuneTrack::kMaxVolume;
 }
 
 float TrackerView::knobVolume(float position)
 {
     if (position <= knobPosition(TuneTrack::kSilent + 0.01f))
         return TuneTrack::kSilent;
-    return std::min(TuneTrack::kMaxVolume, TuneTrack::kMaxVolume + 60.0f * std::log10(position));
+    if (position <= 0.5f)
+        return 60.0f * std::log10(position * 2.0f);
+    return std::min(TuneTrack::kMaxVolume, (position - 0.5f) * 2.0f * TuneTrack::kMaxVolume);
 }
 
 // Painting --------------------------------------------------------------------
@@ -496,30 +597,51 @@ void TrackerView::paint(juce::Graphics& g)
     paintRuler(g);
     paintHeaders(g);
 
-    // The playhead, over lanes and ruler, with a soft glow.
-    const float x = timeToX(model_.displayPosition());
-    if (x >= kHeaderWidth && x <= static_cast<float>(getWidth()))
+    // The playhead, over lanes and ruler, with a soft glow. A second after
+    // the last mouse or key event its line fades out, and comes back with
+    // the next; the head on the ruler always shows.
+    const double idle = (juce::Time::getMillisecondCounterHiRes() - lastActivity_) / 1000.0;
+    const float shown = keepPlayhead_ ? 1.0f : juce::jlimit(0.0f, 1.0f, 1.0f - static_cast<float>(idle - 1.0) / 0.3f);
+    const float x = timeToX(playhead());
+    if (x >= lanesX() && x <= static_cast<float>(getWidth()))
     {
-        for (int w = 6; w >= 2; w -= 2)
+        if (shown > 0.0f)
         {
-            g.setColour(theme::cyan.withAlpha(0.07f));
-            g.fillRect(x - static_cast<float>(w) / 2.0f, 0.0f, static_cast<float>(w), static_cast<float>(getHeight()));
+            for (int w = 6; w >= 2; w -= 2)
+            {
+                g.setColour(theme::cyan.withAlpha(0.07f * shown));
+                g.fillRect(x - static_cast<float>(w) / 2.0f, 0.0f, static_cast<float>(w), static_cast<float>(getHeight()));
+            }
+            g.setColour(theme::cyan.withAlpha(shown));
+            g.fillRect(x - 0.75f, 0.0f, 1.5f, static_cast<float>(getHeight()));
         }
-        g.setColour(theme::cyan);
-        g.fillRect(x - 0.75f, 0.0f, 1.5f, static_cast<float>(getHeight()));
         juce::Path head;
         head.addTriangle(x - 6, 0, x + 6, 0, x, 9);
+        g.setColour(theme::cyan);
         g.fillPath(head);
     }
 }
 
 void TrackerView::paintRuler(juce::Graphics& g)
 {
-    const auto area = juce::Rectangle<int>(kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerHeight);
+    const auto area = juce::Rectangle<int>(headerWidth(), 0, getWidth() - headerWidth(), kRulerHeight);
     g.setColour(theme::panel);
     g.fillRect(area);
     g.setColour(theme::gridBar);
     g.fillRect(area.getX(), area.getBottom() - 1, area.getWidth(), 1);
+    // The selection: the ruler tinted over it, with a bar along its foot.
+    if (model_.hasSelection())
+    {
+        const float x0 = std::max(static_cast<float>(area.getX()), timeToX(model_.selectionStart()));
+        const float x1 = timeToX(model_.selectionEnd());
+        if (x1 > x0)
+        {
+            g.setColour(theme::cyan.withAlpha(0.35f));
+            g.fillRect(x0, 0.0f, x1 - x0, static_cast<float>(kRulerHeight));
+            g.setColour(theme::cyan);
+            g.fillRect(x0, static_cast<float>(kRulerHeight) - 6.0f, x1 - x0, 5.0f);
+        }
+    }
 
     const VgmSong& song = model_.tune().source();
     const double beat = song.beatLength;
@@ -534,7 +656,7 @@ void TrackerView::paintRuler(juce::Graphics& g)
     for (long k = first; k <= last; ++k)
     {
         const float x = timeToX(song.firstBeat + static_cast<double>(k) * beat);
-        if (x < kHeaderWidth)
+        if (x < lanesX())
             continue;
         const bool bar = ((k % 4) + 4) % 4 == 0;
         const long barNumber = (k >= 0 ? k / 4 : (k - 3) / 4) + 1;
@@ -560,23 +682,25 @@ void TrackerView::paintLanes(juce::Graphics& g)
     const VgmSong& song = model_.tune().source();
     const double beat = song.beatLength;
     const double beatPixels = beat / samplesPerPixel_;
-    const auto lanes = juce::Rectangle<int>(kHeaderWidth, kRulerHeight, getWidth() - kHeaderWidth, getHeight() - kRulerHeight);
+    const auto lanes = juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight);
     g.saveState();
     g.reduceClipRegion(lanes);
+    g.setColour(theme::lane);
+    g.fillRect(lanes);
 
     for (size_t t = 0; t < tracks.size(); ++t)
     {
         const int y = trackTop(static_cast<int>(t)), h = trackHeight(static_cast<int>(t));
         if (y > getHeight() || y + h < kRulerHeight)
             continue;
-        g.setColour(t % 2 ? theme::background : theme::background.brighter(0.04f));
-        g.fillRect(kHeaderWidth, y, getWidth() - kHeaderWidth, h);
+        g.setColour(layout().position[t] % 2 ? theme::lane : theme::laneAlt);
+        g.fillRect(headerWidth(), y, getWidth() - headerWidth(), h);
         // Faint lines between a chord part's voices.
         g.setColour(theme::grid.withAlpha(0.3f));
         for (size_t k = 1; expanded(static_cast<int>(t)) && k < layout().voices[t].size(); ++k)
-            g.fillRect(kHeaderWidth, y + static_cast<int>(k) * laneHeight_, getWidth() - kHeaderWidth, 1);
+            g.fillRect(headerWidth(), y + static_cast<int>(k) * laneHeight_, getWidth() - headerWidth(), 1);
         g.setColour(theme::grid.withAlpha(0.6f));
-        g.fillRect(kHeaderWidth, y + h - 1, getWidth() - kHeaderWidth, 1);
+        g.fillRect(headerWidth(), y + h - 1, getWidth() - headerWidth(), 1);
     }
 
     // Grid: bars bright, beats dim, sixteenths when there is room.
@@ -599,6 +723,19 @@ void TrackerView::paintLanes(juce::Graphics& g)
             }
     }
 
+    // The selection, a tinted band across every lane, with the song outside
+    // it darkened; its edges go over the notes, below.
+    if (model_.hasSelection())
+    {
+        const float x0 = timeToX(model_.selectionStart()), x1 = timeToX(model_.selectionEnd());
+        const float top = static_cast<float>(kRulerHeight), height = static_cast<float>(getHeight() - kRulerHeight);
+        g.setColour(theme::background.withAlpha(0.45f));
+        g.fillRect(lanesX(), top, x0 - lanesX(), height);
+        g.fillRect(x1, top, static_cast<float>(getWidth()) - x1, height);
+        g.setColour(theme::cyan.withAlpha(0.14f));
+        g.fillRect(x0, top, x1 - x0, height);
+    }
+
     // Notes in view.
     const double from = viewStart_, to = xToTime(static_cast<float>(getWidth()));
     std::vector<std::tuple<int, int, juce::Rectangle<float>>> sounding;
@@ -616,16 +753,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
             if (static_cast<double>(it->start + it->length) < from)
                 continue;
             const int i = static_cast<int>(it - notes.begin());
-            auto r = noteBounds(static_cast<int>(t), i);
-            // While dragging, selected notes show where they will land.
-            if ((drag_ == Drag::Move || drag_ == Drag::Resize) && selection_.count({ static_cast<int>(t), it->id }))
-            {
-                const float dx = static_cast<float>(dragDelta_ / samplesPerPixel_);
-                if (drag_ == Drag::Move)
-                    r.translate(dx, 0);
-                else
-                    r.setWidth(std::max(2.0f, r.getWidth() + dx));
-            }
+            const auto r = noteBounds(static_cast<int>(t), i);
             if (isSounding(*it))
                 sounding.push_back({ static_cast<int>(t), i, r });
             else
@@ -636,19 +764,19 @@ void TrackerView::paintLanes(juce::Graphics& g)
     for (const auto& [t, i, r] : sounding)
         paintNote(g, t, i, r);
 
-    if (drag_ == Drag::Box)
+    // The selection's edges, over the notes.
+    if (model_.hasSelection())
     {
-        g.setColour(theme::cyan.withAlpha(0.12f));
-        g.fillRect(box_);
-        g.setColour(theme::cyan.withAlpha(0.8f));
-        g.drawRect(box_, 1.0f);
+        g.setColour(theme::cyan);
+        for (const double edge : { model_.selectionStart(), model_.selectionEnd() })
+            g.fillRect(timeToX(edge) - 1.0f, static_cast<float>(kRulerHeight), 2.0f, static_cast<float>(getHeight() - kRulerHeight));
     }
     g.restoreState();
 }
 
 bool TrackerView::isSounding(const TuneNote& n) const
 {
-    const double pos = model_.displayPosition();
+    const double pos = playhead();
     return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
 }
 
@@ -659,7 +787,6 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
     const int pitch = model_.tune().pitch(tr, n);
     const bool audible = model_.tune().audible(tr, n);
-    const bool selected = selection_.count({ track, n.id }) > 0;
     const bool sounding = isSounding(n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
@@ -674,7 +801,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
                                    : base.withMultipliedSaturation(0.7f).withMultipliedBrightness(0.5f);
     if (sounding && audible)
     {
-        for (const auto [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
+        for (const auto& [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
         {
             g.setColour(base.withAlpha(alpha));
             g.fillRoundedRectangle(r.expanded(grow), 3.0f + grow);
@@ -703,11 +830,6 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
         g.setColour(theme::danger);
         g.drawRoundedRectangle(r, 3.0f, 2.0f);
     }
-    else if (selected)
-    {
-        g.setColour(juce::Colours::white);
-        g.drawRoundedRectangle(r.expanded(0.5f), 3.0f, 1.5f);
-    }
 
     // The label, centred and as large as the note allows: white with a dark
     // outline, so it reads on every colour. Notes too small for it go without.
@@ -716,18 +838,18 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const float height = std::min({ 26.0f, r.getHeight() * 0.62f, (r.getWidth() - 6.0f) / (0.64f * static_cast<float>(label.length())) });
     if (label.isNotEmpty() && height >= 9.0f)
     {
-        juce::GlyphArrangement glyphs;
-        glyphs.addFittedText(theme::mono(height, true), label, r.getX(), r.getY(), r.getWidth(), r.getHeight(),
-                             juce::Justification::centred, 1, 1.0f);
-        juce::Path text;
-        glyphs.createPath(text);
+        // The text and its outline are made once per label and size, then
+        // moved into place: building them is most of the cost of a frame.
+        const auto& shapes = labelShapes(label, height);
+        const auto at = juce::AffineTransform::translation(r.getCentreX() - shapes.text.getBounds().getCentreX(),
+                                                           r.getCentreY() - shapes.text.getBounds().getCentreY());
         if (audible)
         {
             g.setColour(theme::background.withAlpha(0.7f));
-            g.strokePath(text, juce::PathStrokeType(std::max(2.0f, height * 0.16f), juce::PathStrokeType::curved));
+            g.fillPath(shapes.outline, at);
         }
         g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 1.0f : 0.7f) : 0.3f));
-        g.fillPath(text);
+        g.fillPath(shapes.text, at);
     }
 }
 
@@ -735,23 +857,68 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 {
     const auto& tracks = model_.tune().tracks;
     g.setColour(theme::panel);
-    g.fillRect(0, 0, kHeaderWidth, getHeight());
+    g.fillRect(0, 0, headerWidth(), getHeight());
     g.setColour(theme::gridBar);
-    g.fillRect(kHeaderWidth - 1, 0, 1, getHeight());
+    g.fillRect(headerWidth() - 1, 0, 1, getHeight());
 
     g.saveState();
-    g.reduceClipRegion(0, kRulerHeight, kHeaderWidth, getHeight() - kRulerHeight);
+    g.reduceClipRegion(0, kRulerHeight, headerWidth(), getHeight() - kRulerHeight);
     for (size_t t = 0; t < tracks.size(); ++t)
     {
         const TuneTrack& tr = tracks[t];
         const int y = trackTop(static_cast<int>(t));
         if (y > getHeight() || y + trackHeight(static_cast<int>(t)) < kRulerHeight)
             continue;
-        const auto row = juce::Rectangle<int>(0, y, kHeaderWidth - 1, trackHeight(static_cast<int>(t)));
-        g.setColour(t % 2 ? theme::panel : theme::panelLight);
+        const auto row = juce::Rectangle<int>(0, y, headerWidth() - 1, trackHeight(static_cast<int>(t)));
+        g.setColour(layout().position[t] % 2 ? theme::panel : theme::panelLight);
         g.fillRect(row);
-        g.setColour(theme::instrumentColour(static_cast<int>(t)));
-        g.fillRect(row.getX(), row.getY() + 3, 4, row.getHeight() - 6);
+
+        // The chip that plays the track, in its own column, drawn as a chip
+        // with pins down both sides and its name up the middle: OPM for the
+        // YM2151's FM voices, PCM for the SegaPCM's samples.
+        {
+            const auto column = juce::Rectangle<int>(0, row.getY(), kChipColumn, row.getHeight());
+            g.setColour(theme::background.withAlpha(0.35f));
+            g.fillRect(column);
+            g.setColour(theme::grid);
+            g.fillRect(column.getRight() - 1, column.getY(), 1, column.getHeight());
+
+            const bool fm = tr.kind == TuneTrack::Kind::Fm;
+            const juce::Colour ink = (fm ? theme::cyan : theme::orange).withAlpha(model_.tune().audible(tr) ? 0.9f : 0.35f);
+            const auto firstRow = column.withHeight(std::min(column.getHeight(), laneHeight_)).toFloat();
+            const auto body = firstRow.withSizeKeepingCentre(11.0f, std::min(30.0f, firstRow.getHeight() - 8.0f));
+            g.setColour(ink);
+            if (body.getHeight() < 22.0f)
+            {
+                // Too short a lane for the chip: its name alone, across.
+                g.setFont(theme::pixel(6.0f));
+                g.drawText(fm ? "OPM" : "PCM", firstRow, juce::Justification::centred, false);
+            }
+            else
+            {
+                for (float pin = body.getY() + 3.0f; pin < body.getBottom() - 2.0f; pin += 3.5f)
+                {
+                    g.fillRect(body.getX() - 2.5f, pin, 2.5f, 1.2f);
+                    g.fillRect(body.getRight(), pin, 2.5f, 1.2f);
+                }
+                g.setColour(theme::background);
+                g.fillRoundedRectangle(body, 2.0f);
+                g.setColour(ink);
+                g.drawRoundedRectangle(body.reduced(0.5f), 2.0f, 1.0f);
+                g.fillEllipse(body.getX() + 2.0f, body.getY() + 2.0f, 1.5f, 1.5f); // pin 1's mark
+
+                // The name, reading upwards.
+                juce::GlyphArrangement glyphs;
+                glyphs.addLineOfText(theme::pixel(5.0f), fm ? "OPM" : "PCM", 0.0f, 0.0f);
+                juce::Path text;
+                glyphs.createPath(text);
+                const auto bounds = text.getBounds();
+                text.applyTransform(juce::AffineTransform::translation(-bounds.getCentreX(), -bounds.getCentreY())
+                                        .rotated(-juce::MathConstants<float>::halfPi)
+                                        .translated(body.getCentreX(), body.getCentreY() + 1.0f));
+                g.fillPath(text);
+            }
+        }
 
         const int ti = static_cast<int>(t);
         const auto& voices = layout().voices[t];
@@ -761,7 +928,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.setColour(on ? colour : theme::gridBar.brighter(0.3f));
             g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 4.0f, 1.0f);
             g.setColour(on ? theme::background : theme::text.withAlpha(0.85f));
-            g.setFont(theme::mono(12.0f, true));
+            g.setFont(theme::mono(r.getHeight() < 17 ? 10.0f : 12.0f, true));
             g.drawText(label, r, juce::Justification::centred);
         };
 
@@ -783,72 +950,69 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.fillPath(p);
         }
         g.setColour(audible ? theme::text : theme::faint);
-        g.drawText(juce::String(tr.name).toUpperCase(), nameBounds(ti),
-                   juce::Justification::centredLeft, true);
-        drawToggle(mute, "M", tr.mute, theme::orange);
-        drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
+        g.setFont(theme::mono(minimal() ? 11.0f : 13.0f, true));
+        // The name, then right after it the tag, dimmer: the patch the voice
+        // plays, or in patch order the voice. Both stay in the smallest lanes.
+        const auto nameArea = nameBounds(ti);
+        const juce::String head = headName(tr, byPatch_);
+        g.drawText(head, nameArea, juce::Justification::centredLeft, true);
         if (tr.kind == TuneTrack::Kind::Fm)
         {
-            // Which instrument the voice plays.
+            const int tagX = nameArea.getX() + juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), head) + 8;
             g.setColour(audible ? theme::dim : theme::faint);
-            g.setFont(theme::mono(12.0f, true));
-            g.drawText("FM " + juce::String(tr.instrument + 1), juce::Rectangle<int>(pill(ti, 1).getRight() + 8, mute.getY(), 50, mute.getHeight()),
-                       juce::Justification::centredLeft, false);
+            g.setFont(theme::mono(minimal() ? 11.0f : 12.0f, true));
+            g.drawText(tagName(tr, byPatch_), juce::Rectangle<int>(tagX, nameArea.getY(), std::max(0, nameArea.getRight() - tagX), nameArea.getHeight()),
+                       juce::Justification::centredLeft, true);
         }
+        drawToggle(mute, "M", tr.mute, theme::orange);
+        drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
 
-        // The level in dB, always shown at the end of the name line.
+        // The level in dB, under the knob; compact lanes go without both and the meter.
         const bool dragging = drag_ == Drag::Knob && dragTrack_ == ti;
         const bool silent = !audible || tr.volume <= TuneTrack::kSilent;
+        if (!compact())
         {
             const juce::String db = tr.volume <= TuneTrack::kSilent ? juce::String("-inf dB")
                                     : (tr.volume > 0.05f ? "+" : "") + juce::String(tr.volume, 1) + " dB";
             g.setColour(dragging ? theme::cyan : silent ? theme::faint
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
-            g.setFont(theme::mono(12.0f, true));
-            const auto meter = meterBounds(ti);
-            g.drawText(db, juce::Rectangle<int>(meter.getRight() - 80, mute.getY(), 80, mute.getHeight()), juce::Justification::centredRight);
+            g.setFont(theme::mono(10.0f, true));
+            const auto knob = knobBounds(ti);
+            g.drawText(db, juce::Rectangle<int>(knob.getCentreX() - kKnobColumn / 2, knob.getBottom() - 1, kKnobColumn, 13), juce::Justification::centred);
         }
 
-        // The meter, as DAWs draw a peak meter: a dark groove with a bar
-        // along a dB scale, white for most of it, then yellow, orange and
-        // red over the last few dB, and a peak-hold line.
+        // The meter: a dark groove of cells, always showing dimmed and lit up
+        // to the level, with a peak hold. As on a DAW's meter, cells are white
+        // up to -12 dB, yellow to -6, orange to -3 and red above.
+        if (!compact())
         {
             const auto groove = meterBounds(ti).toFloat();
-            g.setColour(juce::Colour(0xff10121a));
-            g.fillRoundedRectangle(groove, 2.0f);
-            g.setColour(silent ? juce::Colour(0xff2c2d33) : theme::grid);
-            g.drawRoundedRectangle(groove, 2.0f, 1.0f);
-            const auto bar = groove.reduced(2.0f, 2.0f);
-            auto xAt = [&](float db) {
-                const float frac = juce::jlimit(0.0f, 1.0f, (db - kMeterFloor) / (kMeterTop - kMeterFloor));
-                return bar.getX() + frac * bar.getWidth();
-            };
-            // -12 and 0 dB marks under the bar.
-            g.setColour(theme::faint.withAlpha(0.6f));
-            for (const float db : { -12.0f, 0.0f })
-                g.fillRect(xAt(db), bar.getY(), 1.0f, bar.getHeight());
-
-            juce::ColourGradient zones(silent ? juce::Colour(0xff7a7b86) : juce::Colour(0xffeceaf4), bar.getX(), 0.0f,
-                                       silent ? juce::Colour(0xff7a7b86) : theme::danger, bar.getRight(), 0.0f, false);
-            if (!silent)
+            // A silent track's whole meter goes neutral grey.
+            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
+            g.fillRoundedRectangle(groove, 3.0f);
+            g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
+            g.drawRoundedRectangle(groove, 3.0f, 1.0f);
+            const auto cellsArea = groove.reduced(2.0f, 2.0f);
+            const float level = t < level_.size() ? level_[t] : 0.0f;
+            const float hold = t < hold_.size() ? hold_[t] : 0.0f;
+            const int cells = static_cast<int>(cellsArea.getWidth() / 3.0f);
+            const float cell = cellsArea.getWidth() / static_cast<float>(cells);
+            const int held = static_cast<int>(hold * static_cast<float>(cells));
+            auto zone = [](float db) { return (db - kMeterFloor) / -kMeterFloor; }; // where a level in dB sits along the meter
+            for (int k = 0; k < cells; ++k)
             {
-                auto stop = [&](float db, juce::Colour c) { zones.addColour((xAt(db) - bar.getX()) / bar.getWidth(), c); };
-                stop(-15.0f, juce::Colour(0xffeceaf4));
-                stop(-9.0f, theme::yellow);
-                stop(-4.0f, theme::orange);
-                stop(0.0f, theme::danger);
+                const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
+                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > zone(-3.0f) ? theme::danger : frac > zone(-6.0f) ? theme::orange
+                                       : frac > zone(-12.0f) ? theme::yellow : juce::Colour(0xffeceaf4);
+                const bool on = frac <= level || (k == held && hold > 0.02f);
+                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f));
+                g.fillRect(cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight());
             }
-            const float level = t < level_.size() ? level_[t] : kMeterFloor;
-            const float hold = t < hold_.size() ? hold_[t] : kMeterFloor;
-            g.setGradientFill(zones);
-            if (level > kMeterFloor)
-                g.fillRect(bar.withRight(xAt(level)));
-            if (hold > kMeterFloor + 1.0f)
-                g.fillRect(juce::Rectangle<float>(xAt(hold) - 2.0f, bar.getY(), 2.0f, bar.getHeight()));
         }
 
         // The volume knob: a ring from silence to +6 dB lit up to the level,
         // a tick at 0 dB, and a raised cap with a pointer.
+        if (!compact())
         {
             const auto bounds = knobBounds(ti).toFloat();
             const auto centre = bounds.getCentre();
@@ -892,19 +1056,19 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         if (!voices.empty() && expanded(ti))
         {
             // The voice column: a bracket joining one toggle per row, with row lines.
-            const int x = kHeaderWidth - kVoiceColumn;
+            const int x = headerWidth() - kVoiceColumn;
             g.setColour(theme::background.withAlpha(0.35f));
-            g.fillRect(x, row.getY(), kHeaderWidth - 1 - x, row.getHeight());
+            g.fillRect(x, row.getY(), headerWidth() - 1 - x, row.getHeight());
             g.setColour(theme::grid.withAlpha(0.5f));
             for (size_t k = 1; k < voices.size(); ++k)
-                g.fillRect(x, row.getY() + static_cast<int>(k) * laneHeight_, kHeaderWidth - 1 - x, 1);
+                g.fillRect(x, row.getY() + static_cast<int>(k) * laneHeight_, headerWidth() - 1 - x, 1);
             const auto top = voicePill(ti, 0), bottom = voicePill(ti, static_cast<int>(voices.size()) - 1);
-            g.setColour(theme::instrumentColour(ti).withAlpha(0.45f));
+            g.setColour(theme::dim.withAlpha(0.45f));
             g.fillRect(x + 1, top.getCentreY(), 1, bottom.getCentreY() - top.getCentreY());
             for (size_t k = 0; k < voices.size(); ++k)
             {
                 const auto r = voicePill(ti, static_cast<int>(k));
-                g.setColour(theme::instrumentColour(ti).withAlpha(0.45f));
+                g.setColour(theme::dim.withAlpha(0.45f));
                 g.fillRect(x + 1, r.getCentreY(), r.getX() - x - 1, 1);
                 drawToggle(r, "V" + juce::String(voices[k] + 1), (tr.mutedVoices >> voices[k]) & 1, theme::orange);
             }
@@ -914,16 +1078,35 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
     // Corner over the headers.
     g.setColour(theme::panel);
-    g.fillRect(0, 0, kHeaderWidth, kRulerHeight);
+    g.fillRect(0, 0, headerWidth(), kRulerHeight);
     g.setColour(theme::gridBar);
-    g.fillRect(0, kRulerHeight - 1, kHeaderWidth, 1);
+    g.fillRect(0, kRulerHeight - 1, headerWidth(), 1);
     g.setColour(theme::magenta);
     g.setFont(theme::pixel(8.0f));
-    g.drawText("TRACKS " + juce::String(tracks.size()).paddedLeft('0', 2), juce::Rectangle<int>(14, 0, kHeaderWidth, kRulerHeight),
+    g.drawText("TRACKS " + juce::String(tracks.size()).paddedLeft('0', 2), juce::Rectangle<int>(14, 0, headerWidth(), kRulerHeight),
                juce::Justification::centredLeft);
 }
 
 // Mouse -----------------------------------------------------------------------
+
+int TrackerView::selectionEdgeAt(juce::Point<float> p) const
+{
+    if (!model_.hasSelection() || p.x < lanesX())
+        return -1;
+    const float start = timeToX(model_.selectionStart()), end = timeToX(model_.selectionEnd());
+    const float ds = std::abs(p.x - start), de = std::abs(p.x - end);
+    if (std::min(ds, de) > 5.0f)
+        return -1;
+    return ds < de ? 0 : 1;
+}
+
+bool TrackerView::overSelectionBar(juce::Point<float> p) const
+{
+    if (model_.playing() || !model_.hasSelection() || p.y >= kRulerHeight || p.x < lanesX())
+        return false;
+    const double t = xToTime(p.x);
+    return t > model_.selectionStart() && t < model_.selectionEnd();
+}
 
 void TrackerView::mouseDown(const juce::MouseEvent& e)
 {
@@ -932,9 +1115,24 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     const auto p = e.position;
     dragFrom_ = p;
-    dragDelta_ = 0;
 
-    if (p.y < kRulerHeight && p.x >= kHeaderWidth)
+    // A selection's edge, over the ruler or the lanes, drags out or in.
+    if (const int edge = selectionEdgeAt(p); edge >= 0)
+    {
+        drag_ = Drag::SelectEdge;
+        selectFrom_ = edge == 0 ? model_.selectionEnd() : model_.selectionStart();
+        return;
+    }
+
+    // Stopped, the ruler inside the selection: a drag moves it, a click the playhead.
+    if (overSelectionBar(p))
+    {
+        drag_ = Drag::SelectMove;
+        selectFrom_ = xToTime(p.x) - model_.selectionStart();
+        return;
+    }
+
+    if (p.y < kRulerHeight && p.x >= lanesX())
     {
         drag_ = Drag::Ruler;
         model_.setPosition(std::max(0.0, xToTime(p.x)));
@@ -942,12 +1140,12 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     }
 
     const int t = yToTrack(p.y);
-    if (p.x < kHeaderWidth)
+    if (p.x < lanesX())
     {
         if (t < 0)
             return;
         // The knob turns as the pointer goes up or right; Option-click puts it back to 0 dB.
-        if (knobBounds(t).expanded(3).contains(p.toInt()))
+        if (!compact() && knobBounds(t).expanded(3).contains(p.toInt()))
         {
             drag_ = Drag::Knob;
             dragTrack_ = t;
@@ -985,28 +1183,18 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    bool edge = false;
-    const NoteRef hit = noteAt(p, edge);
-    if (hit.valid())
+    // Stopped, a drag selects a section, and a click moves the playhead there.
+    if (!model_.playing() && !e.mods.isShiftDown())
     {
-        if (e.mods.isShiftDown())
-        {
-            if (!selection_.erase(hit))
-                selection_.insert(hit);
-        }
-        else if (!selection_.count(hit))
-            selection_ = { hit };
-        dragNote_ = hit;
-        drag_ = edge ? Drag::Resize : Drag::Move;
+        drag_ = Drag::Select;
+        selectFrom_ = std::max(0.0, xToTime(p.x));
+        return;
     }
-    else
-    {
-        if (!e.mods.isShiftDown())
-            selection_.clear();
-        drag_ = Drag::Box;
-        box_ = { p, p };
-    }
-    repaint();
+    // Playing, or with Shift: a click moves the playhead there; held and
+    // dragged, the hand moves the view.
+    drag_ = Drag::Lanes;
+    panFrom_ = viewStart_;
+    setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
 void TrackerView::mouseDrag(const juce::MouseEvent& e)
@@ -1027,66 +1215,54 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         model_.setPosition(std::max(0.0, xToTime(p.x)));
         return;
     }
-    if (drag_ == Drag::Move || drag_ == Drag::Resize)
+    if (drag_ == Drag::SelectMove)
     {
-        const int index = indexOf(dragNote_);
-        if (index < 0)
-            return;
-        const TuneNote& n = model_.tune().tracks[static_cast<size_t>(dragNote_.track)].notes[static_cast<size_t>(index)];
-        const double raw = (p.x - dragFrom_.x) * samplesPerPixel_;
-        if (drag_ == Drag::Move)
-            dragDelta_ = snapTime(static_cast<double>(n.start) + raw) - static_cast<double>(n.start);
-        else
+        if (e.getDistanceFromDragStart() > 3)
         {
-            const double end = static_cast<double>(n.start + n.length);
-            dragDelta_ = std::max(snapTime(end + raw), static_cast<double>(n.start) + kMinLength) - end;
+            const double length = model_.selectionEnd() - model_.selectionStart();
+            const double start = std::max(0.0, xToTime(p.x) - selectFrom_);
+            model_.setSelection(start, start + length);
         }
-        repaint();
         return;
     }
-    if (drag_ == Drag::Box)
+    if (drag_ == Drag::SelectEdge)
     {
-        box_ = juce::Rectangle<float>(dragFrom_, p);
-        // Select every note the box touches.
-        if (!e.mods.isShiftDown())
-            selection_.clear();
-        const auto& tracks = model_.tune().tracks;
-        const int t0 = std::max(0, yToTrack(std::max<float>(box_.getY(), kRulerHeight)));
-        const int t1 = yToTrack(box_.getBottom());
-        for (int t = t0; t <= (t1 < 0 ? static_cast<int>(tracks.size()) - 1 : t1); ++t)
-            for (size_t i = 0; i < tracks[static_cast<size_t>(t)].notes.size(); ++i)
-                if (noteBounds(t, static_cast<int>(i)).intersects(box_))
-                    selection_.insert({ t, tracks[static_cast<size_t>(t)].notes[i].id });
-        repaint();
+        // Stopped, the playhead goes with the edge while it is the start;
+        // playing, it stays unless it falls outside.
+        const double t = std::max(0.0, xToTime(p.x));
+        model_.setSelection(selectFrom_, t, model_.playing() || t > selectFrom_);
+        return;
+    }
+    if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
+    {
+        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
+        return;
+    }
+    if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
+        drag_ = Drag::Pan;
+    if (drag_ == Drag::Pan)
+    {
+        setViewStart(panFrom_ - (p.x - dragFrom_.x) * samplesPerPixel_);
+        movedByHand();
     }
 }
 
-void TrackerView::mouseUp(const juce::MouseEvent&)
+void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
-    if ((finished == Drag::Move || finished == Drag::Resize) && std::abs(dragDelta_) >= 1.0)
+    // A click on the lanes puts the playhead there, and playing goes on
+    // from it; stopped, it also drops the selection.
+    if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
+        model_.setPosition(std::max(0.0, xToTime(e.position.x)));
+    if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
-        const auto chosen = selection_;
-        const auto delta = static_cast<int64_t>(std::llround(dragDelta_));
-        const bool move = finished == Drag::Move;
-        model_.edit(move ? "Move notes" : "Resize notes", [chosen, delta, move](Tune& tune) {
-            for (size_t t = 0; t < tune.tracks.size(); ++t)
-            {
-                auto& notes = tune.tracks[t].notes;
-                for (TuneNote& n : notes)
-                    if (chosen.count({ static_cast<int>(t), n.id }))
-                    {
-                        if (move)
-                            n.start = std::max<int64_t>(0, n.start + delta);
-                        else
-                            n.length = std::max<int64_t>(static_cast<int64_t>(kMinLength), n.length + delta);
-                    }
-                std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-            }
-        });
+        if (finished == Drag::Select)
+            model_.clearSelection();
+        model_.setPosition(std::max(0.0, xToTime(e.position.x)));
     }
-    dragDelta_ = 0;
+    if (finished == Drag::Lanes || finished == Drag::Pan)
+        mouseMove(e);
     repaint();
 }
 
@@ -1094,20 +1270,19 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
 {
     if (!model_.hasTune())
         return;
-    bool edge = false;
-    hover_ = noteAt(e.position, edge);
-    hoverEdge_ = edge;
-    setMouseCursor(hover_.valid() && edge ? juce::MouseCursor::LeftRightResizeCursor
-                   : hover_.valid()       ? juce::MouseCursor::DraggingHandCursor
-                   : e.position.y < kRulerHeight && e.position.x > kHeaderWidth ? juce::MouseCursor::PointingHandCursor
-                                                                                 : juce::MouseCursor::NormalCursor);
+    hover_ = noteAt(e.position);
+    setMouseCursor(selectionEdgeAt(e.position) >= 0                          ? juce::MouseCursor::LeftRightResizeCursor
+                   : overSelectionBar(e.position)                            ? juce::MouseCursor::DraggingHandCursor
+                   : e.position.y < kRulerHeight && e.position.x > lanesX() ? juce::MouseCursor::PointingHandCursor
+                                                                            : juce::MouseCursor::NormalCursor);
     if (hover_.valid())
     {
         const int i = indexOf(hover_);
         const auto& tr = model_.tune().tracks[static_cast<size_t>(hover_.track)];
         const auto& n = tr.notes[static_cast<size_t>(i)];
-        setTooltip(tr.kind == TuneTrack::Kind::Fm ? theme::noteName(model_.tune().pitch(tr, n)) + theme::dot()
-                                                        + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 0) + " ms"
+        // "C-4 · 123.45 ms": the dot spaced by one, the length to two decimals.
+        setTooltip(tr.kind == TuneTrack::Kind::Fm ? theme::noteName(model_.tune().pitch(tr, n)) + juce::String::fromUTF8(" \xc2\xb7 ")
+                                                        + juce::String(static_cast<double>(n.length) / kVgmRate * 1000.0, 2) + " ms"
                                                   : juce::String(tr.name));
     }
     else
@@ -1129,21 +1304,12 @@ void TrackerView::setVolume(int track, float volume)
 
 void TrackerView::mouseDoubleClick(const juce::MouseEvent& e)
 {
-    if (model_.hasTune() && e.position.x < kHeaderWidth)
-        if (const int t = yToTrack(e.position.y); t >= 0 && knobBounds(t).expanded(3).contains(e.position.toInt()))
+    if (model_.hasTune() && e.position.x < lanesX())
+        if (const int t = yToTrack(e.position.y); t >= 0 && !compact() && knobBounds(t).expanded(3).contains(e.position.toInt()))
         {
             dragStarted_ = false;
             setVolume(t, 0.0f);
-            return;
         }
-    if (!model_.hasTune() || e.position.x < kHeaderWidth || e.position.y < kRulerHeight)
-        return;
-    bool edge = false;
-    const NoteRef hit = noteAt(e.position, edge);
-    if (hit.valid())
-        editPitch(hit);
-    else if (const int t = yToTrack(e.position.y); t >= 0)
-        addNoteAt(t, snapTime(xToTime(e.position.x)));
 }
 
 void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
@@ -1160,25 +1326,14 @@ void TrackerView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
         zoomLanes(std::pow(1.6, static_cast<double>(w.deltaY) * 2.0), e.position.y);
         return;
     }
-    // Over a selected note, the wheel changes its pitch: one semitone a notch.
-    bool edge = false;
-    const NoteRef hit = noteAt(e.position, edge);
-    if (hit.valid() && selection_.count(hit) && std::abs(w.deltaY) > std::abs(w.deltaX))
-    {
-        static float accumulated = 0;
-        accumulated += w.deltaY;
-        if (std::abs(accumulated) >= 0.12f)
-        {
-            transposeSelection((accumulated > 0 ? 1 : -1) * (e.mods.isShiftDown() ? 12 : 1));
-            accumulated = 0;
-        }
-        return;
-    }
-    // Otherwise it scrolls: sideways through time, up and down through tracks.
+    // It scrolls: sideways through time, up and down through tracks.
     const float dx = std::abs(w.deltaX) > 0 ? w.deltaX : (e.mods.isShiftDown() ? w.deltaY : 0.0f);
     const float dy = e.mods.isShiftDown() ? 0.0f : w.deltaY;
     if (std::abs(dx) > 0)
+    {
         setViewStart(viewStart_ - dx * 400.0 * samplesPerPixel_);
+        movedByHand();
+    }
     if (std::abs(dy) > 0)
         setScrollY(scrollY_ - static_cast<int>(dy * 200.0f));
 }
@@ -1192,176 +1347,22 @@ void TrackerView::mouseMagnify(const juce::MouseEvent& e, float scale)
         zoomAround(scale, e.position.x);
 }
 
-// Editing ---------------------------------------------------------------------
+// Keys ------------------------------------------------------------------------
 
+// Undo and redo take back mute, solo and volume, and Escape drops the
+// selection; the notes cannot be edited.
 bool TrackerView::keyPressed(const juce::KeyPress& key)
 {
+    wake();
     if (!model_.hasTune())
         return false;
-    const auto mods = key.getModifiers();
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
-        return deleteSelection(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0))
         return model_.undo().undo(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
-    if (key == juce::KeyPress('d', juce::ModifierKeys::commandModifier, 0))
-        return duplicateSelection(), true;
-    if (key == juce::KeyPress('a', juce::ModifierKeys::commandModifier, 0))
-    {
-        selection_.clear();
-        const auto& tracks = model_.tune().tracks;
-        for (size_t t = 0; t < tracks.size(); ++t)
-            for (const TuneNote& n : tracks[t].notes)
-                selection_.insert({ static_cast<int>(t), n.id });
-        repaint();
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::upKey || key.getKeyCode() == juce::KeyPress::downKey)
-    {
-        const int step = mods.isShiftDown() ? 12 : 1;
-        transposeSelection(key.getKeyCode() == juce::KeyPress::upKey ? step : -step);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
-    {
-        if (selection_.empty())
-            return false;
-        const double step = snap_ > 0 ? snap_ : model_.tune().source().beatLength / 4;
-        const auto delta = static_cast<int64_t>(std::llround(key.getKeyCode() == juce::KeyPress::rightKey ? step : -step));
-        const auto chosen = selection_;
-        model_.edit("Move notes", [chosen, delta](Tune& tune) {
-            for (size_t t = 0; t < tune.tracks.size(); ++t)
-            {
-                auto& notes = tune.tracks[t].notes;
-                for (TuneNote& n : notes)
-                    if (chosen.count({ static_cast<int>(t), n.id }))
-                        n.start = std::max<int64_t>(0, n.start + delta);
-                std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-            }
-        });
-        return true;
-    }
-    if (key == juce::KeyPress::escapeKey)
-    {
-        selection_.clear();
-        repaint();
-        return true;
-    }
+    if (key == juce::KeyPress::escapeKey && model_.hasSelection())
+        return model_.clearSelection(), true;
     return false;
-}
-
-void TrackerView::transposeSelection(int semitones)
-{
-    if (selection_.empty())
-        return;
-    const auto chosen = selection_;
-    model_.edit("Transpose", [chosen, semitones](Tune& tune) {
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-            for (TuneNote& n : tune.tracks[t].notes)
-                if (chosen.count({ static_cast<int>(t), n.id }))
-                    n.transpose = std::clamp(n.transpose + semitones, -48, 48);
-    });
-}
-
-void TrackerView::deleteSelection()
-{
-    if (selection_.empty())
-        return;
-    const auto chosen = selection_;
-    model_.edit("Delete notes", [chosen](Tune& tune) {
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-        {
-            auto& notes = tune.tracks[t].notes;
-            notes.erase(std::remove_if(notes.begin(), notes.end(),
-                                       [&](const TuneNote& n) { return chosen.count({ static_cast<int>(t), n.id }) > 0; }),
-                        notes.end());
-        }
-    });
-    selection_.clear();
-}
-
-void TrackerView::duplicateSelection()
-{
-    if (selection_.empty())
-        return;
-    // The copy goes right after the selection, rounded up to a whole bar.
-    const auto& tracks = model_.tune().tracks;
-    int64_t first = std::numeric_limits<int64_t>::max(), last = 0;
-    for (const NoteRef& r : selection_)
-        if (const int i = indexOf(r); i >= 0)
-        {
-            const TuneNote& n = tracks[static_cast<size_t>(r.track)].notes[static_cast<size_t>(i)];
-            first = std::min(first, n.start);
-            last = std::max(last, n.start + n.length);
-        }
-    const double bar = model_.tune().source().beatLength * 4;
-    const auto shift = static_cast<int64_t>(std::ceil(static_cast<double>(last - first) / bar) * bar);
-    const auto chosen = selection_;
-    std::set<NoteRef> copies;
-    model_.edit("Duplicate notes", [chosen, shift, &copies](Tune& tune) {
-        int id = tune.newNoteId();
-        for (size_t t = 0; t < tune.tracks.size(); ++t)
-        {
-            auto& notes = tune.tracks[t].notes;
-            std::vector<TuneNote> added;
-            for (const TuneNote& n : notes)
-                if (chosen.count({ static_cast<int>(t), n.id }))
-                {
-                    TuneNote copy = n;
-                    copy.id = id++;
-                    copy.start += shift;
-                    added.push_back(copy);
-                    copies.insert({ static_cast<int>(t), copy.id });
-                }
-            notes.insert(notes.end(), added.begin(), added.end());
-            std::stable_sort(notes.begin(), notes.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-        }
-    });
-    selection_ = copies;
-    repaint();
-}
-
-void TrackerView::editPitch(NoteRef ref)
-{
-    const int i = indexOf(ref);
-    if (i < 0)
-        return;
-    const auto& tr = model_.tune().tracks[static_cast<size_t>(ref.track)];
-    const auto& n = tr.notes[static_cast<size_t>(i)];
-    const int current = model_.tune().pitch(tr, n);
-    const int base = current - n.transpose;
-    auto editor = std::make_unique<PitchEditor>(theme::noteName(current), [this, ref, base](int note) {
-        model_.edit("Set pitch", [ref, note, base](Tune& tune) {
-            for (TuneNote& x : tune.tracks[static_cast<size_t>(ref.track)].notes)
-                if (x.id == ref.id)
-                    x.transpose = std::clamp(note - base, -48, 48);
-        });
-    });
-    juce::CallOutBox::launchAsynchronously(std::move(editor), noteBounds(ref.track, i).toNearestInt() + getScreenPosition(), nullptr);
-}
-
-void TrackerView::addNoteAt(int track, double time)
-{
-    // A copy of the track's nearest note: the instrument's own sound.
-    const auto& notes = model_.tune().tracks[static_cast<size_t>(track)].notes;
-    if (notes.empty())
-        return;
-    const auto nearest = std::min_element(notes.begin(), notes.end(), [time](const TuneNote& a, const TuneNote& b) {
-        return std::abs(static_cast<double>(a.start) - time) < std::abs(static_cast<double>(b.start) - time);
-    });
-    TuneNote copy = *nearest;
-    copy.start = static_cast<int64_t>(std::max(0.0, time));
-    NoteRef added;
-    model_.edit("Add note", [track, copy, &added](Tune& tune) mutable {
-        copy.id = tune.newNoteId();
-        added = { track, copy.id };
-        auto& list = tune.tracks[static_cast<size_t>(track)].notes;
-        list.push_back(copy);
-        std::stable_sort(list.begin(), list.end(), [](const TuneNote& a, const TuneNote& b) { return a.start < b.start; });
-    });
-    selection_ = { added };
-    repaint();
 }
 
 } // namespace opm86

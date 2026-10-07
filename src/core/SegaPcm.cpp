@@ -1,6 +1,7 @@
 #include "SegaPcm.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace opm86
@@ -25,7 +26,7 @@ void SegaPcm::write(int offset, uint8_t value)
         low_[(offset >> 3) & 15] = 0;
 }
 
-void SegaPcm::generate(int32_t& left, int32_t& right, uint16_t channelMask, int32_t* peaks)
+void SegaPcm::generate(int32_t& left, int32_t& right, uint16_t channelMask, int32_t* peaks, const float* gains)
 {
     left = right = 0;
     if (rom_ == nullptr)
@@ -56,10 +57,13 @@ void SegaPcm::generate(int32_t& left, int32_t& right, uint16_t channelMask, int3
         if ((channelMask >> ch) & 1)
         {
             const int v = static_cast<int>(rom_[(bank + (addr >> 8)) & (kRomSize - 1)]) - 0x80;
-            left += v * (regs[2] & 0x7F);
-            right += v * (regs[3] & 0x7F);
+            int l = v * (regs[2] & 0x7F), r = v * (regs[3] & 0x7F);
+            if (gains)
+                l = static_cast<int>(std::lround(static_cast<float>(l) * gains[ch])), r = static_cast<int>(std::lround(static_cast<float>(r) * gains[ch]));
+            left += l;
+            right += r;
             if (peaks)
-                peaks[ch] = std::max(peaks[ch], std::abs(v) * std::max(regs[2] & 0x7F, regs[3] & 0x7F));
+                peaks[ch] = std::max({ peaks[ch], std::abs(l), std::abs(r) });
         }
 
         addr = (addr + regs[7]) & 0xFFFFFF;

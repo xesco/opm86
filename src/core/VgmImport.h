@@ -1,7 +1,6 @@
 #pragma once
 
 #include "FmPatch.h"
-#include "PcmBank.h"
 
 #include <cstdint>
 #include <string>
@@ -12,6 +11,19 @@ namespace opm86
 
 // VGM files count time in samples at this rate.
 inline constexpr double kVgmRate = 44100.0;
+
+inline constexpr size_t kMaxSampleBytes = 0xFF00; // the longest sample kept, short of a bank
+
+// One sample as the chip stores it: unsigned 8-bit, 0x80 = silence.
+struct PadSample
+{
+    std::string name;
+    std::string group; // the song a sample was imported from; empty otherwise
+    std::vector<uint8_t> data;
+    uint8_t step = 0x80;    // chip step that plays the sample at its own pitch
+    bool loop = false;
+    uint32_t loopStart = 0; // byte offset into data
+};
 
 // A YM2151 channel's settings from a given time: what a note sounds with.
 struct VgmNoteState

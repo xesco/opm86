@@ -30,11 +30,20 @@ public:
 
     void write(int offset, uint8_t value);
     uint8_t read(int offset) const { return ram_[offset & 0xFF]; }
+    // A channel as it plays: whether it does, and the ROM address it plays
+    // from now, its bank's included.
+    bool playing(int ch) const { return (ram_[static_cast<size_t>(0x86 + ch * 8)] & 1) == 0; }
+    uint32_t address(int ch) const
+    {
+        const auto* regs = &ram_[static_cast<size_t>(ch * 8)];
+        return (static_cast<uint32_t>(regs[0x86] & 0x70) << 12) + (static_cast<uint32_t>(regs[0x85]) << 8 | regs[0x84]);
+    }
 
     // Advance by one sample at kSampleRate. Channels outside the mask
     // still play on, but are left out of the output. With peaks (one per
     // channel), each output channel's louder side raises its peak.
-    void generate(int32_t& left, int32_t& right, uint16_t channelMask = 0xFFFF, int32_t* peaks = nullptr);
+    // With gains (one per channel), each channel's output is scaled by its gain.
+    void generate(int32_t& left, int32_t& right, uint16_t channelMask = 0xFFFF, int32_t* peaks = nullptr, const float* gains = nullptr);
 
 private:
     std::array<uint8_t, 0x100> ram_ {};

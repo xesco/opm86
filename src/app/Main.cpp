@@ -10,23 +10,39 @@ class MainWindow : public juce::DocumentWindow
 {
 public:
     explicit MainWindow(std::unique_ptr<MainComponent> content)
-        : DocumentWindow("OPM86 Tracker", theme::background, DocumentWindow::allButtons)
+        : DocumentWindow("OPM86 Player", theme::background, DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
-        setResizeLimits(980, 560, 10000, 10000);
+        setResizeLimits(1240, 560, 10000, 10000); // the tool bar's controls side by side
         setContentOwned(content.release(), true);
         centreWithSize(getWidth(), getHeight());
         setVisible(true);
     }
 
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+
+    // Keys with nothing focused, as before the first click, still play and
+    // stop; and the window coming to the front gives the view the keys.
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (auto* c = dynamic_cast<MainComponent*>(getContentComponent()))
+            return c->keyPressed(key);
+        return false;
+    }
+
+    void activeWindowStatusChanged() override
+    {
+        if (isActiveWindow() && juce::Component::getCurrentlyFocusedComponent() == nullptr)
+            if (auto* c = dynamic_cast<MainComponent*>(getContentComponent()))
+                c->view().grabKeyboardFocus();
+    }
 };
 
 class TrackerApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "OPM86 Tracker"; }
+    const juce::String getApplicationName() override { return "OPM86 Player"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     // One window, except for snapshots, which must not hand over to a running app.
     bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--snapshot"); }
@@ -43,10 +59,32 @@ public:
                      args.size() > 6 ? args[6] : juce::String());
             return;
         }
+        // The last file opened is opened again, unless one is given or it is gone.
+        juce::PropertiesFile::Options options;
+        options.applicationName = getApplicationName();
+        options.filenameSuffix = "settings";
+        options.osxLibrarySubFolder = "Application Support";
+        settings_.setStorageParameters(options);
+        if (auto* user = settings_.getUserSettings())
+            theme::setPitchColoursText(user->getValue("pitchColours")); // as chosen last time
         auto content = std::make_unique<MainComponent>();
+        content->onOpened = [this](const juce::File& file) {
+            if (auto* user = settings_.getUserSettings())
+                user->setValue("lastFile", file.getFullPathName()), user->saveIfNeeded();
+        };
+        content->onColoursChanged = [this] {
+            if (auto* user = settings_.getUserSettings())
+                user->setValue("pitchColours", theme::pitchColoursText()), user->saveIfNeeded();
+        };
+        const juce::File last(settings_.getUserSettings() ? settings_.getUserSettings()->getValue("lastFile") : juce::String());
         if (args.size() == 1 && juce::File(args[0].unquoted()).existsAsFile())
             content->open(juce::File(args[0].unquoted()));
+        else if (last.existsAsFile())
+            content->open(last);
         window_ = std::make_unique<MainWindow>(std::move(content));
+        // Where the window was when the app last quit, if that is still on a screen.
+        if (auto* user = settings_.getUserSettings(); user && user->containsKey("window"))
+            window_->restoreWindowStateFromString(user->getValue("window"));
     }
 
     void anotherInstanceStarted(const juce::String& commandLine) override
@@ -59,11 +97,14 @@ public:
 
     void shutdown() override
     {
+        if (auto* user = settings_.getUserSettings(); user && window_)
+            user->setValue("window", window_->getWindowStateAsString()), user->saveIfNeeded();
         window_ = nullptr;
         snapshot_ = nullptr;
     }
 
 private:
+    juce::ApplicationProperties settings_;
     // Waits for the first build, then writes the component's image.
     struct Snapshot : juce::Timer
     {
