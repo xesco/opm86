@@ -56,14 +56,16 @@ FetchContent_Declare(JUCE
 FetchContent_MakeAvailable(JUCE)
 
 # The player: a standalone Mac app that plays a VGM rip exactly, track by track.
-juce_add_binary_data(opm86_fonts SOURCES
+juce_add_binary_data(opm86_resources SOURCES
     resources/fonts/PressStart2P-Regular.ttf
     resources/fonts/JetBrainsMono-Regular.ttf
-    resources/fonts/JetBrainsMono-Bold.ttf)
+    resources/fonts/JetBrainsMono-Bold.ttf
+    resources/icon.png)
 juce_add_gui_app(opm86_player
     PRODUCT_NAME "OPM86 Player"
     COMPANY_NAME "xesco"
     BUNDLE_ID "com.xesco.opm86player"
+    ICON_BIG resources/icon.png # the macOS and Windows icons; drawn by scripts/icon.py
     DOCUMENT_EXTENSIONS vgz vgm)
 target_sources(opm86_player PRIVATE
     src/app/AppModel.cpp
@@ -80,7 +82,7 @@ target_compile_definitions(opm86_player PRIVATE
 target_link_libraries(opm86_player
     PRIVATE
         opm86_core
-        opm86_fonts
+        opm86_resources
         juce::juce_audio_devices
         juce::juce_audio_utils
         juce::juce_gui_extra
