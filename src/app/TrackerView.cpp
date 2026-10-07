@@ -13,7 +13,7 @@ namespace opm86
 namespace
 {
 
-// A header's name and the tag after solo: the voice, V1 · 2, and the patch,
+// A header's name and the tag right after it: the voice, V1 · 2, and the patch,
 // FM 6; in patch order the other way round, the voice without its number,
 // V1. Drums have their name alone.
 juce::String headName(const TuneTrack& t, bool byPatch)
@@ -28,7 +28,7 @@ juce::String tagName(const TuneTrack& t, bool byPatch)
                                          : "FM " + juce::String(t.instrument + 1);
 }
 
-// The width an FM part's tag takes after solo, gap included; 0 for drums.
+// The width an FM part's tag takes after the name, gap included; 0 for drums.
 int instrumentWidth(const TuneTrack& t, bool byPatch)
 {
     return t.kind == TuneTrack::Kind::Fm ? 8 + juce::GlyphArrangement::getStringWidthInt(theme::mono(12.0f, true), tagName(t, byPatch)) : 0;
@@ -70,7 +70,6 @@ const TrackerView::Layout& TrackerView::layout() const
     if (!model_.hasTune())
         return layout_;
     const auto& tracks = model_.tune().tracks;
-    int instrument = 0; // the widest instrument label
     for (const TuneTrack& t : tracks)
     {
         // Notes that sound together take a row each: the lowest row free at
@@ -126,12 +125,13 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.longest.push_back(longest);
         layout_.index.push_back(std::move(index));
 
-        // The names share a column as wide as the widest, so mute, solo
-        // and the instrument line up; the knobs go after the widest of those.
+        // The names, each with its tag, share a column as wide as the widest,
+        // so mute and solo line up; the knobs go after them.
         const int left = kChipColumn + (layout_.rows.back() > 1 ? 28 : 14);
-        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch_)) + 2, 96);
+        // The name and, right after it, the tag: the patch or the voice.
+        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch_)) + 2, 96)
+                         + instrumentWidth(t, byPatch_);
         layout_.nameEnd = std::max(layout_.nameEnd, left + name);
-        instrument = std::max(instrument, instrumentWidth(t, byPatch_));
     }
     // The order shown: voice order as the tune has it, or with the FM tracks
     // by patch, then by their voice and number; drums stay last.
@@ -156,7 +156,7 @@ const TrackerView::Layout& TrackerView::layout() const
         layout_.firstRow[t] = rowsAbove;
         rowsAbove += layout_.shown[t];
     }
-    layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + instrument + 8;
+    layout_.knobX = layout_.nameEnd + 8 + 2 * 23 + 3 + 8;
     // The header ends past the knobs' column and the dB under them, with
     // room for the voice toggles when a chord part shows them.
     bool toggles = false;
@@ -499,13 +499,12 @@ juce::Rectangle<int> TrackerView::voicePill(int track, int k) const
 juce::Rectangle<int> TrackerView::nameBounds(int track) const
 {
     // After the arrow of a chord part, up to the names' shared column, but
-    // leaving mute, solo and the instrument room before the knob, or before
-    // the voice toggles in a compact lane. Centred in a compact lane.
+    // leaving mute and solo room before the knob, or before the voice
+    // toggles in a compact lane. Centred in a compact lane.
     const int left = kChipColumn + (layout().rows[static_cast<size_t>(track)] > 1 ? 28 : 14);
-    const TuneTrack& tr = model_.tune().tracks[static_cast<size_t>(track)];
     const bool toggles = !layout().voices[static_cast<size_t>(track)].empty() && expanded(track);
     const int right = compact() ? headerWidth() - (toggles ? kVoiceColumn : 0) - 4 : knobBounds(track).getX() - 8;
-    const int room = right - left - 2 * (pillWidth() + 3) - 5 - instrumentWidth(tr, byPatch_);
+    const int room = right - left - 2 * (pillWidth() + 3) - 5;
     const int width = std::min(layout().nameEnd - left, std::max(24, room));
     const int height = minimal() ? laneHeight_ - 6 : 17;
     return { left, trackTop(track) + (laneHeight_ - (compact() ? height : kBlock)) / 2, width, height };
@@ -928,18 +927,21 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         }
         g.setColour(audible ? theme::text : theme::faint);
         g.setFont(theme::mono(minimal() ? 11.0f : 13.0f, true));
-        g.drawText(headName(tr, byPatch_), nameBounds(ti), juce::Justification::centredLeft, true);
-        drawToggle(mute, "M", tr.mute, theme::orange);
-        drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
-        // The tag stays in the smallest lanes too, the patch or the voice.
+        // The name, then right after it the tag, dimmer: the patch the voice
+        // plays, or in patch order the voice. Both stay in the smallest lanes.
+        const auto nameArea = nameBounds(ti);
+        const juce::String head = headName(tr, byPatch_);
+        g.drawText(head, nameArea, juce::Justification::centredLeft, true);
         if (tr.kind == TuneTrack::Kind::Fm)
         {
-            // The patch the voice plays, or in patch order the voice.
+            const int tagX = nameArea.getX() + juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), head) + 8;
             g.setColour(audible ? theme::dim : theme::faint);
-            g.setFont(theme::mono(12.0f, true));
-            g.drawText(tagName(tr, byPatch_), juce::Rectangle<int>(pill(ti, 1).getRight() + 8, mute.getY(), 70, mute.getHeight()),
-                       juce::Justification::centredLeft, false);
+            g.setFont(theme::mono(minimal() ? 11.0f : 12.0f, true));
+            g.drawText(tagName(tr, byPatch_), juce::Rectangle<int>(tagX, nameArea.getY(), std::max(0, nameArea.getRight() - tagX), nameArea.getHeight()),
+                       juce::Justification::centredLeft, true);
         }
+        drawToggle(mute, "M", tr.mute, theme::orange);
+        drawToggle(pill(ti, 1), "S", tr.solo, theme::cyan);
 
         // The level in dB, under the knob; compact lanes go without both and the meter.
         const bool dragging = drag_ == Drag::Knob && dragTrack_ == ti;
