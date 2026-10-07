@@ -104,7 +104,10 @@ The archive lists every pack that uses the Sega PCM chip at
 the YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM chip with
 a YM2203 instead of a YM2151, so the player plays only their drums.
 
-The app does not include or download any of this music, so you open a file you have.
+The app does not include or download any of this music, so you open a file you have. While
+no song is open, the window shows links to songs to start with, such as Magical Sound
+Shower from Out Run. A click on a link downloads the song's file in your browser, and you
+then open the file in the app.
 
 ## Use OPM86 Player
 

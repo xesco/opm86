@@ -13,6 +13,17 @@ namespace opm86
 namespace
 {
 
+// Songs to start with, shown while no song is open: each opens its VGM file's
+// download in the browser, from vgmrips.net. The app ships no music itself.
+struct SongLink
+{
+    const char* title;
+    const char* url;
+};
+const SongLink kSongLinks[] = {
+    { "Magical Sound Shower (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/01%20Magical%20Sound%20Shower.vgz" },
+};
+
 // A header's name and the tag right after it: the voice, V1 2, and the patch,
 // FM 6; in patch order the other way round, the voice without its number,
 // V1. Drums have their name alone.
@@ -591,6 +602,23 @@ void TrackerView::paint(juce::Graphics& g)
         g.drawText("OPEN A VGM RIP TO START", getLocalBounds(), juce::Justification::centred);
         g.setFont(theme::mono(14.0f));
         g.drawText("File > Open, or drop a .vgz file here", getLocalBounds().withTrimmedTop(60), juce::Justification::centred);
+        // Songs to download, a link each under a line that says where from.
+        const auto centre = getLocalBounds().toFloat().getCentre();
+        g.drawText("No songs yet? Download one from vgmrips.net, then open it:", juce::Rectangle<float>(0.0f, centre.y + 50.0f, static_cast<float>(getWidth()), 20.0f), juce::Justification::centred);
+        songLinks_.clear();
+        const auto pointer = getMouseXYRelative().toFloat();
+        for (size_t i = 0; i < std::size(kSongLinks); ++i)
+        {
+            const juce::String title(kSongLinks[i].title);
+            const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), title));
+            const auto link = juce::Rectangle<float>(centre.x - w * 0.5f, centre.y + 76.0f + static_cast<float>(i) * 24.0f, w, 20.0f);
+            songLinks_.push_back(link);
+            const bool over = isMouseOver() && link.contains(pointer);
+            g.setFont(theme::mono(14.0f, true));
+            g.setColour(over ? theme::text : theme::cyan);
+            g.drawText(title, link, juce::Justification::centred, false);
+            g.fillRect(link.getX(), link.getBottom() - 1.0f, link.getWidth(), 1.0f);
+        }
         return;
     }
     paintLanes(g);
@@ -1108,11 +1136,24 @@ bool TrackerView::overSelectionBar(juce::Point<float> p) const
     return t > model_.selectionStart() && t < model_.selectionEnd();
 }
 
+int TrackerView::songLinkAt(juce::Point<float> p) const
+{
+    for (size_t i = 0; i < songLinks_.size(); ++i)
+        if (songLinks_[i].contains(p))
+            return static_cast<int>(i);
+    return -1;
+}
+
 void TrackerView::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
     if (!model_.hasTune())
+    {
+        // A song's link opens its download in the browser.
+        if (const int link = songLinkAt(e.position); link >= 0)
+            juce::URL(kSongLinks[static_cast<size_t>(link)].url).launchInDefaultBrowser();
         return;
+    }
     const auto p = e.position;
     dragFrom_ = p;
 
@@ -1269,7 +1310,11 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 void TrackerView::mouseMove(const juce::MouseEvent& e)
 {
     if (!model_.hasTune())
+    {
+        setMouseCursor(songLinkAt(e.position) >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
         return;
+    }
     hover_ = noteAt(e.position);
     setMouseCursor(selectionEdgeAt(e.position) >= 0                          ? juce::MouseCursor::LeftRightResizeCursor
                    : overSelectionBar(e.position)                            ? juce::MouseCursor::DraggingHandCursor
