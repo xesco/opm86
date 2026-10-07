@@ -97,7 +97,7 @@ juce::String explain(const juce::String& label)
         { "KC", "Key code: octave and note" },
         { "KF", "Key fraction: pitch between notes" },
         { "PMS", "Pitch modulation sensitivity: how much the LFO bends this channel" },
-        { "BANK", "The 64 KB bank of the sample ROM its sample is in" },
+        { "BANK", "Where in the sample ROM its sample's bank starts, in 64 KB steps" },
         { "AMS", "Amplitude modulation sensitivity: how much the LFO moves its volume" },
         { "M1", "Operator M1, modulator 1: in most algorithms it shapes another operator's sound; it can feed back into itself" },
         { "M2", "Operator M2, modulator 2: in most algorithms it shapes another operator's sound" },
@@ -121,7 +121,7 @@ juce::String explain(const juce::String& label)
         { "LOOP", "Where the sample loops back to" },
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
-        { "FLAGS", "The channel's flag register: bit 0 stops it, bit 1 stops it at its end instead of looping, bits 4 to 6 its bank" },
+        { "FLAGS", "The channel's flag register: bit 0 stops it, bit 1 stops it at its end instead of looping, the high bits its bank" },
         { "BANK ROW", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
         { "OUT", "The channel's output now" },
         { "CHIP OUT", "The chip's output now, its channels mixed: left above, right below" },
@@ -204,7 +204,7 @@ void ChipView::catchUp()
                 if ((r & 0x87) == 0x86 && (w.value & 1) == 0)
                 {
                     const size_t base = r & 0x78; // the channel's eight registers, as ch x 8
-                    samples_.push_back({ static_cast<uint32_t>(w.value & 0x70) << 12,
+                    samples_.push_back({ SegaPcm::bankOffset(w.value, song.header.segaPcmInterface),
                                          static_cast<uint32_t>(regs[base | 0x84] | regs[base | 0x85] << 8),
                                          static_cast<uint32_t>((regs[base | 0x06] + 1) << 8) });
                 }
@@ -1024,7 +1024,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             for (int ch = 0; live_.valid && ch < 16; ++ch)
             {
                 const int base = ch * 8;
-                if (((live_.pcmPlaying >> ch) & 1) == 0 || static_cast<uint32_t>(pcm_[static_cast<size_t>(0x86 + base)] & 0x70) << 12 != s->bank)
+                if (((live_.pcmPlaying >> ch) & 1) == 0 || SegaPcm::bankOffset(pcm_[static_cast<size_t>(0x86 + base)], model_.tune().source().header.segaPcmInterface) != s->bank)
                     continue;
                 const uint32_t start = static_cast<uint32_t>(pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8);
                 const uint32_t end = static_cast<uint32_t>((pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8);
@@ -1116,7 +1116,7 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
         cell(g, row.removeFromLeft(colW), hex(pcm_[static_cast<size_t>(0x06 + base)], 2) + "00", glow(false, 0x06 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), juce::String(pcm_[static_cast<size_t>(0x07 + base)]), glow(false, 0x07 + base), accent, !on);
         cell(g, row.removeFromLeft(colW), hex(flagBits, 2), glow(false, 0x86 + base), accent, !on);
-        cell(g, row.removeFromLeft(colW), juce::String((flagBits >> 4) & 7), glow(false, 0x86 + base), accent, !on);
+        cell(g, row.removeFromLeft(colW), juce::String(SegaPcm::bankOffset(static_cast<uint8_t>(flagBits), model_.tune().source().header.segaPcmInterface) >> 16), glow(false, 0x86 + base), accent, !on);
         for (const int side : { 0x02, 0x03 })
         {
             const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.3f);

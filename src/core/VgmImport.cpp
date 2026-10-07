@@ -132,10 +132,6 @@ public:
         // The game's notes sound at the real clock, which differs from the
         // 3.579545 MHz the key codes are defined for.
         clockShift_ = header.ym2151Clock ? 12.0 * std::log2(header.ym2151Clock / 3579545.0) : 0.0;
-        // Same decoding as MAME: low byte is the bank shift, bits 16-23 extend the mask.
-        const uint32_t pcmInterface = header.segaPcmInterface;
-        shift_ = pcmInterface ? pcmInterface & 0xFF : 12;
-        mask_ = 0x70 | ((pcmInterface >> 16) & 0xFC);
     }
 
     bool started() const { return started_; }
@@ -568,7 +564,7 @@ private:
     {
         const uint8_t* r = &pcm_[ch * 8];
         const uint8_t flags = r[0x86];
-        const uint32_t romOffset = static_cast<uint32_t>(flags & mask_) << shift_;
+        const uint32_t romOffset = SegaPcm::bankOffset(flags, header_.segaPcmInterface);
         const uint32_t start = static_cast<uint32_t>(r[0x85]) << 8 | r[0x84];
         uint32_t end = (static_cast<uint32_t>(r[0x06]) + 1) << 8;
         if (end <= start)
@@ -595,7 +591,6 @@ private:
     uint8_t amd_ = 0, pmd_ = 0;
     std::array<uint8_t, 256> pcm_ {};
     std::vector<uint8_t> rom_;
-    uint32_t shift_ = 12, mask_ = 0x70;
     std::vector<PatchEntry> patches_;
     std::map<SampleKey, SampleEntry> samples_;
     std::vector<RawNote> notes_;

@@ -38,7 +38,7 @@ void SegaPcm::generate(int32_t& left, int32_t& right, uint16_t channelMask, int3
         if (regs[0x86] & 1)
             continue;
 
-        const uint32_t bank = static_cast<uint32_t>(regs[0x86] & 0x70) << 12;
+        const uint32_t bank = bankOffset(regs[0x86], interface_);
         uint32_t addr = static_cast<uint32_t>(regs[0x85]) << 16 | static_cast<uint32_t>(regs[0x84]) << 8 | low_[ch];
         const uint32_t loop = static_cast<uint32_t>(regs[0x05]) << 16 | static_cast<uint32_t>(regs[0x04]) << 8;
         const auto end = static_cast<uint8_t>(regs[6] + 1);
@@ -56,7 +56,7 @@ void SegaPcm::generate(int32_t& left, int32_t& right, uint16_t channelMask, int3
 
         if ((channelMask >> ch) & 1)
         {
-            const int v = static_cast<int>(rom_[(bank + (addr >> 8)) & (kRomSize - 1)]) - 0x80;
+            const int v = static_cast<int>(rom_[(bank + (addr >> 8)) & romMask_]) - 0x80;
             int l = v * (regs[2] & 0x7F), r = v * (regs[3] & 0x7F);
             if (gains)
                 l = static_cast<int>(std::lround(static_cast<float>(l) * gains[ch])), r = static_cast<int>(std::lround(static_cast<float>(r) * gains[ch]));

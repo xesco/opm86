@@ -42,10 +42,17 @@ public:
         }
     }
 
-    void pcmRom(const uint8_t* data, size_t size, uint32_t, uint32_t start) override
+    void pcmRom(const uint8_t* data, size_t size, uint32_t romSize, uint32_t start) override
     {
-        for (size_t i = 0; i < size && start + i < song_.rom.size(); ++i)
-            song_.rom[start + i] = data[i];
+        // As large as the board's ROM, and a power of two, so addresses wrap
+        // as they do on the chip; never below Out Run's 512 KB.
+        size_t need = std::max<size_t>({ song_.rom.size(), romSize, start + size });
+        size_t pow2 = SegaPcm::kRomSize;
+        while (pow2 < need)
+            pow2 <<= 1;
+        if (pow2 > song_.rom.size())
+            song_.rom.resize(pow2, 0x80);
+        std::copy(data, data + size, song_.rom.begin() + start);
     }
 
     uint32_t time() const { return time_; }
