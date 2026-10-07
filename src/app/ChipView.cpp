@@ -77,6 +77,14 @@ juce::String explain(const juce::String& label)
         { "AMD", "Amplitude modulation depth: how far the LFO moves volume" },
         { "WAVE", "LFO waveform" },
         { "NOISE", "Noise generator, on channel 8's last operator, and its frequency" },
+        { "TIMER A", "Timer A: its 10-bit count and how often it fires; a game's sound driver often keeps time with it" },
+        { "TIMER B", "Timer B: its 8-bit count and how often it fires" },
+        { "LOAD", "Which timers run" },
+        { "IRQ", "Which timers interrupt the sound CPU when they fire" },
+        { "CSM", "Composite sine mode: timer A keys every channel on, for speech" },
+        { "CT1", "Control output pin 1, which some boards use to switch sound" },
+        { "CT2", "Control output pin 2" },
+        { "TEST", "The test register; bit 1 holds the LFO at its start" },
         { "L", "Output to the left" },
         { "R", "Output to the right" },
         { "FB", "Feedback: how much M1 modulates itself" },
@@ -254,7 +262,10 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         static const char* kWaves[4] = { "SAW", "SQUARE", "TRIANGLE", "NOISE" };
         auto row = inner.removeFromTop(26.0f);
         g.setFont(theme::mono(15.0f, true));
+        // A label and its value; with no width given, as wide as the two need.
         const auto item = [&](const juce::String& label, const juce::String& value, float glowing, float width) {
+            if (width <= 0.0f)
+                width = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label + value)) + 32.0f;
             auto r = row.removeFromLeft(width);
             g.setColour(theme::dim);
             const auto at = r.removeFromLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 6.0f);
@@ -267,6 +278,22 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         item("AMD", juce::String(amd_), glow(true, 0x19), 110.0f);
         item("WAVE", kWaves[ym_[0x1B] & 3], glow(true, 0x1B), 170.0f);
         item("NOISE", (ym_[0x0F] & 0x80) ? "ON " + juce::String(ym_[0x0F] & 31) : juce::String("OFF"), glow(true, 0x0F), 150.0f);
+
+        // The timers, which a game's sound driver keeps time by, their
+        // control, the two output pins and the test register.
+        row = inner.removeFromTop(26.0f);
+        const int timerA = ym_[0x10] << 2 | (ym_[0x11] & 3), timerB = ym_[0x12], control = ym_[0x14], pins = ym_[0x1B];
+        const double rate = song_ != nullptr ? song_->fmRate : 62500.0; // the chip's samples a second
+        auto hz = [](double f) { return juce::String(f, f < 100.0 ? 1 : 0) + "Hz"; };
+        auto pair = [](bool a, bool b) { return juce::String(a ? "A" : "-") + " " + (b ? "B" : "-"); };
+        item("TIMER A", hex(timerA, 3) + " " + hz(rate / (1024 - timerA)), std::max(glow(true, 0x10), glow(true, 0x11)), 0.0f);
+        item("TIMER B", hex(timerB, 2) + " " + hz(rate / (16.0 * (256 - timerB))), glow(true, 0x12), 0.0f);
+        item("LOAD", pair(control & 1, control & 2), glow(true, 0x14), 0.0f);
+        item("IRQ", pair(control & 4, control & 8), glow(true, 0x14), 0.0f);
+        item("CSM", (control & 0x80) ? "ON" : "OFF", glow(true, 0x14), 0.0f);
+        item("CT1", juce::String((pins >> 6) & 1), glow(true, 0x1B), 0.0f);
+        item("CT2", juce::String((pins >> 7) & 1), glow(true, 0x1B), 0.0f);
+        item("TEST", hex(ym_[0x01], 2), glow(true, 0x01), 0.0f);
         inner.removeFromTop(8.0f);
     }
 
