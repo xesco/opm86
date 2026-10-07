@@ -62,15 +62,15 @@ first run takes about 5 minutes, and a run after a small change takes seconds.
 
 When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the app for
 all three systems, runs the tests (see [Tests](#tests)), and publishes the three apps as a
-release. It does not build on other pushes. To build all three without releasing, run the
-**Build** workflow by hand under **Actions**, and the run keeps the apps as downloads on
-its page. To release, run `make release VERSION=0.2.0` on an up-to-date `main` with no
-uncommitted changes. The command sets the version in `CMakeLists.txt` and adds the release
-to `CHANGELOG.md`, with the title of each pull request merged since the last release. It
-then commits both, tags the commit `v0.2.0`, and pushes the commit and the tag. The
-release on GitHub shows the same list as its notes. The macOS app is not signed, so macOS
-blocks it the first time you open it. To open it anyway, click **Open Anyway** in **System
-Settings > Privacy & Security**.
+release. GitHub also builds and tests the three apps for every pull request, but not for a
+push to a branch. A pull request's run, or a run of the **Build** workflow started by hand
+under **Actions**, keeps the apps as downloads on its page. To release, run `make release
+VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The command sets the
+version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each
+pull request merged since the last release. It then commits both, tags the commit
+`v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the same list as
+its notes. The macOS app is not signed, so macOS blocks it the first time you open it. To
+open it anyway, click **Open Anyway** in **System Settings > Privacy & Security**.
 
 ## Get songs
 
