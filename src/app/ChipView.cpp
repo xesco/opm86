@@ -651,30 +651,41 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
         ++count;
     const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
 
-    // Short of room, the count alone.
-    const auto box = area.removeFromRight(std::min(area.getWidth(), 230.0f)).reduced(0.0f, 1.0f);
-    if (box.getWidth() < 90.0f)
+    // As wide as its readouts, at the header's right end; short of room,
+    // the count alone.
+    const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
+    auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
+    const juce::String rate = juce::String(count) + "/s";
+    const float writesW = widthOf(labelFont, "WRITES") + 6.0f + widthOf(valueFont, rate);
+    const float lastW = widthOf(labelFont, "LAST") + 6.0f + widthOf(valueFont, last);
+    const float gap = 14.0f, pad = 10.0f;
+    const bool both = area.getWidth() >= writesW + gap + lastW + 2.0f * pad;
+    const float boxW = (both ? writesW + gap + lastW : writesW) + 2.0f * pad;
+    if (area.getWidth() < boxW)
         return;
-    const bool both = box.getWidth() >= 190.0f;
+    const auto box = area.removeFromRight(boxW).reduced(0.0f, 1.0f);
     g.setColour(theme::background.withAlpha(0.6f));
     g.fillRoundedRectangle(box, 5.0f);
     g.setColour(accent.withAlpha(0.4f));
     g.drawRoundedRectangle(box.reduced(0.5f), 5.0f, 1.0f);
-    auto inner = box.reduced(10.0f, 0.0f);
-    const auto field = [&](juce::Rectangle<float> r, const juce::String& label, const juce::String& value) {
-        g.setFont(theme::mono(11.0f));
+    auto inner = box.reduced(pad, 0.0f);
+    const auto field = [&](float width, const juce::String& label, const juce::String& value) {
+        auto r = inner.removeFromLeft(width);
+        g.setFont(labelFont);
         g.setColour(theme::dim);
-        const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 8.0f;
-        const auto at = r.removeFromLeft(w);
+        const auto at = r.removeFromLeft(widthOf(labelFont, label) + 6.0f);
         g.drawText(label, at, juce::Justification::centredLeft, false);
         tip(at, label);
-        g.setFont(theme::mono(14.0f, true));
+        g.setFont(valueFont);
         g.setColour(theme::text);
         g.drawText(value, r, juce::Justification::centredLeft, false);
     };
-    field(both ? inner.removeFromLeft(inner.getWidth() * 0.48f) : inner, "WRITES", juce::String(count) + "/s");
+    field(writesW, "WRITES", rate);
     if (both)
-        field(inner, "LAST", last);
+    {
+        inner.removeFromLeft(gap);
+        field(lastW, "LAST", last);
+    }
 }
 
 void ChipView::paintMeter(juce::Graphics& g, juce::Rectangle<float> area, int channel)
