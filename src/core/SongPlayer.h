@@ -181,6 +181,10 @@ public:
     // The playing chips as of the last block rendered. Safe to call from
     // another thread.
     ChipState chipState() const;
+    // Each chip's output, FM left and right then PCM left and right: the
+    // loudest since the last call, 1 at full scale. Safe to call from
+    // another thread.
+    std::array<float, 4> takeChipPeaks();
 
     // Play from a song time in VGM samples; a negative time starts with
     // silence. While playing, the change crossfades over 3 ms. Returns
@@ -253,6 +257,7 @@ private:
     float fmLevel_ = 0.7f, pcmLevel_ = 0.7f;
     std::vector<uint8_t> state_; // scratch for restoring a snapshot
     std::array<std::atomic<float>, kMeterChannels> peaks_ {};
+    std::array<std::atomic<float>, 4> chipPeaks_ {}; // FM left, right, PCM left, right
     void publishChips(const Deck& deck); // after each block, for chipState
     ChipState chips_;                    // written by the audio thread under chipsSequence_
     mutable std::atomic<uint32_t> chipsSequence_ { 0 }; // odd while chips_ is being written

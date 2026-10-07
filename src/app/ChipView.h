@@ -38,10 +38,16 @@ private:
     void paintPcm(juce::Graphics&, juce::Rectangle<float> area);
     void paintSampleMap(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent); // the song's samples, by bank, lit as they play
     void paintPcmTable(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, float valueFont); // a row per channel
-    void paintBus(juce::Graphics&, juce::Rectangle<float> area, bool fm, juce::Colour accent); // how many writes a second, and the last
-    void paintMeter(juce::Graphics&, juce::Rectangle<float> area, int channel); // a chip channel's output, 8 FM then 16 PCM, as a track's meter
-    std::array<float, 24> hold_ {};      // per chip channel: the meter's peak hold, 0..1
-    std::array<double, 24> holdSince_ {}; // and when it was set, in ms
+    // How many writes a second, and the last, at the area's right end;
+    // returns the room left beside it.
+    juce::Rectangle<float> paintBus(juce::Graphics&, juce::Rectangle<float> area, bool fm, juce::Colour accent);
+    void paintChipOutput(juce::Graphics&, juce::Rectangle<float> area, bool fm); // the chip's output, left and right meters
+    // A meter as a track's, level 0..1 along it; hold: which peak hold it
+    // keeps, 0 to 23 the chip channels, 24 to 27 the chips' outputs.
+    void paintMeter(juce::Graphics&, juce::Rectangle<float> area, float level, int hold);
+    std::array<float, 28> hold_ {};       // the meters' peak holds, 0..1
+    std::array<double, 28> holdSince_ {}; // and when each was set, in ms
+    std::array<float, 4> chipLevel_ {};   // each chip's output, FM left, right, PCM left, right: linear, falling back
     double lastPaint_ = 0.0;              // ms, for the holds' fall
 
     AppModel& model_;

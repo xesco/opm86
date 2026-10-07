@@ -455,6 +455,7 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
             r = static_cast<float>(b) * kChipScale;
         });
 
+        std::array<float, 4> chip {};
         for (int i = 0; i < n; ++i)
         {
             deck.pcmFilter.process(pcmL[i], pcmR[i]);
@@ -463,7 +464,16 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
                                                     : std::max(deck.target, deck.gain - fade_);
             left[pos + i] += (fmL[i] * fmLevel_ + pcmL[i] * pcmLevel_) * deck.gain;
             right[pos + i] += (fmR[i] * fmLevel_ + pcmR[i] * pcmLevel_) * deck.gain;
+            // Each chip's own output, before the two are mixed.
+            chip[0] = std::max(chip[0], std::abs(fmL[i] * fmLevel_ * deck.gain));
+            chip[1] = std::max(chip[1], std::abs(fmR[i] * fmLevel_ * deck.gain));
+            chip[2] = std::max(chip[2], std::abs(pcmL[i] * pcmLevel_ * deck.gain));
+            chip[3] = std::max(chip[3], std::abs(pcmR[i] * pcmLevel_ * deck.gain));
         }
+        if (measure)
+            for (size_t c = 0; c < chip.size(); ++c)
+                if (chip[c] > chipPeaks_[c].load(std::memory_order_relaxed))
+                    chipPeaks_[c].store(chip[c], std::memory_order_relaxed);
         pos += n;
         deck.songTime += n * speed_ * kVgmRate / hostRate_;
     }
@@ -529,6 +539,14 @@ void SongPlayer::publishChips(const Deck& deck)
     std::atomic_thread_fence(std::memory_order_release);
     chips_ = state;
     chipsSequence_.store(sequence + 2, std::memory_order_release);
+}
+
+std::array<float, 4> SongPlayer::takeChipPeaks()
+{
+    std::array<float, 4> result {};
+    for (size_t c = 0; c < result.size(); ++c)
+        result[c] = chipPeaks_[c].exchange(0.0f, std::memory_order_relaxed);
+    return result;
 }
 
 ChipState SongPlayer::chipState() const

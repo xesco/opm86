@@ -38,6 +38,7 @@ public:
     // Per chip channel, 8 FM then 16 PCM: the loudest output since the last call.
     std::array<float, SongPlayer::kMeterChannels> takePeaks() { return player_.takePeaks(); }
     ChipState chipState() const { return player_.chipState(); } // the chips as they play, from the audio thread
+    std::array<float, 4> takeChipPeaks() { return player_.takeChipPeaks(); } // each chip's output: FM left, right, PCM left, right
     bool ready() const { return built_ != nullptr; } // a build exists to play
 
     // Change the tune, as one step of undo; with newStep false, as part of the
