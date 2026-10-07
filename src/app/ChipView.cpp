@@ -656,14 +656,14 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
     // as the numbers change. Short of room, the count alone.
     const auto labelFont = theme::mono(11.0f), valueFont = theme::mono(14.0f, true);
     auto widthOf = [](const juce::Font& f, const juce::String& t) { return static_cast<float>(juce::GlyphArrangement::getStringWidthInt(f, t)); };
-    const float gap = 16.0f, pad = 8.0f, framePad = 14.0f, labelGap = 6.0f;
+    const float gap = 12.0f, pad = 8.0f, framePad = 8.0f, labelGap = 6.0f;
     auto fieldW = [&](const juce::String& label, const juce::String& widest) { return widthOf(labelFont, label) + labelGap + widthOf(valueFont, widest) + 2.0f * pad; };
     const float writesW = fieldW("WRITES", "9999/s"), lastW = fieldW("LAST", "FF=FF");
     const bool both = area.getWidth() >= writesW + gap + lastW + 2.0f * framePad;
     const float frameW = (both ? writesW + gap + lastW : writesW) + 2.0f * framePad;
     if (area.getWidth() < frameW)
         return;
-    const auto frame = area.removeFromRight(frameW).reduced(0.0f, 1.0f);
+    const auto frame = area.removeFromRight(frameW).expanded(0.0f, 3.0f); // taller than the header line, for room above and below
     g.setColour(theme::background.withAlpha(0.4f));
     g.fillRoundedRectangle(frame, 6.0f);
     g.setColour(accent.withAlpha(0.3f));
@@ -676,7 +676,7 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
         const auto at = r.removeFromLeft(widthOf(labelFont, label) + labelGap);
         g.drawText(label, at, juce::Justification::centredLeft, false);
         tip(at, label);
-        const auto box = r.reduced(0.0f, 5.0f);
+        const auto box = r.reduced(0.0f, 8.0f);
         g.setColour(theme::background.withAlpha(0.7f));
         g.fillRoundedRectangle(box, 4.0f);
         g.setColour(accent.withAlpha(0.45f));
