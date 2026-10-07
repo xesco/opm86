@@ -56,7 +56,7 @@ class TopBar : public juce::Component, public juce::TooltipClient
 public:
     TopBar(AppModel& model, TrackerView& view);
 
-    void rewind(); // back to beat 1, or the selection's start, playing on if it was
+    void rewind(); // back to the song start, or the selection's, playing on if it was
     void toEnd();  // to the selection's end, or the song's
 
     void paint(juce::Graphics&) override;
