@@ -36,6 +36,7 @@ add_library(opm86_core STATIC
     src/core/TuneRebuilder.cpp
     src/core/VgmImport.cpp
     src/core/VgmSong.cpp
+    src/core/YmfmOpm.cpp
     ${ymfm_SOURCE_DIR}/src/ymfm_opm.cpp)
 target_include_directories(opm86_core PUBLIC src/core)
 target_include_directories(opm86_core SYSTEM PUBLIC ${ymfm_SOURCE_DIR}/src)
