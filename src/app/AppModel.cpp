@@ -371,6 +371,7 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         {
             player_.stop();
             playing_.store(false);
+            ended_.store(true);
         }
     }
     else

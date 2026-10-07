@@ -297,6 +297,7 @@ private:
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
     Activity activity_ { view_ };
     double lastFrame_ = 0;
+    double endedAt_ = -1.0, endedPosition_ = 0.0; // when and where playing stopped at the song's end, until the rewind
     juce::VBlankAttachment vblank_ { this, [this](double timestamp) { frame(timestamp); } };
 };
 

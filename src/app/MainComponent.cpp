@@ -1776,6 +1776,14 @@ void MainComponent::frame(double timestamp)
     }
     if (sliding)
         resized();
+    // Stopped at the song's end, the song goes back to its start 2s later,
+    // unless it plays again or the playhead moves before then.
+    if (model_.takeEnded())
+        endedAt_ = timestamp, endedPosition_ = model_.position();
+    if (endedAt_ >= 0.0 && (model_.playing() || std::abs(model_.position() - endedPosition_) > 0.5))
+        endedAt_ = -1.0;
+    else if (endedAt_ >= 0.0 && timestamp - endedAt_ >= 2.0)
+        endedAt_ = -1.0, top_.rewind();
     view_.followPlayhead();
     view_.updateMeters(seconds);
     piano_.setHeaderWidth(view_.headerWidth());

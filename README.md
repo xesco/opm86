@@ -581,8 +581,9 @@ The keyboard controls the song like this:
 | Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
 | Escape | Drops the selection |
 
-The **stop** button stops the song, and a second click goes back to the song's start. The
-mouse moves around the song like this:
+The **stop** button stops the song, and a second click goes back to the song's start. When
+the song plays to its end, the playhead goes back to the start 2s later. The mouse moves
+around the song like this:
 
 | Mouse | Effect |
 | --- | --- |

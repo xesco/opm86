@@ -50,6 +50,7 @@ public:
     void stop();
     bool playing() const { return playing_.load(); }
     double position() const { return position_.load(); } // song time, VGM samples
+    bool takeEnded() { return ended_.exchange(false); } // whether playing stopped at the song's end since the last call
     // The position now, between audio blocks, for a playhead that moves smoothly.
     double displayPosition() const;
     void setPosition(double songTime);
@@ -123,6 +124,7 @@ private:
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
 
     std::atomic<bool> playing_ { false };
+    std::atomic<bool> ended_ { false }; // set where playing stops at the song's end
     std::atomic<bool> monitor_ { true };
     std::atomic<double> speed_ { 1.0 };
     std::atomic<float> master_ { 1.0f }; // the master volume as a gain
