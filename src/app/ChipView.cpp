@@ -230,12 +230,14 @@ void ChipView::paint(juce::Graphics& g)
         return;
     catchUp();
     live_ = model_.chipState();
+    const double started = juce::Time::getMillisecondCounterHiRes();
     // The FM chip on the left, the PCM chip on the right, apart.
     auto area = getLocalBounds().toFloat().reduced(12.0f);
     const auto pcm = area.removeFromRight(std::max(360.0f, area.getWidth() * 0.34f));
     area.removeFromRight(12.0f);
     paintFm(g, area);
     paintPcm(g, pcm);
+    lastPaint_ = started;
 }
 
 void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
@@ -292,14 +294,11 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
             g.fillPath(top);
             g.setColour(keyed ? accent.withAlpha(0.35f) : theme::gridBar.withAlpha(0.6f));
             g.fillRect(band.getX(), band.getBottom() - 1.0f, band.getWidth(), 1.0f);
-            // The channel's output now, a bar along the band's foot.
-            if (const float out = tracks_.channelMeter(ch); out > 0.0f)
-            {
-                g.setColour(accent);
-                g.fillRect(band.getX(), band.getBottom() - 3.0f, band.getWidth() * out, 3.0f);
-            }
+            // The channel's output now, a meter right under the band.
+            paintMeter(g, juce::Rectangle<float>(band.getX() + 10.0f, band.getBottom() + 4.0f, band.getWidth() - 20.0f, 5.0f), ch);
         }
         c = c.reduced(10.0f, 4.0f);
+        c.removeFromTop(9.0f); // the meter's row
         auto head = band.reduced(10.0f, 3.0f);
         const float headFont = std::clamp(head.getHeight() * 0.66f, 11.0f, 20.0f);
         g.setFont(theme::mono(headFont, true));
@@ -680,6 +679,35 @@ void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm,
     g.drawText(juce::String(count) + "/s  " + last, text, juce::Justification::centredRight, false);
 }
 
+void ChipView::paintMeter(juce::Graphics& g, juce::Rectangle<float> area, int channel)
+{
+    // As on a track: cells white up to -12 dB, yellow to -6, orange to -3
+    // and red above, dim where not lit, and a hold at the peak that waits a
+    // second, then falls.
+    const auto c = static_cast<size_t>(channel);
+    const float level = tracks_.channelMeter(channel);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (level >= hold_[c])
+        hold_[c] = level, holdSince_[c] = now;
+    else if (now - holdSince_[c] > 1000.0)
+        hold_[c] = std::max(level, hold_[c] - static_cast<float>((now - lastPaint_) / 1000.0) * 0.6f);
+    g.setColour(juce::Colour(0xff1a1c24));
+    g.fillRoundedRectangle(area, 2.0f);
+    const auto cells = area.reduced(1.0f);
+    const int count = std::max(1, static_cast<int>(cells.getWidth() / 3.0f));
+    const float width = cells.getWidth() / static_cast<float>(count);
+    const int held = static_cast<int>(hold_[c] * static_cast<float>(count));
+    auto zone = [](float db) { return (db + 36.0f) / 36.0f; }; // where a level in dB sits along the meter, from -36 dB
+    for (int k = 0; k < count; ++k)
+    {
+        const float at = (static_cast<float>(k) + 0.5f) / static_cast<float>(count);
+        const juce::Colour colour = at > zone(-3.0f) ? theme::danger : at > zone(-6.0f) ? theme::orange : at > zone(-12.0f) ? theme::yellow : juce::Colour(0xffeceaf4);
+        const bool lit = at <= level || (k == held && hold_[c] > 0.02f);
+        g.setColour(lit ? colour : colour.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.3f));
+        g.fillRect(cells.getX() + static_cast<float>(k) * width, cells.getY(), width - 1.0f, cells.getHeight());
+    }
+}
+
 void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
 {
     const juce::Colour accent = theme::orange;
@@ -835,13 +863,7 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
             g.fillRoundedRectangle(r.withWidth(r.getWidth() * static_cast<float>(volume) / 127.0f), 2.0f);
         }
         // Its output now.
-        {
-            const auto r = row.removeFromLeft(colW).reduced(6.0f, rowH * 0.25f);
-            g.setColour(theme::gridBar.withAlpha(0.5f));
-            g.fillRoundedRectangle(r, 2.0f);
-            g.setColour(accent);
-            g.fillRoundedRectangle(r.withWidth(r.getWidth() * tracks_.channelMeter(8 + ch)), 2.0f);
-        }
+        paintMeter(g, row.removeFromLeft(colW).reduced(6.0f, rowH * 0.25f), 8 + ch);
     }
 }
 

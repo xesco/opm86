@@ -39,6 +39,10 @@ private:
     void paintSampleMap(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent); // the song's samples, by bank, lit as they play
     void paintPcmTable(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, float valueFont); // a row per channel
     void paintBus(juce::Graphics&, juce::Rectangle<float> area, bool fm, juce::Colour accent); // the chip's writes in the last second
+    void paintMeter(juce::Graphics&, juce::Rectangle<float> area, int channel); // a chip channel's output, 8 FM then 16 PCM, as a track's meter
+    std::array<float, 24> hold_ {};      // per chip channel: the meter's peak hold, 0..1
+    std::array<double, 24> holdSince_ {}; // and when it was set, in ms
+    double lastPaint_ = 0.0;              // ms, for the holds' fall
 
     AppModel& model_;
     const TrackerView& tracks_;
