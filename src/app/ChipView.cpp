@@ -168,18 +168,29 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         g.fillRoundedRectangle(card, 6.0f);
         g.setColour(keyed ? accent.withAlpha(0.5f) : theme::gridBar.withAlpha(0.6f));
         g.drawRoundedRectangle(card.reduced(0.5f), 6.0f, 1.0f);
-        auto c = card.reduced(10.0f, 6.0f);
-
-        // The channel: its number, the note it plays, its sides, feedback and algorithm.
-        // Fonts follow the room: the values fill their rows, short of the columns' width.
-        auto head = c.removeFromTop(std::min(30.0f, c.getHeight() / 5.5f));
-        const float headFont = std::clamp(head.getHeight() * 0.72f, 11.0f, 20.0f);
+        // The channel's header: a band across the top of the card with its
+        // number, the note it plays, its sides, feedback and algorithm, tinted
+        // while it plays. Fonts follow the room: the values fill their rows,
+        // short of the columns' width.
+        auto c = card;
+        auto band = c.removeFromTop(std::min(32.0f, card.getHeight() / 5.2f));
+        {
+            juce::Path top;
+            top.addRoundedRectangle(band.getX(), band.getY(), band.getWidth(), band.getHeight(), 6.0f, 6.0f, true, true, false, false);
+            g.setColour(keyed ? accent.withAlpha(0.14f) : theme::panelLight.withAlpha(0.7f));
+            g.fillPath(top);
+            g.setColour(keyed ? accent.withAlpha(0.35f) : theme::gridBar.withAlpha(0.6f));
+            g.fillRect(band.getX(), band.getBottom() - 1.0f, band.getWidth(), 1.0f);
+        }
+        c = c.reduced(10.0f, 4.0f);
+        auto head = band.reduced(10.0f, 3.0f);
+        const float headFont = std::clamp(head.getHeight() * 0.66f, 11.0f, 20.0f);
         g.setFont(theme::mono(headFont, true));
         g.setColour(keyed ? theme::text : theme::dim);
         g.drawText("CH" + juce::String(ch + 1), head.removeFromLeft(headFont * 2.6f), juce::Justification::centredLeft, false);
         const int kc = ym_[static_cast<size_t>(0x28 + ch)], code = kc & 15;
         const int midi = 13 + ((kc >> 4) & 7) * 12 + code - code / 4; // the YM2151 counts notes from C#, skipping every fourth code
-        const auto pill = head.removeFromLeft(headFont * 3.6f).reduced(0.0f, 2.0f);
+        const auto pill = head.removeFromLeft(headFont * 3.6f);
         const juce::Colour pitch = theme::pitchColour(midi);
         g.setColour(keyed ? pitch : pitch.withAlpha(0.18f));
         g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
