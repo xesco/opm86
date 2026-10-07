@@ -1,13 +1,12 @@
-# Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and keeps
-# each app as a build artifact. A tag such as v0.2.0 also publishes the three
-# apps as a GitHub release.
+# Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and
+# publishes the three apps as a GitHub release, when make release pushes a tag
+# such as v0.2.0. Run by hand from the Actions tab, it builds and tests only,
+# and keeps the apps as downloads on the run's page.
 name: Build
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 jobs:
