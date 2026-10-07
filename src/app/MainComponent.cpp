@@ -11,7 +11,7 @@ namespace
 {
 
 constexpr int kTopHeight = 64;
-constexpr int kToolHeight = 52;
+constexpr int kToolHeight = 58;
 constexpr int kOverviewHeight = 54; // the overview's least height
 constexpr int kPianoHeight = 66;    // the keys' least height
 constexpr int kStripMaxHeight = 132; // both strips' greatest height; they open at 70% of it
@@ -864,7 +864,7 @@ void ToolBar::resized()
     // Groups, each named over its controls and set apart by a faint line:
     // how it plays at the left, the playhead, speed, the selection and the
     // mix; how it shows at the right, the view, zoom and the two sizes.
-    auto r = getLocalBounds().reduced(14, 0).withTrimmedBottom(10); // room above the stripe
+    auto r = getLocalBounds().reduced(14, 0).withTrimmedTop(6).withTrimmedBottom(10); // room under the top edge and above the stripe
     groupCaptions_.clear();
     dividers_.clear();
     constexpr int kButton = 34, kGap = 6, kCaption = 12, kBetween = 22;
