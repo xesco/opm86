@@ -212,8 +212,11 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addRectangle(box.getRight() - 3.0f, box.getY(), 3.0f, box.getHeight());
             p.addTriangle(box.getX(), box.getY(), box.getX(), box.getBottom(), box.getRight() - 3.0f, box.getCentreY());
             break;
-        case Icon::Play:
-            p.addTriangle(box.getX() + 1.0f, box.getY(), box.getX() + 1.0f, box.getBottom(), box.getRight(), box.getCentreY());
+        case Icon::Play: // a triangle, or while playing (lit) two bars: pause
+            if (getToggleState())
+                p.addRectangle(box.getX() + 2.0f, box.getY(), 3.5f, box.getHeight()), p.addRectangle(box.getRight() - 5.5f, box.getY(), 3.5f, box.getHeight());
+            else
+                p.addTriangle(box.getX() + 1.0f, box.getY(), box.getX() + 1.0f, box.getBottom(), box.getRight(), box.getCentreY());
             break;
         case Icon::Stop:
             p.addRectangle(box.reduced(1.0f));
@@ -489,11 +492,17 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     rewind_.setTooltip("Rewind (Return)");
     end_.setTooltip("To the end (End)");
     end_.onClick = [this] { toEnd(); };
-    play_.setTooltip("Play (Space)");
+    play_.setTooltip("Play or pause (Space)");
     stop_.setTooltip("Stop (Space)");
     open_.setTooltip("Open (Cmd+O)");
     rewind_.onClick = [this] { rewind(); };
-    play_.onClick = [this] { model_.play(); };
+    // Play, or while playing pause, as Space does; the playhead stays where it stops.
+    play_.onClick = [this] {
+        if (model_.playing())
+            model_.stop();
+        else
+            model_.play();
+    };
     stop_.onClick = [this] {
         // A second stop returns to the start.
         if (!model_.playing())
