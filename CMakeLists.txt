@@ -61,8 +61,15 @@ juce_add_binary_data(opm86_resources SOURCES
     resources/fonts/JetBrainsMono-Regular.ttf
     resources/fonts/JetBrainsMono-Bold.ttf
     resources/icon.png)
+# The file's name: "OPM86 Player" on macOS and Windows, opm86-player on Linux,
+# where commands are lowercase without spaces. The window keeps the full name.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(OPM86_PLAYER_FILE opm86-player)
+else()
+    set(OPM86_PLAYER_FILE "OPM86 Player")
+endif()
 juce_add_gui_app(opm86_player
-    PRODUCT_NAME "OPM86 Player"
+    PRODUCT_NAME "${OPM86_PLAYER_FILE}"
     COMPANY_NAME "xesco"
     BUNDLE_ID "com.xesco.opm86player"
     ICON_BIG resources/icon.png # the macOS and Windows icons; drawn by scripts/icon.py

@@ -1,7 +1,7 @@
 # Builds OPM86 Player and copies it to the repository root.
 #   make          build for the system it runs on: make mac, linux or windows
 #   make mac      build "./OPM86 Player.app", signed as SIGN_ID if the keychain has it (macOS)
-#   make linux    on Linux, build "./OPM86 Player"; on a Mac, build and test in a
+#   make linux    on Linux, build ./opm86-player; on a Mac, build and test in a
 #                 Docker container with Ubuntu (build-linux)
 #   make windows  build "./OPM86 Player.exe" (Windows, in Git Bash with make)
 #   make release VERSION=0.2.0
@@ -58,7 +58,7 @@ endif
 ifeq ($(SYSTEM),linux)
 linux: configure
 	cmake --build $(BUILD_DIR) --target opm86_player --config $(CONFIG) --parallel $(JOBS)
-	cp "$(APPS)/OPM86 Player" "./OPM86 Player"
+	cp "$(APPS)/opm86-player" ./opm86-player
 endif
 
 ifeq ($(SYSTEM),windows)
@@ -80,4 +80,4 @@ release:
 	scripts/release.sh "$(VERSION)"
 
 clean:
-	rm -rf "./OPM86 Player.app" "./OPM86 Player" "./OPM86 Player.exe"
+	rm -rf "./OPM86 Player.app" ./opm86-player "./OPM86 Player.exe"

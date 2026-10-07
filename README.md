@@ -44,10 +44,10 @@ libraries, which most desktop distributions install already.
 
    ```sh
    tar -xzf OPM86-Player-linux.tar.gz
-   ./"OPM86 Player"
+   ./opm86-player
    ```
 
-The download also holds the app's icon, `OPM86 Player.png`, for a launcher entry.
+The download also holds the app's icon, `opm86-player.png`, for a launcher entry.
 
 ### Raspberry Pi
 
@@ -60,7 +60,7 @@ may be too slow to play smoothly.
 
    ```sh
    tar -xzf OPM86-Player-linux-arm64.tar.gz
-   ./"OPM86 Player"
+   ./opm86-player
    ```
 
 ## The sound board
@@ -129,8 +129,8 @@ The app is then `build/opm86_player_artefacts/Release/OPM86 Player.exe`.
 Linux needs GCC or Clang, and the development packages of ALSA, JACK, FreeType,
 Fontconfig, X11 and OpenGL, which JUCE builds against. `sudo scripts/linux-deps.sh`
 installs them and the build tools on Ubuntu, Debian and Raspberry Pi OS (with `apt`) and on
-Arch and Omarchy (with `pacman`). Then `make` builds the app as `OPM86 Player`, and
-`./"OPM86 Player"` runs it. A Raspberry Pi builds the same way.
+Arch and Omarchy (with `pacman`). Then `make` builds the app as `opm86-player`, and
+`./opm86-player` runs it. A Raspberry Pi builds the same way.
 
 On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
 Ubuntu container, to check a change before GitHub builds it. The container keeps its build

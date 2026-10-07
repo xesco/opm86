@@ -71,8 +71,8 @@ jobs:
           out="build/opm86_player_artefacts/Release"
           case "${{ runner.os }}" in
             macOS) ditto -c -k --keepParent "$out/OPM86 Player.app" "OPM86-Player-macos.zip" ;;
-            Linux) cp resources/icon.png "$out/OPM86 Player.png"  # for a launcher entry
-                   tar -czf "OPM86-Player-${{ matrix.name }}.tar.gz" -C "$out" "OPM86 Player" "OPM86 Player.png" ;;
+            Linux) cp resources/icon.png "$out/opm86-player.png"  # for a launcher entry
+                   tar -czf "OPM86-Player-${{ matrix.name }}.tar.gz" -C "$out" opm86-player opm86-player.png ;;
             Windows) 7z a "OPM86-Player-windows.zip" "./$out/OPM86 Player.exe" ;;
           esac
 
