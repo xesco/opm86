@@ -53,7 +53,8 @@ public:
     void drawButtonText(juce::Graphics& g, juce::TextButton& b, bool over, bool) override
     {
         g.setFont(getTextButtonFont(b, b.getHeight()));
-        g.setColour(b.getToggleState() ? theme::background : over ? theme::text : theme::dim);
+        // Faint while disabled, as the icon buttons are.
+        g.setColour((b.getToggleState() ? theme::background : over ? theme::text : theme::dim).withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.35f));
         g.drawText(b.getButtonText(), b.getLocalBounds(), juce::Justification::centred);
     }
 
@@ -531,7 +532,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (onClose)
             onClose();
     };
-    addChildComponent(close_); // shown while a song is open
+    addAndMakeVisible(close_); // greyed while no song is open
 }
 
 void TopBar::rewind()
@@ -573,7 +574,7 @@ void TopBar::resized()
     r.removeFromLeft(14);
     open_.setBounds(r.removeFromRight(70));
     r.removeFromRight(8);
-    close_.setBounds(r.removeFromRight(70)); // its room kept while it is hidden, so nothing moves
+    close_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
     // The master volume: its caption and level, then the knob.
     master_.setBounds(r.removeFromRight(40).withSizeKeepingCentre(40, 40));
@@ -586,7 +587,7 @@ void TopBar::resized()
 
 void TopBar::songChanged()
 {
-    close_.setVisible(model_.hasTune());
+    close_.setEnabled(model_.hasTune());
 }
 
 void TopBar::paint(juce::Graphics& g)

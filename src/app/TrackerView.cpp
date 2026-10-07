@@ -615,23 +615,42 @@ void TrackerView::paint(juce::Graphics& g)
         g.setFont(theme::mono(kText));
         g.drawText("File > Open, or drop a .vgz file here", line(kText), juce::Justification::centred, false);
         y += 44.0f;
-        // Songs to download, a link each under a line that says where from.
-        g.drawText("No songs yet? Download one from vgmrips.net, then open it:", line(kText), juce::Justification::centred, false);
-        y += 22.0f;
-        songLinks_.clear();
+        // Songs to download, a link each under a line that says where from,
+        // with the site's name a link to it.
+        links_.clear();
         const auto pointer = getMouseXYRelative().toFloat();
         const auto linkFont = theme::mono(kText, true);
+        auto drawLink = [&](const juce::String& text, juce::Rectangle<float> at, const juce::String& url) {
+            links_.emplace_back(at, url);
+            g.setFont(linkFont);
+            g.setColour(isMouseOver() && at.contains(pointer) ? theme::text : theme::cyan);
+            g.drawText(text, at, juce::Justification::centred, false);
+            g.fillRect(at.getX(), at.getBottom() - 1.0f, at.getWidth(), 1.0f);
+        };
+        {
+            const juce::String before("No songs yet? Download one from "), site("vgmrips.net"), after(", then open it:");
+            const auto plain = theme::mono(kText);
+            const float wBefore = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(plain, before));
+            const float wSite = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(linkFont, site));
+            const float wAfter = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(plain, after));
+            const auto row = line(kText);
+            float x = row.getCentreX() - (wBefore + wSite + wAfter) * 0.5f;
+            g.setFont(plain);
+            g.setColour(theme::dim);
+            g.drawText(before, juce::Rectangle<float>(x, row.getY(), wBefore, kText), juce::Justification::centredLeft, false);
+            x += wBefore;
+            drawLink(site, juce::Rectangle<float>(x, row.getY() - 3.0f, wSite, kText + 6.0f), "https://vgmrips.net");
+            x += wSite;
+            g.setFont(plain);
+            g.setColour(theme::dim);
+            g.drawText(after, juce::Rectangle<float>(x, row.getY(), wAfter, kText), juce::Justification::centredLeft, false);
+        }
+        y += 22.0f;
         for (const SongLink& song : kSongLinks)
         {
             const juce::String title(song.title);
             const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(linkFont, title));
-            const auto link = line(kLink).withSizeKeepingCentre(w, kText + 6.0f);
-            songLinks_.push_back(link);
-            const bool over = isMouseOver() && link.contains(pointer);
-            g.setFont(linkFont);
-            g.setColour(over ? theme::text : theme::cyan);
-            g.drawText(title, link, juce::Justification::centred, false);
-            g.fillRect(link.getX(), link.getBottom() - 1.0f, link.getWidth(), 1.0f);
+            drawLink(title, line(kLink).withSizeKeepingCentre(w, kText + 6.0f), song.url);
         }
         return;
     }
@@ -1150,10 +1169,10 @@ bool TrackerView::overSelectionBar(juce::Point<float> p) const
     return t > model_.selectionStart() && t < model_.selectionEnd();
 }
 
-int TrackerView::songLinkAt(juce::Point<float> p) const
+int TrackerView::linkAt(juce::Point<float> p) const
 {
-    for (size_t i = 0; i < songLinks_.size(); ++i)
-        if (songLinks_[i].contains(p))
+    for (size_t i = 0; i < links_.size(); ++i)
+        if (links_[i].first.contains(p))
             return static_cast<int>(i);
     return -1;
 }
@@ -1163,9 +1182,9 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     grabKeyboardFocus();
     if (!model_.hasTune())
     {
-        // A song's link opens its download in the browser.
-        if (const int link = songLinkAt(e.position); link >= 0)
-            juce::URL(kSongLinks[static_cast<size_t>(link)].url).launchInDefaultBrowser();
+        // A link opens in the browser: a song's, its download.
+        if (const int link = linkAt(e.position); link >= 0)
+            juce::URL(links_[static_cast<size_t>(link)].second).launchInDefaultBrowser();
         return;
     }
     const auto p = e.position;
@@ -1325,7 +1344,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
 {
     if (!model_.hasTune())
     {
-        setMouseCursor(songLinkAt(e.position) >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        setMouseCursor(linkAt(e.position) >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
         repaint();
         return;
     }

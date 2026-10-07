@@ -62,7 +62,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void songChanged(); // a song opened or closed: CLOSE shows while one is open
+    void songChanged(); // a song opened or closed: CLOSE works while one is open
 
     std::function<void()> onOpen;
     std::function<void()> onClose;
@@ -73,7 +73,7 @@ private:
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
-    juce::TextButton close_ { "CLOSE" }; // beside OPEN, while a song is open
+    juce::TextButton close_ { "CLOSE" }; // beside OPEN; greyed while no song is open
     VolumeKnob master_;
     juce::Rectangle<int> counters_, masterArea_;
 };
