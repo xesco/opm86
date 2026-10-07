@@ -120,7 +120,7 @@ juce::String explain(const juce::String& label)
         { "END", "The page where the sample ends" },
         { "RATE", "Playback step: 128 plays the sample as recorded" },
         { "FLAGS", "The channel's flag register: bit 0 stops it, bit 1 stops it at its end instead of looping, bits 4 to 6 its bank" },
-        { "BANK ROW", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number and where it reads" },
+        { "BANK ROW", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
         { "OUT", "The channel's output now" },
         { "HZ", "The operator's frequency, about: the channel's note times MUL, raised by DT2; DT1's fine detune is left out" },
         { "WRITES", "How many writes reached the chip in the last second" },
@@ -960,20 +960,6 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             {
                 g.setColour(accent);
                 g.drawText(players, tile.reduced(4.0f, 2.0f), juce::Justification::topRight, false);
-                // Where the first of them reads now, in the bank, room allowing.
-                if (fraction >= 0.0f && fits >= 8.0f)
-                {
-                    int now = 0;
-                    for (int ch = 0; ch < 16; ++ch)
-                        if (players.containsWholeWord(juce::String(ch + 1)))
-                        {
-                            now = static_cast<int>(live_.pcmAddress[static_cast<size_t>(ch)] & 0xFFFF);
-                            break;
-                        }
-                    g.setColour(theme::text);
-                    g.setFont(theme::mono(fits * 0.85f, true));
-                    g.drawText(hex(now, 4), text, juce::Justification::bottomRight, false);
-                }
             }
         }
     }
