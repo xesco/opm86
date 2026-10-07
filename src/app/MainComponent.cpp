@@ -40,7 +40,7 @@ public:
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down) override
     {
         const auto r = b.getLocalBounds().toFloat().reduced(0.5f);
-        const juce::Colour accent = b.findColour(juce::TextButton::buttonOnColourId);
+        const juce::Colour accent = b.findColour(juce::TextButton::buttonOnColourId).withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.3f); // a lit switch dims while disabled
         const bool on = b.getToggleState();
         g.setColour(on ? accent : (down ? theme::panelLight.brighter(0.1f) : over ? theme::panelLight : theme::background));
         g.fillRoundedRectangle(r, 5.0f);
@@ -585,9 +585,23 @@ void TopBar::resized()
     songChanged();
 }
 
+namespace
+{
+// A control that works only while a song is open. A button draws itself
+// faint while disabled; anything else, a slider, a knob or a field, fades.
+void setSongControl(juce::Component& control, bool open)
+{
+    control.setEnabled(open);
+    if (dynamic_cast<juce::Button*>(&control) == nullptr)
+        control.setAlpha(open ? 1.0f : 0.45f);
+}
+} // namespace
+
 void TopBar::songChanged()
 {
-    close_.setEnabled(model_.hasTune());
+    for (auto* child : getChildren())
+        if (child != &open_)
+            setSongControl(*child, model_.hasTune());
 }
 
 void TopBar::paint(juce::Graphics& g)
@@ -767,6 +781,13 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     heightZoom_.onValueChange = [this] {
         view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
     };
+}
+
+void ToolBar::setSongOpen(bool open)
+{
+    for (auto* child : getChildren())
+        setSongControl(*child, open);
+    repaint();
 }
 
 void ToolBar::showTracks()
@@ -1247,6 +1268,12 @@ void OverviewStrip::centrePlayhead()
 
 // PianoStrip ------------------------------------------------------------------
 
+void PianoStrip::setSongOpen(bool open)
+{
+    for (auto* button : { &fewer_, &more_, &names_ })
+        button->setEnabled(open);
+}
+
 PianoStrip::PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model)
 {
     fewer_.setTooltip("Fewer octaves");
@@ -1504,6 +1531,7 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
     setSize(1400, 820);
+    songOpenChanged(); // no song yet
 }
 
 MainComponent::~MainComponent()
@@ -1528,14 +1556,22 @@ bool MainComponent::open(const juce::File& file)
     view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
     view_.setViewStart(std::min(0.0, model_.tune().source().firstBeat - bar * 0.25)); // from the start, notes before beat 1 too
     tools_.songOpened();
+    songOpenChanged();
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
     view_.grabKeyboardFocus();
     updateTitle();
-    top_.songChanged();
     if (onOpened)
         onOpened(file);
     return true;
+}
+
+void MainComponent::songOpenChanged()
+{
+    const bool open = model_.hasTune();
+    top_.songChanged();
+    tools_.setSongOpen(open);
+    piano_.setSongOpen(open);
 }
 
 void MainComponent::close()
@@ -1546,7 +1582,7 @@ void MainComponent::close()
     tools_.showTracks(); // the songs to start with are in the tracks' place
     status_ = {};
     updateTitle();
-    top_.songChanged();
+    songOpenChanged();
     view_.repaint();
     repaint();
     if (onClosed)

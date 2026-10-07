@@ -123,7 +123,8 @@ remembers the size and place of its window and the pitch colours you chose.
 
 To close the song, click **Close** in the top bar, beside **Open**, or press Cmd+W. The
 window then shows the links to songs to start with (see [Get songs](#get-songs)), and the
-next launch opens on them instead of the last song.
+next launch opens on them instead of the last song. While no song is open, every control
+except **Open** is greyed out and does nothing.
 
 ### The window
 

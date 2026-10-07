@@ -62,7 +62,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void songChanged(); // a song opened or closed: CLOSE works while one is open
+    void songChanged(); // a song opened or closed: its controls, all but OPEN, work while one is open
 
     std::function<void()> onOpen;
     std::function<void()> onClose;
@@ -87,6 +87,7 @@ public:
     ToolBar(AppModel& model, TrackerView& view);
 
     void songOpened(); // a new song: its first time zoom as the zoom's home
+    void setSongOpen(bool open); // every control works only while a song is open
     void showTracks(); // the chips' view off, if it is on
     void syncZoom();   // the zoom sliders follow the view, however it was zoomed
     void syncSelection(); // the start and end fields follow the selection, unless being typed in
@@ -217,6 +218,7 @@ public:
     void resized() override;
 
     static constexpr int kMinOctaves = 3, kMaxOctaves = 7;
+    void setSongOpen(bool open); // the octave and name buttons work only while a song is open
 
 private:
     void updateRange();
@@ -240,6 +242,7 @@ public:
     std::function<void(const juce::File&)> onOpened; // a file was opened
     std::function<void()> onClosed;                  // the song was closed
     void close();                                    // closes the song, back to the songs to start with
+    void songOpenChanged();                          // the controls follow whether a song is open
     std::function<void()> onColoursChanged;            // a pitch colour was chosen or reset
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }
