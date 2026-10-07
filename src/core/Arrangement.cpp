@@ -95,11 +95,11 @@ Arrangement arrangementFromVgm(const VgmImport& song, const std::string& name)
     a.samples = song.samples;
     a.length = song.length;
 
-    std::vector<uint32_t> starts;
+    NoteStarts starts;
     for (const VgmNote& note : song.notes)
-        starts.push_back(note.start);
+        starts.notes.push_back(note.start);
     for (const VgmHit& hit : song.hits)
-        starts.push_back(hit.start);
+        starts.drums.push_back(hit.start);
     const BeatGrid grid = fitBeatGrid(starts);
     a.beatLength = grid.length;
     a.firstBeat = grid.first;

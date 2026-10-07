@@ -24,7 +24,7 @@ public:
         if (reg == 0x08 && (value & 0x78))
         {
             song_.fmChannelsUsed |= static_cast<uint8_t>(1 << (value & 7));
-            onsets.push_back(time_);
+            starts.notes.push_back(time_);
         }
     }
 
@@ -35,12 +35,10 @@ public:
         if ((offset & 0x87) == 0x86 && !(value & 1))
         {
             song_.pcmUsed = true;
-            // A trigger at volume 0 on both sides makes no sound, so it is no
-            // start for the beat: some drivers restart channels so many times
-            // a second.
+            // A hit counts when it sounds: not at volume 0 on both sides.
             const int base = (offset & 0x78);
             if (pcmRegs_[static_cast<size_t>(base + 2)] != 0 || pcmRegs_[static_cast<size_t>(base + 3)] != 0)
-                onsets.push_back(time_);
+                starts.drums.push_back(time_);
         }
     }
 
@@ -51,7 +49,7 @@ public:
     }
 
     uint32_t time() const { return time_; }
-    std::vector<uint32_t> onsets;
+    NoteStarts starts; // for the beat grid
 
 private:
     VgmSong& song_;
@@ -68,23 +66,36 @@ private:
 // Fitting a beat grid to note starts ----------------------------------------
 //
 // A VGM file has no tempo, only the chips' writes and when they come, so the
-// grid is found from when notes start: the gaps between starts give a step,
-// the shortest note the music keeps to, laid on the typical start; steps
-// group into beats, in twos or in threes; and beat 1 is the beat of the
-// first start.
+// grid is found from when notes start, in these steps:
+//
+// 1. Starts within kMergeWindow of a first are one start: a game starts a
+//    chord's voices, and its drum, one after another over a driver tick or
+//    two.
+// 2. The step, the shortest note the music keeps to, is the most common gap
+//    between starts (roughStep), made exact by the step the starts line up
+//    with best (alignStep) and by least squares (fitLine).
+// 3. The grid is laid on the typical pitched note (centreOnStarts): the mean
+//    of all starts lies late, since a game can trigger its drums a little
+//    after the beat. With too few pitched notes, on the typical start.
+// 4. Steps group into beats, in twos, or in threes as in 6/8 when the music
+//    clearly repeats in bars of such beats (stepsPerBeat), each beat on the
+//    step most starts fall on (beatPhase).
+// 5. Beat 1 is the beat of the first start.
 
 namespace
 {
 
-constexpr double kMergeWindow = 0.030 * kVgmRate;         // starts this close to a first are one: a chord's voices and its drum
-constexpr double kShortestGap = 0.025 * kVgmRate;         // gaps that vote for the step, from this...
-constexpr double kLongestGap = 0.400 * kVgmRate;          // ...to this
-constexpr double kBinWidth = 1.01;                        // a vote's bin, 1% wide
-constexpr double kNearStep = 0.02;                        // gaps this close to the winning bins give the step, and steps this close are tried
-constexpr int kSearchSteps = 400;                         // tried each way from the rough step, in kNearStep / kSearchSteps strides
-constexpr double kOnGrid = 0.2;                           // a start within this many steps of the grid counts for it
-constexpr double kShortestBeat = 60.0 / 160.0 * kVgmRate; // a beat is at least this long: 160 BPM
-constexpr double kClearlyThrees = 0.2;                    // threes win when their bars repeat by this much more
+constexpr size_t kFewestStarts = 8;                        // fewer, and the grid stays as it is
+constexpr double kMergeWindow = 0.030 * kVgmRate;          // starts this close to a first are one
+constexpr double kShortestGap = 0.025 * kVgmRate;          // gaps that vote for the step, from this...
+constexpr double kLongestGap = 0.400 * kVgmRate;           // ...to this
+constexpr double kBinWidth = 1.01;                         // a vote's bin, 1% wide
+constexpr double kNearStep = 0.02;                         // gaps this close to the winning bins give the step, and steps this close are tried
+constexpr int kSearchSteps = 400;                          // tried each way from the rough step, in kNearStep / kSearchSteps strides
+constexpr double kOnGrid = 0.2;                            // a start within this many steps of the grid counts for the fit
+constexpr double kOnBeat = 0.25;                           // and within this many, for the beats and bars
+constexpr double kShortestBeat = 60.0 / 160.0 * kVgmRate;  // a beat is at least this long: 160 BPM
+constexpr double kClearlyThrees = 0.2;                     // threes win when their bars repeat by this much more
 
 struct StepGrid
 {
@@ -182,9 +193,8 @@ StepGrid fitLine(const std::vector<double>& starts, StepGrid grid)
     return grid;
 }
 
-// Least squares puts the grid on the starts' mean, which a few late
-// voices pull after most starts. Moved by the median of the on-grid starts'
-// distances to it instead, the grid lies on the typical start.
+// Moves the grid by the median of the given starts' distances to it, so it
+// lies on their typical start rather than on the mean least squares gives.
 StepGrid centreOnStarts(const std::vector<double>& starts, StepGrid grid)
 {
     std::vector<double> offsets;
@@ -204,7 +214,7 @@ StepGrid centreOnStarts(const std::vector<double>& starts, StepGrid grid)
 // The share of starts with another start one bar of four beats later.
 double barRepeats(const std::vector<double>& starts, double step, int stepsPerBeat)
 {
-    const double bar = 4.0 * step * stepsPerBeat, tolerance = step * 0.25;
+    const double bar = 4.0 * step * stepsPerBeat, tolerance = step * kOnBeat;
     int hits = 0;
     for (const double t : starts)
         if (const auto it = std::lower_bound(starts.begin(), starts.end(), t + bar - tolerance);
@@ -240,7 +250,7 @@ double beatPhase(const std::vector<double>& starts, const StepGrid& grid, int st
         for (const double t : starts)
         {
             const long n = std::lround((t - grid.origin) / grid.step);
-            if (((n - shift) % stepsPerBeat + stepsPerBeat) % stepsPerBeat == 0 && std::abs(t - (grid.origin + n * grid.step)) < grid.step * 0.25)
+            if (((n - shift) % stepsPerBeat + stepsPerBeat) % stepsPerBeat == 0 && std::abs(t - (grid.origin + n * grid.step)) < grid.step * kOnBeat)
                 ++hits;
         }
         if (hits > bestCount)
@@ -251,22 +261,26 @@ double beatPhase(const std::vector<double>& starts, const StepGrid& grid, int st
 
 } // namespace
 
-BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
+BeatGrid fitBeatGrid(const NoteStarts& given)
 {
     BeatGrid grid;
-    const std::vector<double> starts = mergeStarts(std::move(raw));
-    if (starts.size() < 8)
+    std::vector<uint32_t> all = given.notes;
+    all.insert(all.end(), given.drums.begin(), given.drums.end());
+    const std::vector<double> starts = mergeStarts(std::move(all)); // step 1
+    if (starts.size() < kFewestStarts)
         return grid;
-    const double rough = roughStep(starts);
+    const double rough = roughStep(starts); // step 2
     if (rough <= 0.0)
         return grid;
-    const StepGrid steps = centreOnStarts(starts, fitLine(starts, alignStep(starts, rough)));
-    const int perBeat = stepsPerBeat(starts, steps.step);
+    const StepGrid fitted = fitLine(starts, alignStep(starts, rough));
+    const std::vector<double> notes = mergeStarts(given.notes); // step 3
+    const StepGrid steps = centreOnStarts(notes.size() >= kFewestStarts ? notes : starts, fitted);
+    const int perBeat = stepsPerBeat(starts, steps.step); // step 4
     const double phase = beatPhase(starts, steps, perBeat);
 
-    // Beat 1 is the beat of the first start, or the one just before it.
+    // Step 5: the beat of the first start, or the one just before it.
     grid.length = steps.step * perBeat;
-    grid.first = phase + std::floor((starts.front() - phase) / grid.length + 0.25) * grid.length;
+    grid.first = phase + std::floor((starts.front() - phase) / grid.length + kOnBeat) * grid.length;
     return grid;
 }
 
@@ -289,7 +303,7 @@ std::shared_ptr<const VgmSong> loadVgmSong(const std::vector<uint8_t>& file, con
 
     appendSongEnd(*song);
 
-    const BeatGrid grid = fitBeatGrid(recorder.onsets);
+    const BeatGrid grid = fitBeatGrid(recorder.starts);
     song->beatLength = grid.length;
     song->firstBeat = grid.first;
     // Beats until two seconds after the end, so releases are played.
