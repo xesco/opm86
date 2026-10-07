@@ -69,8 +69,9 @@ private:
 //
 // A VGM file has no tempo, only the chips' writes and when they come, so the
 // grid is found from when notes start: the gaps between starts give a step,
-// the shortest note the music keeps to; steps group into beats, in twos or
-// in threes; and beat 1 is the beat of the first start.
+// the shortest note the music keeps to, laid on the typical start; steps
+// group into beats, in twos or in threes; and beat 1 is the beat of the
+// first start.
 
 namespace
 {
@@ -181,6 +182,25 @@ StepGrid fitLine(const std::vector<double>& starts, StepGrid grid)
     return grid;
 }
 
+// Least squares puts the grid on the starts' mean, which a few late
+// voices pull after most starts. Moved by the median of the on-grid starts'
+// distances to it instead, the grid lies on the typical start.
+StepGrid centreOnStarts(const std::vector<double>& starts, StepGrid grid)
+{
+    std::vector<double> offsets;
+    for (const double t : starts)
+    {
+        const double n = std::round((t - grid.origin) / grid.step);
+        if (const double d = t - (grid.origin + n * grid.step); std::abs(d) <= grid.step * kOnGrid)
+            offsets.push_back(d);
+    }
+    if (offsets.empty())
+        return grid;
+    std::nth_element(offsets.begin(), offsets.begin() + static_cast<long>(offsets.size() / 2), offsets.end());
+    grid.origin += offsets[offsets.size() / 2];
+    return grid;
+}
+
 // The share of starts with another start one bar of four beats later.
 double barRepeats(const std::vector<double>& starts, double step, int stepsPerBeat)
 {
@@ -240,7 +260,7 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
     const double rough = roughStep(starts);
     if (rough <= 0.0)
         return grid;
-    const StepGrid steps = fitLine(starts, alignStep(starts, rough));
+    const StepGrid steps = centreOnStarts(starts, fitLine(starts, alignStep(starts, rough)));
     const int perBeat = stepsPerBeat(starts, steps.step);
     const double phase = beatPhase(starts, steps, perBeat);
 
