@@ -65,156 +65,188 @@ private:
 // is the song's step (usually a 16th note), refined by a least-squares fit
 // over the whole song; a beat is the step doubled until the tempo is from
 // 80 to 160 BPM.
-BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
-{
-    BeatGrid grid;
-    std::sort(raw.begin(), raw.end());
-    raw.erase(std::unique(raw.begin(), raw.end()), raw.end());
-    // Starts within 30 ms of a first one are one start, at the first: the
-    // game starts a chord's voices and its drum one after another over a
-    // driver tick or two. Counted apart, their gaps would vote for a step
-    // that is not the music's, and the grid would sit between them.
-    {
-        std::vector<uint32_t> merged;
-        for (uint32_t t : raw)
-            if (merged.empty() || t - merged.back() > 1323)
-                merged.push_back(t);
-        raw = std::move(merged);
-    }
-    if (raw.size() < 8)
-    {
-        return grid;
-    }
+// Fitting a beat grid to note starts ----------------------------------------
+//
+// A VGM file has no tempo, only the chips' writes and when they come, so the
+// grid is found from when notes start: the gaps between starts give a step,
+// the shortest note the music keeps to; steps group into beats, in twos or
+// in threes; and beat 1 is the beat of the first start.
 
-    // Gaps of 25 ms to 400 ms vote in bins 1% wide; the best run of three
-    // bins wins, and its gaps' median is the step.
-    constexpr double kMinGap = 1100.0, kMaxGap = 17640.0;
-    const int bins = static_cast<int>(std::ceil(std::log(kMaxGap / kMinGap) / std::log(1.01)));
+namespace
+{
+
+constexpr double kMergeWindow = 0.030 * kVgmRate;         // starts this close to a first are one: a chord's voices and its drum
+constexpr double kShortestGap = 0.025 * kVgmRate;         // gaps that vote for the step, from this...
+constexpr double kLongestGap = 0.400 * kVgmRate;          // ...to this
+constexpr double kBinWidth = 1.01;                        // a vote's bin, 1% wide
+constexpr double kNearStep = 0.02;                        // gaps this close to the winning bins give the step, and steps this close are tried
+constexpr int kSearchSteps = 400;                         // tried each way from the rough step, in kNearStep / kSearchSteps strides
+constexpr double kOnGrid = 0.2;                           // a start within this many steps of the grid counts for it
+constexpr double kShortestBeat = 60.0 / 160.0 * kVgmRate; // a beat is at least this long: 160 BPM
+constexpr double kClearlyThrees = 0.2;                    // threes win when their bars repeat by this much more
+
+struct StepGrid
+{
+    double step = 0.0;   // samples
+    double origin = 0.0; // a start time the steps count from
+};
+
+// Sorted, each start within kMergeWindow of a first folded into it.
+std::vector<double> mergeStarts(std::vector<uint32_t> raw)
+{
+    std::sort(raw.begin(), raw.end());
+    std::vector<double> starts;
+    for (const uint32_t t : raw)
+        if (starts.empty() || t - starts.back() > kMergeWindow)
+            starts.push_back(t);
+    return starts;
+}
+
+// The most common gap between starts: gaps vote in bins kBinWidth wide, the
+// best run of three bins wins, and the median of the gaps near it is the
+// step. 0 when no gap is in range.
+double roughStep(const std::vector<double>& starts)
+{
+    const int bins = static_cast<int>(std::ceil(std::log(kLongestGap / kShortestGap) / std::log(kBinWidth)));
     std::vector<int> votes(static_cast<size_t>(bins) + 1, 0);
     std::vector<double> gaps;
-    for (size_t i = 1; i < raw.size(); ++i)
+    for (size_t i = 1; i < starts.size(); ++i)
     {
-        const double gap = static_cast<double>(raw[i] - raw[i - 1]);
-        if (gap < kMinGap || gap > kMaxGap)
+        const double gap = starts[i] - starts[i - 1];
+        if (gap < kShortestGap || gap > kLongestGap)
             continue;
         gaps.push_back(gap);
-        ++votes[static_cast<size_t>(std::log(gap / kMinGap) / std::log(1.01))];
+        ++votes[static_cast<size_t>(std::log(gap / kShortestGap) / std::log(kBinWidth))];
     }
     if (gaps.empty())
-    {
-        return grid;
-    }
+        return 0.0;
     int bestBin = 0, bestVotes = -1;
     for (int i = 1; i + 1 < bins; ++i)
-    {
-        const int v = votes[static_cast<size_t>(i - 1)] + votes[static_cast<size_t>(i)] + votes[static_cast<size_t>(i + 1)];
-        if (v > bestVotes)
+        if (const int v = votes[static_cast<size_t>(i - 1)] + votes[static_cast<size_t>(i)] + votes[static_cast<size_t>(i + 1)]; v > bestVotes)
             bestVotes = v, bestBin = i;
-    }
-    const double centre = kMinGap * std::pow(1.01, bestBin + 0.5);
+    const double centre = kShortestGap * std::pow(kBinWidth, bestBin + 0.5);
     std::vector<double> near;
-    for (double g : gaps)
-        if (std::abs(g / centre - 1.0) < 0.02)
+    for (const double g : gaps)
+        if (std::abs(g / centre - 1.0) < kNearStep)
             near.push_back(g);
     std::nth_element(near.begin(), near.begin() + static_cast<long>(near.size() / 2), near.end());
-    double step = near[near.size() / 2];
+    return near[near.size() / 2];
+}
 
-    // The median gap is close but not exact, and over a whole song a step a
-    // fraction off puts later starts on the wrong step number. So try steps
-    // within 2% of it, and keep the one the starts agree with best: each
-    // start an angle round the step, the step whose angles line up most.
-    double origin = raw.front();
+// The rough step is close but not exact, and a step a fraction off puts
+// later starts on the wrong step number. Each start is an angle round a
+// candidate step; of the steps within kNearStep, the one whose angles line
+// up most is the music's, and their mean angle is its origin.
+StepGrid alignStep(const std::vector<double>& starts, double rough)
+{
+    constexpr double kTwoPi = 6.283185307179586;
+    StepGrid best { rough, starts.front() };
+    double bestLength = -1.0;
+    for (int i = -kSearchSteps; i <= kSearchSteps; ++i)
     {
-        constexpr double kTwoPi = 6.283185307179586;
-        const double rough = step;
-        double bestLength = -1.0;
-        for (int i = -400; i <= 400; ++i)
+        const double step = rough * (1.0 + i * kNearStep / kSearchSteps);
+        double c = 0.0, s = 0.0;
+        for (const double t : starts)
         {
-            const double candidate = rough * (1.0 + i * 0.00005);
-            double c = 0.0, sn = 0.0;
-            for (uint32_t t : raw)
-            {
-                const double a = kTwoPi * std::fmod(static_cast<double>(t), candidate) / candidate;
-                c += std::cos(a);
-                sn += std::sin(a);
-            }
-            if (const double length = std::hypot(c, sn); length > bestLength)
-            {
-                bestLength = length;
-                step = candidate;
-                origin = std::atan2(sn, c) / kTwoPi * candidate;
-            }
+            const double a = kTwoPi * std::fmod(t, step) / step;
+            c += std::cos(a);
+            s += std::sin(a);
         }
+        if (const double length = std::hypot(c, s); length > bestLength)
+            bestLength = length, best = { step, std::atan2(s, c) / kTwoPi * step };
     }
+    return best;
+}
 
-    // Least squares: each start's step number against its time.
+// Least squares, twice: each start on the grid by its step number against
+// its time. Starts off the grid, triplets or ornaments, are left out.
+StepGrid fitLine(const std::vector<double>& starts, StepGrid grid)
+{
     for (int pass = 0; pass < 2; ++pass)
     {
         double sn = 0, st = 0, snn = 0, snt = 0, count = 0;
-        for (uint32_t t : raw)
+        for (const double t : starts)
         {
-            const double n = std::round((t - origin) / step);
-            if (std::abs(t - (origin + n * step)) > step * 0.2)
-                continue; // off the grid: a triplet or an ornament
+            const double n = std::round((t - grid.origin) / grid.step);
+            if (std::abs(t - (grid.origin + n * grid.step)) > grid.step * kOnGrid)
+                continue;
             sn += n, st += t, snn += n * n, snt += n * t, count += 1;
         }
         const double denom = count * snn - sn * sn;
         if (denom <= 0)
             break;
-        step = (count * snt - sn * st) / denom;
-        origin = (st - step * sn) / count;
+        grid.step = (count * snt - sn * st) / denom;
+        grid.origin = (st - grid.step * sn) / count;
     }
+    return grid;
+}
 
-    // A beat of steps in twos, the shortest from 375 ms (160 BPM) down; or
-    // in threes, as in 6/8 or 12/8, when a bar of four such beats is what
-    // the music repeats, clearly more than a bar of the twos' beats.
-    auto binary = [&] {
-        int m = 1;
-        while (step * m < 60.0 / 160.0 * kVgmRate && m < 16)
+// The share of starts with another start one bar of four beats later.
+double barRepeats(const std::vector<double>& starts, double step, int stepsPerBeat)
+{
+    const double bar = 4.0 * step * stepsPerBeat, tolerance = step * 0.25;
+    int hits = 0;
+    for (const double t : starts)
+        if (const auto it = std::lower_bound(starts.begin(), starts.end(), t + bar - tolerance);
+            it != starts.end() && *it <= t + bar + tolerance)
+            ++hits;
+    return static_cast<double>(hits) / static_cast<double>(starts.size());
+}
+
+// Steps group into beats in twos, 1, 2, 4... steps, the fewest that make a
+// beat of kShortestBeat or more; or in threes, 3, 6, 12... steps, as in 6/8
+// or 12/8, when a bar of four such beats is what the music repeats,
+// clearly more than a bar of the twos' beats.
+int stepsPerBeat(const std::vector<double>& starts, double step)
+{
+    auto fewest = [step](int first, int most) {
+        int m = first;
+        while (step * m < kShortestBeat && m < most)
             m *= 2;
         return m;
     };
-    auto ternary = [&] {
-        int m = 3;
-        while (step * m < 60.0 / 160.0 * kVgmRate && m < 48)
-            m *= 2;
-        return m;
-    };
-    // The share of starts with another start one bar of four beats later.
-    auto repeats = [&](int m) {
-        const double bar = 4.0 * step * m, tolerance = step * 0.25;
-        int hits = 0;
-        for (uint32_t t : raw)
-        {
-            const auto it = std::lower_bound(raw.begin(), raw.end(), static_cast<double>(t) + bar - tolerance,
-                                             [](uint32_t a, double b) { return static_cast<double>(a) < b; });
-            if (it != raw.end() && static_cast<double>(*it) <= static_cast<double>(t) + bar + tolerance)
-                ++hits;
-        }
-        return static_cast<double>(hits) / static_cast<double>(raw.size());
-    };
-    const int twos = binary(), threes = ternary();
-    const int multiple = repeats(threes) >= repeats(twos) + 0.2 ? threes : twos;
-    const double beat = step * multiple;
+    const int twos = fewest(1, 16), threes = fewest(3, 48);
+    return barRepeats(starts, step, threes) >= barRepeats(starts, step, twos) + kClearlyThrees ? threes : twos;
+}
 
-    // Of the steps a beat could start on, take the one most starts fall on.
+// The step a beat starts on: of the stepsPerBeat steps it could be, the one
+// most starts fall on. Returns that step's time.
+double beatPhase(const std::vector<double>& starts, const StepGrid& grid, int stepsPerBeat)
+{
     int bestShift = 0, bestCount = -1;
-    for (int shift = 0; shift < multiple; ++shift)
+    for (int shift = 0; shift < stepsPerBeat; ++shift)
     {
         int hits = 0;
-        for (uint32_t t : raw)
+        for (const double t : starts)
         {
-            const long n = std::lround((t - origin) / step);
-            if (((n - shift) % multiple + multiple) % multiple == 0 && std::abs(t - (origin + n * step)) < step * 0.25)
+            const long n = std::lround((t - grid.origin) / grid.step);
+            if (((n - shift) % stepsPerBeat + stepsPerBeat) % stepsPerBeat == 0 && std::abs(t - (grid.origin + n * grid.step)) < grid.step * 0.25)
                 ++hits;
         }
         if (hits > bestCount)
             bestCount = hits, bestShift = shift;
     }
+    return grid.origin + bestShift * grid.step;
+}
+
+} // namespace
+
+BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
+{
+    BeatGrid grid;
+    const std::vector<double> starts = mergeStarts(std::move(raw));
+    if (starts.size() < 8)
+        return grid;
+    const double rough = roughStep(starts);
+    if (rough <= 0.0)
+        return grid;
+    const StepGrid steps = fitLine(starts, alignStep(starts, rough));
+    const int perBeat = stepsPerBeat(starts, steps.step);
+    const double phase = beatPhase(starts, steps, perBeat);
+
     // Beat 1 is the beat of the first start, or the one just before it.
-    grid.length = beat;
-    const double phase = origin + bestShift * step;
-    grid.first = phase + std::floor((raw.front() - phase) / beat + 0.25) * beat;
+    grid.length = steps.step * perBeat;
+    grid.first = phase + std::floor((starts.front() - phase) / grid.length + 0.25) * grid.length;
     return grid;
 }
 
