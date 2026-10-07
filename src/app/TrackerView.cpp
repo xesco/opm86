@@ -1232,7 +1232,7 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         if (e.getDistanceFromDragStart() > 3)
         {
             const double length = model_.selectionEnd() - model_.selectionStart();
-            const double start = snapToBar(std::max(0.0, xToTime(p.x) - selectFrom_));
+            const double start = std::max(0.0, xToTime(p.x) - selectFrom_);
             model_.setSelection(start, start + length);
         }
         return;
@@ -1241,15 +1241,13 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     {
         // Stopped, the playhead goes with the edge while it is the start;
         // playing, it stays unless it falls outside.
-        const double t = snapToBar(std::max(0.0, xToTime(p.x)));
+        const double t = std::max(0.0, xToTime(p.x));
         model_.setSelection(selectFrom_, t, model_.playing() || t > selectFrom_);
         return;
     }
     if (drag_ == Drag::Select && e.getDistanceFromDragStart() > 3)
     {
-        // Snapping, the selection takes in every bar the drag touches.
-        const double here = std::max(0.0, xToTime(p.x));
-        model_.setSelection(snapToBar(std::min(selectFrom_, here), -1), snapToBar(std::max(selectFrom_, here), 1));
+        model_.setSelection(selectFrom_, std::max(0.0, xToTime(p.x)));
         return;
     }
     if (drag_ == Drag::Lanes && e.getDistanceFromDragStart() > 3)
@@ -1265,6 +1263,23 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 {
     const Drag finished = drag_;
     drag_ = Drag::None;
+    // Snapping, a selection made, moved or stretched goes to bar lines when
+    // let go: each end to the nearest, and at least the bar it is in. A move
+    // keeps its length.
+    if (model_.hasSelection() && e.getDistanceFromDragStart() > 3
+        && (finished == Drag::Select || finished == Drag::SelectEdge || finished == Drag::SelectMove))
+    {
+        const double from = model_.selectionStart(), to = model_.selectionEnd();
+        double start = snapToBar(from), end = finished == Drag::SelectMove ? start + (to - from) : snapToBar(to);
+        if (end <= start)
+            start = snapToBar(from, -1), end = snapToBar(to, 1);
+        // The playhead goes with the start as it did while dragging: always for
+        // a new one, stopped for a move, and stopped for the start edge.
+        const bool keep = finished == Drag::Select       ? false
+                          : finished == Drag::SelectMove ? model_.playing()
+                                                         : model_.playing() || selectFrom_ <= from;
+        model_.setSelection(start, end, keep);
+    }
     // A click on the lanes puts the playhead there, and playing goes on
     // from it; stopped, it also drops the selection.
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
