@@ -114,6 +114,8 @@ private:
     // The selection's start and end, typed as m:ss.mmm or seconds.
     juce::TextEditor selectionStart_, selectionEnd_;
     juce::Rectangle<int> startCaption_, endCaption_;
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> groupCaptions_; // the button groups' names, over them
+    std::vector<int> dividers_;                                                // x of the lines between groups
     void applySelection();
 };
 

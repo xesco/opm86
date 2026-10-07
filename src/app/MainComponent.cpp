@@ -861,49 +861,63 @@ void ToolBar::refresh()
 
 void ToolBar::resized()
 {
-    // Groups left to right, a wider gap between them; the zoom at the right.
+    // Groups, each named over its controls and set apart by a faint line:
+    // how it plays at the left, the playhead, speed, the selection and the
+    // mix; how it shows at the right, the view, zoom and the two sizes.
     auto r = getLocalBounds().reduced(14, 0).withTrimmedBottom(10); // room above the stripe
-    auto button = [&](juce::Component& c, int width = 34) {
-        c.setBounds(r.removeFromLeft(width).withSizeKeepingCentre(width, 28));
-        r.removeFromLeft(6);
+    groupCaptions_.clear();
+    dividers_.clear();
+    constexpr int kButton = 34, kGap = 6, kCaption = 12, kBetween = 22;
+    auto captioned = [&](juce::Rectangle<int> area, const juce::String& name) {
+        area = area.withSizeKeepingCentre(area.getWidth(), kCaption + 2 + 28);
+        groupCaptions_.emplace_back(area.removeFromTop(kCaption), name);
+        area.removeFromTop(2);
+        return area;
     };
+    auto buttons = [&](juce::Rectangle<int> area, const juce::String& name, std::initializer_list<juce::Component*> list) {
+        area = captioned(area, name);
+        for (auto* b : list)
+        {
+            b->setBounds(area.removeFromLeft(kButton));
+            area.removeFromLeft(kGap);
+        }
+    };
+    auto width = [](size_t n) { return static_cast<int>(n) * kButton + static_cast<int>(n - 1) * kGap; };
     auto group = [&](juce::Slider& slider, juce::Rectangle<int>& caption, juce::Rectangle<int> g) {
-        g = g.withSizeKeepingCentre(g.getWidth(), 34);
-        caption = g.removeFromTop(12);
+        g = g.withSizeKeepingCentre(g.getWidth(), kCaption + 2 + 22);
+        caption = g.removeFromTop(kCaption);
+        g.removeFromTop(2);
         slider.setBounds(g);
     };
-    button(keepPlayhead_);
-    button(follow_);
-    button(loop_);
-    button(order_);
-    button(chips_);
-    r.removeFromLeft(10);
-    button(reset_);
-    button(invert_);
-    button(instruments_);
-    button(drums_);
-    r.removeFromLeft(10);
+    auto divider = [&](bool left) {
+        auto gap = left ? r.removeFromLeft(kBetween) : r.removeFromRight(kBetween);
+        dividers_.push_back(gap.getCentreX());
+    };
+
+    buttons(r.removeFromLeft(width(2)), "PLAYHEAD", { &keepPlayhead_, &follow_ });
+    divider(true);
     group(speed_, speedCaption_, r.removeFromLeft(140));
-    r.removeFromLeft(14);
+    divider(true);
+    buttons(r.removeFromLeft(width(1)), "LOOP", { &loop_ });
+    r.removeFromLeft(kGap * 2);
     for (auto [editor, caption] : { std::pair { &selectionStart_, &startCaption_ }, std::pair { &selectionEnd_, &endCaption_ } })
     {
-        auto g = r.removeFromLeft(84).withSizeKeepingCentre(84, 36);
-        *caption = g.removeFromTop(12);
-        editor->setBounds(g.withTrimmedTop(1));
-        r.removeFromLeft(6);
+        auto g = r.removeFromLeft(84).withSizeKeepingCentre(84, kCaption + 2 + 26);
+        *caption = g.removeFromTop(kCaption);
+        g.removeFromTop(2);
+        editor->setBounds(g);
+        r.removeFromLeft(kGap);
     }
+    divider(true);
+    buttons(r.removeFromLeft(width(4)), "MIX", { &reset_, &invert_, &instruments_, &drums_ });
 
     group(timeZoom_, timeCaption_, r.removeFromRight(130));
     r.removeFromRight(14);
     group(heightZoom_, heightCaption_, r.removeFromRight(130));
-    r.removeFromRight(14);
-    zoomHome_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
-    r.removeFromRight(6);
-    fitBoth_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
-    r.removeFromRight(6);
-    fitTime_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
-    r.removeFromRight(6);
-    fitTracks_.setBounds(r.removeFromRight(34).withSizeKeepingCentre(34, 28));
+    divider(false);
+    buttons(r.removeFromRight(width(4)), "ZOOM", { &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ });
+    divider(false);
+    buttons(r.removeFromRight(width(2)), "VIEW", { &order_, &chips_ });
     syncZoom();
 }
 
@@ -925,6 +939,12 @@ void ToolBar::paint(juce::Graphics& g)
     g.drawText("TIME", timeCaption_, juce::Justification::centred);
     g.drawText("START", startCaption_, juce::Justification::centred);
     g.drawText("END", endCaption_, juce::Justification::centred);
+    for (const auto& [area, name] : groupCaptions_)
+        g.drawText(name, area, juce::Justification::centred);
+    // The lines between groups.
+    g.setColour(theme::gridBar.withAlpha(0.6f));
+    for (const int x : dividers_)
+        g.fillRect(x, 10, 1, getHeight() - 22);
 }
 
 // SlidingStrip ----------------------------------------------------------------
