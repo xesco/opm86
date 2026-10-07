@@ -128,9 +128,14 @@ const TrackerView::Layout& TrackerView::layout() const
         // The names, each with its tag, share a column as wide as the widest,
         // so mute and solo line up; the knobs go after them.
         const int left = kChipColumn + (layout_.rows.back() > 1 ? 28 : 14);
-        // The name and, right after it, the tag: the patch or the voice.
-        const int name = std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch_)) + 2, 96)
-                         + instrumentWidth(t, byPatch_);
+        // The name and, right after it, the tag: the patch or the voice. The
+        // wider of the two orders, so the header keeps its width when the
+        // order changes.
+        auto width = [&](bool byPatch) {
+            return std::min(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), headName(t, byPatch)) + 2, 96)
+                   + instrumentWidth(t, byPatch);
+        };
+        const int name = std::max(width(false), width(true));
         layout_.nameEnd = std::max(layout_.nameEnd, left + name);
     }
     // The order shown: voice order as the tune has it, or with the FM tracks
