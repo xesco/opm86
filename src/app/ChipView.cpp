@@ -147,11 +147,13 @@ void ChipView::write(bool fm, uint16_t reg, uint8_t value, double time)
         }
         if (r == 0x19)
             ((value & 0x80) ? pmd_ : amd_) = value & 0x7F;
+        ymChanged_[r] = ym_[r] != value;
         ym_[r] = value;
         ymWritten_[r] = time;
     }
     else
     {
+        pcmChanged_[r] = pcm_[r] != value;
         pcm_[r] = value;
         pcmWritten_[r] = time;
     }
@@ -168,6 +170,7 @@ void ChipView::catchUp()
         ymNext_ = pcmNext_ = 0;
         ym_.fill(0), pcm_.fill(0), keyOn_.fill(0);
         ymWritten_.fill(kNever), pcmWritten_.fill(kNever), keyWritten_.fill(kNever);
+        ymChanged_.fill(false), pcmChanged_.fill(false);
         pmd_ = amd_ = 0;
     }
     for (; ymNext_ < song.ym.size() && song.ym[ymNext_].time <= now; ++ymNext_)
@@ -184,8 +187,11 @@ float ChipView::liveLevel(int slot) const
 
 float ChipView::glow(bool fm, int reg) const
 {
-    const double written = (fm ? ymWritten_ : pcmWritten_)[static_cast<size_t>(reg & 0xFF)];
-    return static_cast<float>(std::clamp(1.0 - (at_ - written) / kGlow, 0.0, 1.0));
+    // A new value glows full; the same value written again, faintly.
+    const auto r = static_cast<size_t>(reg & 0xFF);
+    const double written = (fm ? ymWritten_ : pcmWritten_)[r];
+    const float strength = (fm ? ymChanged_ : pcmChanged_)[r] ? 1.0f : 0.35f;
+    return strength * static_cast<float>(std::clamp(1.0 - (at_ - written) / kGlow, 0.0, 1.0));
 }
 
 void ChipView::paint(juce::Graphics& g)
