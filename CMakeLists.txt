@@ -13,7 +13,19 @@ FetchContent_Declare(ymfm
     GIT_TAG 81aec25ccbb98f4873a255f7551ac4dadac59b4a)
 FetchContent_MakeAvailable(ymfm) # no CMakeLists upstream; this only downloads
 
-find_package(ZLIB REQUIRED)
+# zlib reads .vgz files: the system's where there is one (macOS, Linux), else
+# built from source (Windows).
+find_package(ZLIB)
+if(NOT ZLIB_FOUND)
+    FetchContent_Declare(zlib
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG v1.3.1
+        GIT_SHALLOW TRUE)
+    set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(zlib)
+    target_include_directories(zlibstatic INTERFACE ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+endif()
 
 # Chip emulation and song logic, free of any app framework.
 add_library(opm86_core STATIC

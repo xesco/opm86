@@ -1,0 +1,76 @@
+# Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and keeps
+# each app as a build artifact. A tag such as v0.2.0 also publishes the three
+# apps as a GitHub release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-14
+            configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: linux
+            os: ubuntu-24.04
+          - name: windows
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Linux libraries JUCE needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev \
+            libxrender-dev libgl1-mesa-dev zlib1g-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: |
+          out="build/opm86_player_artefacts/Release"
+          case "${{ runner.os }}" in
+            macOS) ditto -c -k --keepParent "$out/OPM86 Player.app" "OPM86-Player-macos.zip" ;;
+            Linux) tar -czf "OPM86-Player-linux.tar.gz" -C "$out" "OPM86 Player" ;;
+            Windows) 7z a "OPM86-Player-windows.zip" "./$out/OPM86 Player.exe" ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OPM86-Player-${{ matrix.name }}
+          path: OPM86-Player-*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" OPM86-Player-* --repo "${{ github.repository }}" --title "OPM86 Player ${{ github.ref_name }}" --generate-notes

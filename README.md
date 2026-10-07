@@ -30,10 +30,13 @@ The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Ea
 
 ## Build
 
-The app builds on macOS with CMake 3.22 or later and the Xcode command line tools. The
-first build needs a network connection, because CMake downloads JUCE 9.0.3 and the ymfm
-chip emulator. To build the app and put it in the repository root as `OPM86 Player.app`,
-run `make` from the repository root:
+The app builds on macOS, Linux and Windows with CMake 3.22 or later and a C++20 compiler:
+the Xcode command line tools on macOS, GCC or Clang on Linux, and Visual Studio 2022 on
+Windows. The first build needs a network connection, because CMake downloads JUCE 9.0.3
+and the ymfm chip emulator. On Windows, CMake also downloads zlib, which the app needs to
+read `.vgz` files.
+
+On macOS, `make` builds the app and puts it in the repository root as `OPM86 Player.app`:
 
 ```sh
 make
@@ -41,7 +44,24 @@ open "OPM86 Player.app"
 ```
 
 The first `make` configures the `build` folder, and `make clean` removes the app from the
-repository root. The build folder also holds the tests (see [Tests](#tests)).
+repository root. On Linux and Windows, build with CMake directly:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+The app is then in `build/opm86_player_artefacts/Release`, as `OPM86 Player` on Linux and
+`OPM86 Player.exe` on Windows. On Linux, JUCE needs the development packages of ALSA, JACK,
+FreeType, Fontconfig, X11 and OpenGL. The workflow in `.github/workflows/build.yml` lists
+them for Ubuntu.
+
+GitHub builds the app for all three systems on every push to `main` and every pull
+request, and runs the tests (see [Tests](#tests)). Each run keeps the three apps as
+downloads on its page under **Actions**. A tag that starts with `v`, such as `v0.2.0`, also
+publishes them as a release. The macOS app is not signed, so macOS blocks it the first time
+you open it. To open it anyway, click **Open Anyway** in **System Settings > Privacy &
+Security**.
 
 ## Get songs
 
@@ -208,8 +228,8 @@ Rest the pointer on any label in the view to see what it means.
 The tests check the app's core without the window. Run them after a build:
 
 ```sh
-cmake --build build
-cd build && ctest
+cmake --build build --config Release
+ctest --test-dir build -C Release
 ```
 
 The `core_test` program checks the VGM reader on a generated file, the Sega PCM addressing,
