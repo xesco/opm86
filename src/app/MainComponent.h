@@ -13,7 +13,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames, Close };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -62,7 +62,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void songChanged(); // a song opened or closed: the close button follows its name
+    void songChanged(); // a song opened or closed: CLOSE shows while one is open
 
     std::function<void()> onOpen;
     std::function<void()> onClose;
@@ -73,7 +73,7 @@ private:
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
-    IconButton close_ { IconButton::Icon::Close }; // after the song's name
+    juce::TextButton close_ { "CLOSE" }; // beside OPEN, while a song is open
     VolumeKnob master_;
     juce::Rectangle<int> counters_, masterArea_;
 };

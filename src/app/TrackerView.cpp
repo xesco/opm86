@@ -600,24 +600,33 @@ void TrackerView::paint(juce::Graphics& g)
     g.fillAll(theme::background);
     if (!model_.hasTune())
     {
+        // A block of lines, centred in the view as a whole.
+        constexpr float kTitle = 22.0f, kText = 18.0f, kLink = 34.0f;
+        const float width = static_cast<float>(getWidth());
+        const float height = kTitle + 30.0f + kText + 44.0f + kText + 22.0f + kLink * static_cast<float>(std::size(kSongLinks));
+        float y = (static_cast<float>(getHeight()) - height) * 0.5f;
+        auto line = [&](float h) { const auto r = juce::Rectangle<float>(0.0f, y, width, h); y += h; return r; };
         g.setColour(theme::dim);
-        g.setFont(theme::pixel(12.0f));
-        g.drawText("OPEN A VGM RIP TO START", getLocalBounds(), juce::Justification::centred);
-        g.setFont(theme::mono(14.0f));
-        g.drawText("File > Open, or drop a .vgz file here", getLocalBounds().withTrimmedTop(60), juce::Justification::centred);
+        g.setFont(theme::pixel(18.0f));
+        g.drawText("OPEN A VGM RIP TO START", line(kTitle), juce::Justification::centred, false);
+        y += 30.0f;
+        g.setFont(theme::mono(kText));
+        g.drawText("File > Open, or drop a .vgz file here", line(kText), juce::Justification::centred, false);
+        y += 44.0f;
         // Songs to download, a link each under a line that says where from.
-        const auto centre = getLocalBounds().toFloat().getCentre();
-        g.drawText("No songs yet? Download one from vgmrips.net, then open it:", juce::Rectangle<float>(0.0f, centre.y + 50.0f, static_cast<float>(getWidth()), 20.0f), juce::Justification::centred);
+        g.drawText("No songs yet? Download one from vgmrips.net, then open it:", line(kText), juce::Justification::centred, false);
+        y += 22.0f;
         songLinks_.clear();
         const auto pointer = getMouseXYRelative().toFloat();
-        for (size_t i = 0; i < std::size(kSongLinks); ++i)
+        const auto linkFont = theme::mono(kText, true);
+        for (const SongLink& song : kSongLinks)
         {
-            const juce::String title(kSongLinks[i].title);
-            const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(14.0f, true), title));
-            const auto link = juce::Rectangle<float>(centre.x - w * 0.5f, centre.y + 76.0f + static_cast<float>(i) * 24.0f, w, 20.0f);
+            const juce::String title(song.title);
+            const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(linkFont, title));
+            const auto link = line(kLink).withSizeKeepingCentre(w, kText + 6.0f);
             songLinks_.push_back(link);
             const bool over = isMouseOver() && link.contains(pointer);
-            g.setFont(theme::mono(14.0f, true));
+            g.setFont(linkFont);
             g.setColour(over ? theme::text : theme::cyan);
             g.drawText(title, link, juce::Justification::centred, false);
             g.fillRect(link.getX(), link.getBottom() - 1.0f, link.getWidth(), 1.0f);

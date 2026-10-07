@@ -221,15 +221,6 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
         case Icon::Stop:
             p.addRectangle(box.reduced(1.0f));
             break;
-        case Icon::Close: // an X
-        {
-            const auto x = box.reduced(3.0f);
-            juce::Path cross;
-            cross.startNewSubPath(x.getTopLeft()), cross.lineTo(x.getBottomRight());
-            cross.startNewSubPath(x.getTopRight()), cross.lineTo(x.getBottomLeft());
-            juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, cross);
-            break;
-        }
         case Icon::Playhead: // the playhead: a line under a small triangle
             p.addTriangle(box.getCentreX() - 5.0f, box.getY(), box.getCentreX() + 5.0f, box.getY(), box.getCentreX(), box.getY() + 6.0f);
             p.addRectangle(box.getCentreX() - 1.0f, box.getY(), 2.0f, box.getHeight());
@@ -497,6 +488,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     open_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    close_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     end_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     rewind_.setTooltip("Rewind (Return)");
     end_.setTooltip("To the end (End)");
@@ -580,6 +572,8 @@ void TopBar::resized()
     end_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(14);
     open_.setBounds(r.removeFromRight(70));
+    r.removeFromRight(8);
+    close_.setBounds(r.removeFromRight(70)); // its room kept while it is hidden, so nothing moves
     r.removeFromRight(14);
     // The master volume: its caption and level, then the knob.
     master_.setBounds(r.removeFromRight(40).withSizeKeepingCentre(40, 40));
@@ -592,16 +586,7 @@ void TopBar::resized()
 
 void TopBar::songChanged()
 {
-    // Right after the name, which paint draws after the three counters, in
-    // the top half of what they leave.
     close_.setVisible(model_.hasTune());
-    if (!model_.hasTune())
-        return;
-    const int nameX = counters_.getX() + 130 + 6 + 120 + 6 + 80 + 10;
-    const int nameW = juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), model_.file().getFileName());
-    const int x = std::min(nameX + nameW + 8, masterArea_.getX() - 34);
-    close_.setBounds(x, counters_.getY() + counters_.getHeight() / 2 - 18, 20, 20);
-    repaint();
 }
 
 void TopBar::paint(juce::Graphics& g)
