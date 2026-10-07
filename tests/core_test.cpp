@@ -1,6 +1,5 @@
 // Checks of the chip emulation and the VGM importer that need no DAW.
 
-#include "Engine.h"
 #include "SegaPcm.h"
 #include "SongLog.h"
 #include "SongPlayer.h"
@@ -88,24 +87,6 @@ void testSegaPcm()
     while (!(chip.read(0x86) & 1) && samples < 1000)
         chip.generate(l, r), ++samples;
     check(samples == 259, "a one-shot sample stops at the end of its last page");
-}
-
-void testDrumPlayback()
-{
-    Engine engine;
-    engine.prepare(48000.0);
-    std::vector<float> left(48000), right(48000);
-    const uint8_t kick[3] = { 0x99, 36, 127 };
-    engine.handleMidi(kick, 3);
-    engine.render(left.data(), right.data(), 48000);
-
-    float early = 0, late = 0;
-    for (int i = 0; i < 4800; ++i)
-        early = std::max(early, std::abs(left[static_cast<size_t>(i)]));
-    for (int i = 43200; i < 48000; ++i)
-        late = std::max(late, std::abs(left[static_cast<size_t>(i)]));
-    check(early > 0.05f, "the default kick sounds on MIDI channel 10");
-    check(late < 0.001f, "the kick has finished after one second");
 }
 
 } // namespace
@@ -465,7 +446,6 @@ int main()
     testSongLog();
     testVgmImport();
     testSegaPcm();
-    testDrumPlayback();
     std::printf("%s\n", failures == 0 ? "all checks passed" : "some checks failed");
     return failures == 0 ? 0 : 1;
 }

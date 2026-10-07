@@ -3,7 +3,6 @@
 #include <array>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace opm86
 {
@@ -48,22 +47,7 @@ struct FmPatch
     bool operator==(const FmPatch&) const = default;
 };
 
-inline constexpr const char* kOperatorNames[4] = { "M1", "C1", "M2", "C2" };
-
 // Which operators reach the output for each algorithm (bit i = op[i]).
 inline constexpr uint8_t kCarrierMask[8] = { 0x8, 0x8, 0x8, 0x8, 0xA, 0xE, 0xE, 0xF };
-
-inline constexpr const char* kAlgorithmDiagrams[8] = {
-    "M1 > C1 > M2 > C2",
-    "(M1 + C1) > M2 > C2",
-    "(M1 + (C1 > M2)) > C2",
-    "((M1 > C1) + M2) > C2",
-    "(M1 > C1) + (M2 > C2)",
-    "M1 > (C1 + M2 + C2)",
-    "(M1 > C1) + M2 + C2",
-    "M1 + C1 + M2 + C2",
-};
-
-const std::vector<FmPatch>& factoryPatches();
 
 } // namespace opm86

@@ -1,4 +1,5 @@
 #include "VgmImport.h"
+#include "SegaPcm.h"
 
 #include <zlib.h>
 
