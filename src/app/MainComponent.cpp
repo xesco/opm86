@@ -1531,11 +1531,16 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
     setSize(1400, 820);
+#if JUCE_LINUX
+    if (juce::SystemStats::getEnvironmentVariable("OPM86_NO_GL", {}).isEmpty())
+        openGL_.attachTo(*this);
+#endif
     songOpenChanged(); // no song yet
 }
 
 MainComponent::~MainComponent()
 {
+    openGL_.detach(); // before the components it draws go
     juce::Desktop::getInstance().removeGlobalMouseListener(&activity_);
     model_.removeChangeListener(this);
     setLookAndFeel(nullptr);

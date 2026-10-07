@@ -5,6 +5,7 @@
 #include "TrackerView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_opengl/juce_opengl.h>
 
 namespace opm86
 {
@@ -284,6 +285,9 @@ private:
     };
 
     std::unique_ptr<juce::LookAndFeel> look_;
+    // On Linux, where JUCE otherwise draws with the CPU, the window is drawn
+    // through the GPU; OPM86_NO_GL=1 in the environment draws with the CPU.
+    juce::OpenGLContext openGL_;
     AppModel model_;
     TrackerView view_ { model_ };
     ChipView chipView_ { model_, view_ }; // in the tracks' place while the tool bar's Chips is on

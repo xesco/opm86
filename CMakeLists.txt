@@ -86,6 +86,7 @@ target_link_libraries(opm86_player
         juce::juce_audio_devices
         juce::juce_audio_utils
         juce::juce_gui_extra
+        juce::juce_opengl # Linux draws the window through the GPU
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
