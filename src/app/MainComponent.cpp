@@ -1841,6 +1841,8 @@ void MainComponent::fileDragExit(const juce::StringArray&)
 
 void MainComponent::frame(double timestamp)
 {
+    if (halfRate_ && (skipFrame_ = !skipFrame_))
+        return;
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
     lastFrame_ = timestamp;
     // Strips sliding open or closed ease to their height.

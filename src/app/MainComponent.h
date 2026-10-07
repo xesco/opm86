@@ -306,6 +306,12 @@ private:
     double pianoShown_ = 0, overviewShown_ = 0; // heights now, easing to open or closed
     Activity activity_ { view_ };
     double lastFrame_ = 0;
+    // A Raspberry Pi redraws on every other screen refresh: drawing at the
+    // full rate there overloads its display and stalls the window.
+    // OPM86_FULL_RATE=1 in the environment draws at the full rate.
+    bool halfRate_ = juce::File("/proc/device-tree/model").loadFileAsString().contains("Raspberry Pi")
+                     && juce::SystemStats::getEnvironmentVariable("OPM86_FULL_RATE", {}).isEmpty();
+    bool skipFrame_ = false; // at half rate, whether this refresh is skipped
     double endedAt_ = -1.0, endedPosition_ = 0.0; // when and where playing stopped at the song's end, until the rewind
     juce::VBlankAttachment vblank_ { this, [this](double timestamp) { frame(timestamp); } };
 };
