@@ -25,6 +25,7 @@ const SongLink kSongLinks[] = {
     { "Passing Breeze, extended (Out Run)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/Out_Run_%28Arcade%29/06%20Passing%20Breeze%20%28Extended%29.vgz" },
     { "Rush a Difficulty (Turbo Out Run)", "https://vgmrips.net/packs/vgm/Arcade/Turbo_Out_Run_%28Arcade%29/04%20Rush%20a%20Difficulty.vgz" },
     { "After Burner (After Burner)", "https://vgmrips.net/packs/vgm/Arcade/SegaSys/After_Burner_%28Sega_X%29/05%20After%20Burner.vgz" },
+    { "Like the Wind (Power Drift)", "https://vgmrips.net/packs/vgm/Arcade/Power_Drift_%28Sega_Y%29/04%20Like%20the%20Wind%20%28B%20Course%29.vgz" },
 };
 
 // A header's name and the tag right after it: the voice, V1 2, and the patch,
