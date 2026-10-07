@@ -921,7 +921,7 @@ void ToolBar::resized()
     buttons(r.removeFromLeft(width(4)), "MIX", { &reset_, &invert_, &instruments_, &drums_ });
 
     group(timeZoom_, timeCaption_, r.removeFromRight(130));
-    r.removeFromRight(14);
+    r.removeFromRight(4);
     group(heightZoom_, heightCaption_, r.removeFromRight(130));
     divider(false);
     buttons(r.removeFromRight(width(4)), "ZOOM", { &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ });
