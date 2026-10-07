@@ -39,7 +39,7 @@ juce::Rectangle<float> section(juce::Graphics& g, juce::Rectangle<float> area, c
     g.setColour(accent.withAlpha(0.35f));
     g.drawRoundedRectangle(area.reduced(0.5f), 8.0f, 1.0f);
     auto inner = area.reduced(14.0f, 10.0f);
-    auto header = inner.removeFromTop(22.0f);
+    auto header = inner.removeFromTop(28.0f);
     // A chip: a body with pins along both sides.
     const auto body = header.removeFromLeft(14.0f).withSizeKeepingCentre(10.0f, 16.0f);
     g.setColour(accent);
@@ -47,11 +47,11 @@ juce::Rectangle<float> section(juce::Graphics& g, juce::Rectangle<float> area, c
         g.fillRect(body.getX() - 2.5f, pin, 2.5f, 1.2f), g.fillRect(body.getRight(), pin, 2.5f, 1.2f);
     g.drawRoundedRectangle(body, 2.0f, 1.2f);
     header.removeFromLeft(10.0f);
-    g.setFont(theme::pixel(11.0f));
+    g.setFont(theme::pixel(15.0f));
     g.drawText(name, header, juce::Justification::centredLeft, false);
-    g.setFont(theme::mono(12.0f, true));
+    g.setFont(theme::mono(15.0f, true));
     g.setColour(theme::dim);
-    g.drawText(role, header.withTrimmedLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::pixel(11.0f), name)) + 14.0f),
+    g.drawText(role, header.withTrimmedLeft(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::pixel(15.0f), name)) + 16.0f),
                juce::Justification::centredLeft, false);
     inner.removeFromTop(8.0f);
     return inner;
@@ -138,8 +138,8 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     // The chip-wide settings: the LFO and the noise.
     {
         static const char* kWaves[4] = { "SAW", "SQUARE", "TRIANGLE", "NOISE" };
-        auto row = inner.removeFromTop(20.0f);
-        g.setFont(theme::mono(11.0f, true));
+        auto row = inner.removeFromTop(26.0f);
+        g.setFont(theme::mono(15.0f, true));
         const auto item = [&](const juce::String& label, const juce::String& value, float glowing, float width) {
             auto r = row.removeFromLeft(width);
             g.setColour(theme::dim);
@@ -147,11 +147,11 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
                        juce::Justification::centredLeft, false);
             cell(g, r.removeFromLeft(r.getWidth() - 10.0f), value, glowing, accent);
         };
-        item("LFO", juce::String(ym_[0x18]), glow(true, 0x18), 80.0f);
-        item("PMD", juce::String(pmd_), glow(true, 0x19), 80.0f);
-        item("AMD", juce::String(amd_), glow(true, 0x19), 80.0f);
-        item("WAVE", kWaves[ym_[0x1B] & 3], glow(true, 0x1B), 130.0f);
-        item("NOISE", (ym_[0x0F] & 0x80) ? "ON " + juce::String(ym_[0x0F] & 31) : juce::String("OFF"), glow(true, 0x0F), 110.0f);
+        item("LFO", juce::String(ym_[0x18]), glow(true, 0x18), 110.0f);
+        item("PMD", juce::String(pmd_), glow(true, 0x19), 110.0f);
+        item("AMD", juce::String(amd_), glow(true, 0x19), 110.0f);
+        item("WAVE", kWaves[ym_[0x1B] & 3], glow(true, 0x1B), 170.0f);
+        item("NOISE", (ym_[0x0F] & 0x80) ? "ON " + juce::String(ym_[0x0F] & 31) : juce::String("OFF"), glow(true, 0x0F), 150.0f);
         inner.removeFromTop(8.0f);
     }
 
@@ -171,47 +171,52 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         auto c = card.reduced(10.0f, 6.0f);
 
         // The channel: its number, the note it plays, its sides, feedback and algorithm.
-        auto head = c.removeFromTop(std::min(20.0f, c.getHeight() / 6.0f));
-        g.setFont(theme::mono(12.0f, true));
+        // Fonts follow the room: the values fill their rows, short of the columns' width.
+        auto head = c.removeFromTop(std::min(30.0f, c.getHeight() / 5.5f));
+        const float headFont = std::clamp(head.getHeight() * 0.72f, 11.0f, 20.0f);
+        g.setFont(theme::mono(headFont, true));
         g.setColour(keyed ? theme::text : theme::dim);
-        g.drawText("CH" + juce::String(ch + 1), head.removeFromLeft(36.0f), juce::Justification::centredLeft, false);
+        g.drawText("CH" + juce::String(ch + 1), head.removeFromLeft(headFont * 2.6f), juce::Justification::centredLeft, false);
         const int kc = ym_[static_cast<size_t>(0x28 + ch)], code = kc & 15;
         const int midi = 13 + ((kc >> 4) & 7) * 12 + code - code / 4; // the YM2151 counts notes from C#, skipping every fourth code
-        const auto pill = head.removeFromLeft(48.0f).reduced(0.0f, 2.0f);
+        const auto pill = head.removeFromLeft(headFont * 3.6f).reduced(0.0f, 2.0f);
         const juce::Colour pitch = theme::pitchColour(midi);
         g.setColour(keyed ? pitch : pitch.withAlpha(0.18f));
         g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
         g.setColour(keyed ? theme::background : theme::faint);
         g.drawText(theme::noteName(midi).removeCharacters("-"), pill, juce::Justification::centred, false);
         const int rl = ym_[static_cast<size_t>(0x20 + ch)];
-        head.removeFromLeft(10.0f);
-        g.setFont(theme::mono(11.0f, true));
-        cell(g, head.removeFromLeft(16.0f), "L", glow(true, 0x20 + ch), accent, (rl & 0x40) == 0);
-        cell(g, head.removeFromLeft(16.0f), "R", glow(true, 0x20 + ch), accent, (rl & 0x80) == 0);
-        head.removeFromLeft(8.0f);
+        head.removeFromLeft(headFont * 0.8f);
+        const float unit = headFont * 0.62f; // one character
+        cell(g, head.removeFromLeft(unit * 2.0f), "L", glow(true, 0x20 + ch), accent, (rl & 0x40) == 0);
+        cell(g, head.removeFromLeft(unit * 2.0f), "R", glow(true, 0x20 + ch), accent, (rl & 0x80) == 0);
+        head.removeFromLeft(unit);
         g.setColour(theme::dim);
-        g.drawText("FB", head.removeFromLeft(20.0f), juce::Justification::centredLeft, false);
-        cell(g, head.removeFromLeft(20.0f), juce::String((rl >> 3) & 7), glow(true, 0x20 + ch), accent);
+        g.drawText("FB", head.removeFromLeft(unit * 2.5f), juce::Justification::centredLeft, false);
+        cell(g, head.removeFromLeft(unit * 2.0f), juce::String((rl >> 3) & 7), glow(true, 0x20 + ch), accent);
+        head.removeFromLeft(unit);
         g.setColour(theme::dim);
-        g.drawText("ALG", head.removeFromLeft(28.0f), juce::Justification::centredLeft, false);
-        cell(g, head.removeFromLeft(20.0f), juce::String(rl & 7), glow(true, 0x20 + ch), accent);
+        g.drawText("ALG", head.removeFromLeft(unit * 3.5f), juce::Justification::centredLeft, false);
+        cell(g, head.removeFromLeft(unit * 2.0f), juce::String(rl & 7), glow(true, 0x20 + ch), accent);
 
         // Its operators: a row each, the key-on light and the eleven values.
-        const float rowH = c.getHeight() / 5.0f;
-        auto columns = c.removeFromTop(rowH);
-        const float labelW = 38.0f, colW = (c.getWidth() - labelW) / 11.0f;
+        const float rowH = c.getHeight() / 4.7f;
+        auto columns = c.removeFromTop(rowH * 0.7f);
+        const float valueFont = std::clamp(std::min(rowH * 0.78f, (c.getWidth() / 12.5f) * 0.55f), 10.0f, 24.0f);
+        const float labelW = valueFont * 2.8f, colW = (c.getWidth() - labelW) / 11.0f;
         columns.removeFromLeft(labelW);
-        g.setFont(theme::mono(std::clamp(rowH * 0.7f, 9.0f, 11.0f), true));
+        g.setFont(theme::mono(valueFont * 0.62f, true));
         g.setColour(theme::faint);
         for (const char* name : kColumns)
             g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+        g.setFont(theme::mono(valueFont, true));
         for (int op = 0; op < 4; ++op)
         {
             auto row = c.removeFromTop(rowH);
             const int slot = ch + op * 8;
             const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
             auto label = row.removeFromLeft(labelW);
-            const auto light = label.removeFromLeft(12.0f).withSizeKeepingCentre(7.0f, 7.0f);
+            const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
             if (on)
             {
                 g.setColour(accent.withAlpha(0.3f));
@@ -252,14 +257,16 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     // A row per channel: whether it plays, where its sample starts, loops and
     // ends in the ROM, its rate, and its volume on each side as a bar.
     static const char* kColumns[7] = { "START", "LOOP", "END", "RATE", "LOOPS", "VOL L", "VOL R" };
-    const float rowH = inner.getHeight() / 17.0f;
-    const float labelW = 48.0f, colW = (inner.getWidth() - labelW) / 7.0f;
-    auto columns = inner.removeFromTop(rowH);
+    const float rowH = inner.getHeight() / 16.7f;
+    const float valueFont = std::clamp(std::min(rowH * 0.72f, inner.getWidth() / 8.0f * 0.3f), 10.0f, 22.0f);
+    const float labelW = valueFont * 3.6f, colW = (inner.getWidth() - labelW) / 7.0f;
+    auto columns = inner.removeFromTop(rowH * 0.7f);
     columns.removeFromLeft(labelW);
-    g.setFont(theme::mono(std::clamp(rowH * 0.6f, 9.0f, 11.0f), true));
+    g.setFont(theme::mono(valueFont * 0.62f, true));
     g.setColour(theme::faint);
     for (const char* name : kColumns)
         g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+    g.setFont(theme::mono(valueFont, true));
     for (int ch = 0; ch < 16; ++ch)
     {
         auto row = inner.removeFromTop(rowH);
@@ -272,7 +279,7 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
             g.fillRoundedRectangle(row, 3.0f);
         }
         auto label = row.removeFromLeft(labelW);
-        const auto light = label.removeFromLeft(14.0f).withSizeKeepingCentre(7.0f, 7.0f);
+        const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
         if (on)
         {
             g.setColour(accent.withAlpha(0.3f * (0.4f + 0.6f * glow(false, 0x86 + base))));
