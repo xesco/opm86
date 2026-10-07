@@ -281,9 +281,17 @@ bool Tune::audible(const TuneTrack& track) const
 
 bool Tune::audible(const TuneTrack& track, const TuneNote& note) const
 {
-    if (!audible(track))
+    if (!audible(track) || silentHit(track, note))
         return false;
     return track.kind != TuneTrack::Kind::Fm || ((track.mutedVoices >> originalChannel(track, note)) & 1) == 0;
+}
+
+bool Tune::silentHit(const TuneTrack& track, const TuneNote& note) const
+{
+    if (track.kind != TuneTrack::Kind::Drum || note.source < 0 || static_cast<size_t>(note.source) >= data_->pcmState.size())
+        return false;
+    const auto& regs = data_->pcmState[static_cast<size_t>(note.source)].regs;
+    return regs[0] == 0 && regs[1] == 0; // left and right volume
 }
 
 std::vector<int> Tune::voices(const TuneTrack& track) const

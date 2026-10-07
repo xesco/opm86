@@ -84,7 +84,10 @@ public:
     int pitch(const TuneTrack& track, const TuneNote& note) const;
 
     bool audible(const TuneTrack& track) const;
-    bool audible(const TuneTrack& track, const TuneNote& note) const; // with the voice mutes
+    bool audible(const TuneTrack& track, const TuneNote& note) const; // with the voice mutes, and never a silent hit
+    // A drum hit the game triggers at volume 0 on both sides: a driver
+    // restarting a channel, which makes no sound.
+    bool silentHit(const TuneTrack& track, const TuneNote& note) const;
 
     // The chip channels an FM track's notes came from, highest sounding first;
     // a chord part has one per note of the chord. Empty for a drum track.
