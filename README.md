@@ -9,27 +9,45 @@ find songs and how to use the app, and, for developers, how to build it.
 
 ## Download
 
-Download the latest release for your system. Each link always points at the newest
-release, and every release is listed on the
-[releases page](https://github.com/xesco/opm86/releases).
+Each link below downloads the latest release, and every release is listed on the
+[releases page](https://github.com/xesco/opm86/releases). The downloads are not signed, so
+the first launch on macOS and on Windows needs one extra step. To build the app yourself
+instead, see [Build](#build).
 
-| System | Download | Then |
-| --- | --- | --- |
-| macOS 11 or later, Apple Silicon or Intel | [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip) | Unzip it and move **OPM86 Player** to Applications |
-| Windows 10 or later | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) | Unzip it and run **OPM86 Player.exe** |
-| Linux, x86-64 | [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz) | Unpack it with `tar -xzf OPM86-Player-linux.tar.gz` and run `./OPM86\ Player` |
+### macOS
 
-The three downloads are not signed, so the first launch needs one extra step:
+The app runs on macOS 11 or later, on Apple Silicon and on Intel.
 
-| System | What it says | What to do |
-| --- | --- | --- |
-| macOS | That Apple could not check the app for malware | Click **Done**, then **Open Anyway** in **System Settings > Privacy & Security** |
-| Windows | That SmartScreen prevented an unrecognised app from starting | Click **More info**, then **Run anyway** |
+1. Download [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip).
+2. Unzip it and move **OPM86 Player** to Applications.
+3. Open it. macOS says that Apple could not check it for malware; click **Done**.
+4. Open **System Settings > Privacy & Security**, click **Open Anyway** next to the message
+   about OPM86 Player, and confirm.
 
-On Linux the app needs the ALSA, FreeType, Fontconfig and X11 libraries, which most
-desktop distributions install already. It is built on Ubuntu 24.04, so it needs a
-distribution with glibc 2.39 or later, from 2024 on. To build the app yourself instead,
-see [Build](#build).
+### Windows
+
+The app runs on Windows 10 or later.
+
+1. Download [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip).
+2. Unzip it and run **OPM86 Player.exe**.
+3. SmartScreen says that it prevented an unrecognised app from starting; click **More
+   info**, then **Run anyway**.
+
+### Linux
+
+The app runs on x86-64 Linux with glibc 2.39 or later, which distributions have from 2024
+on, because it is built on Ubuntu 24.04. It needs the ALSA, FreeType, Fontconfig and X11
+libraries, which most desktop distributions install already.
+
+1. Download [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz).
+2. Unpack it and run the app:
+
+   ```sh
+   tar -xzf OPM86-Player-linux.tar.gz
+   ./"OPM86 Player"
+   ```
+
+The download also holds the app's icon, `OPM86 Player.png`, for a launcher entry.
 
 ## The sound board
 
@@ -56,13 +74,13 @@ The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Ea
 
 ## Build
 
-The app builds on macOS, Linux and Windows with CMake 3.22 or later and a C++20 compiler:
-the Xcode command line tools on macOS, GCC or Clang on Linux, and Visual Studio 2022 on
-Windows. The first build needs a network connection, because CMake downloads JUCE 9.0.3
-and the ymfm chip emulator. On Windows, CMake also downloads zlib, which the app needs to
-read `.vgz` files.
+Every system builds the app with CMake 3.22 or later and a C++20 compiler. The first build
+needs a network connection, because CMake downloads JUCE 9.0.3 and the ymfm chip emulator.
 
-On macOS, `make` builds the app and puts it in the repository root as `OPM86 Player.app`:
+### macOS
+
+macOS needs the Xcode command line tools. From the repository root, `make` builds the app
+and puts it there as `OPM86 Player.app`:
 
 ```sh
 make
@@ -74,32 +92,54 @@ repository root. When your keychain has a code-signing certificate named `OPM86 
 `make` signs the app with it. macOS then sees every build as the same app and remembers
 the folders you allowed it to read, such as Downloads. Without the certificate, macOS asks
 again after every build. To use a certificate with another name, run
-`make SIGN_ID="its name"`. On Linux and Windows, build with CMake directly:
+`make SIGN_ID="its name"`.
+
+### Windows
+
+Windows needs Visual Studio 2022 with its C++ tools. CMake also downloads zlib, which the
+app needs to read `.vgz` files. Build from the repository root:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-The app is then in `build/opm86_player_artefacts/Release`, as `OPM86 Player` on Linux and
-`OPM86 Player.exe` on Windows. On Linux, JUCE needs the development packages of ALSA, JACK,
-FreeType, Fontconfig, X11 and OpenGL, and `scripts/linux-deps.sh` installs them on Ubuntu.
+The app is then `build/opm86_player_artefacts/Release/OPM86 Player.exe`.
+
+### Linux
+
+Linux needs GCC or Clang, and the development packages of ALSA, JACK, FreeType,
+Fontconfig, X11 and OpenGL, which JUCE builds against. On Ubuntu,
+`sudo scripts/linux-deps.sh` installs them and the build tools. Then build from the
+repository root:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+The app is then `build/opm86_player_artefacts/Release/OPM86 Player`.
 
 On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
 Ubuntu container, to check a change before GitHub builds it. The container keeps its build
 and its compiler cache in `build-linux`, so a second run recompiles only what changed. The
 first run takes about 5 minutes, and a run after a small change takes seconds.
 
-When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the app for
-all three systems, runs the tests (see [Tests](#tests)), and publishes the three builds as
-a release. GitHub also builds and tests the app for all three systems for every pull
-request, but not for a push to a branch. A pull request's run, or a run of the **Build**
-workflow started by hand under **Actions**, keeps the three builds as downloads on its
-page. To release, run `make release VERSION=0.2.0` on an up-to-date `main` with no
-uncommitted changes. The command sets the version in `CMakeLists.txt` and adds the release
-to `CHANGELOG.md`, with the title of each pull request merged since the last release. It
-then commits both, tags the commit `v0.2.0`, and pushes the commit and the tag. The
-release on GitHub shows the same list as its notes.
+## Release
+
+GitHub builds the app for all three systems and runs the tests (see [Tests](#tests)) in
+two cases:
+
+| Case | What GitHub does with the three builds |
+| --- | --- |
+| A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
+| A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
+
+A push to a branch builds nothing. To release, run `make release VERSION=0.2.0` on an
+up-to-date `main` with no uncommitted changes. The command sets the version in
+`CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each pull
+request merged since the last release. It then commits both, tags the commit `v0.2.0`, and
+pushes the commit and the tag. The release on GitHub shows the same list as its notes.
 
 ## Get songs
 
