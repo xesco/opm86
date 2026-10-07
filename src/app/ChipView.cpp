@@ -110,7 +110,8 @@ juce::String explain(const juce::String& label)
         { "LOOPS", "Whether the sample loops at its end" },
         { "BANK", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number" },
         { "OUT", "The channel's output now" },
-        { "BUS", "The writes reaching the chip in the last second, newest at the right; how many a second, and the last one" },
+        { "WRITES", "How many writes reached the chip in the last second" },
+        { "LAST", "The last write: the register, then the value written" },
         { "VOL L", "Volume on the left" },
         { "VOL R", "Volume on the right" },
     };
@@ -639,44 +640,41 @@ void ChipView::mouseMove(const juce::MouseEvent& e)
 
 void ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm, juce::Colour accent)
 {
-    // The writes of the last second as ticks, newest at the right, coloured
-    // by what they set; then how many a second, and the last one.
+    // A box at the header's right end: how many writes reached the chip in
+    // the last second, and the last one, register and value.
     if (song_ == nullptr)
         return;
-    tip(area, "BUS");
     const auto& writes = fm ? song_->ym : song_->pcm;
     const size_t end = fm ? ymNext_ : pcmNext_;
-    const double from = at_ - kVgmRate;
-    g.setFont(theme::mono(12.0f, true));
-    const auto text = area.removeFromRight(std::min(150.0f, area.getWidth()));
-    // The lane only where there is room for it beside the count.
-    const auto lane = area.getWidth() >= 80.0f ? area.reduced(0.0f, 5.0f) : juce::Rectangle<float>();
-    g.setColour(theme::background.withAlpha(0.6f));
-    g.fillRoundedRectangle(lane, 3.0f);
     int count = 0;
-    for (size_t i = end; i-- > 0 && static_cast<double>(writes[i].time) >= from;)
-    {
-        const auto r = static_cast<int>(writes[i].address & 0xFF);
-        const float age = static_cast<float>((at_ - writes[i].time) / kVgmRate);
-        if (lane.isEmpty())
-        {
-            ++count;
-            continue;
-        }
-        const float x = lane.getRight() - 2.0f - (lane.getWidth() - 4.0f) * age;
-        // What it sets: notes on and off or triggers, pitch or volume, level, or the rest.
-        juce::Colour c = theme::dim;
-        if (fm)
-            c = r == 0x08 ? juce::Colours::white : (r >= 0x28 && r < 0x38) ? accent : (r >= 0x60 && r < 0x80) ? theme::yellow : theme::dim;
-        else
-            c = ((r & 0x87) == 0x86 && (writes[i].value & 1) == 0) ? juce::Colours::white : ((r & 0x87) == 0x02 || (r & 0x87) == 0x03) ? accent : theme::dim;
-        g.setColour(c.withAlpha(0.35f + 0.65f * (1.0f - age)));
-        g.fillRect(x, lane.getY() + 2.0f, 1.5f, lane.getHeight() - 4.0f);
+    for (size_t i = end; i-- > 0 && static_cast<double>(writes[i].time) >= at_ - kVgmRate;)
         ++count;
-    }
-    g.setColour(theme::dim);
     const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
-    g.drawText(juce::String(count) + "/s  " + last, text, juce::Justification::centredRight, false);
+
+    // Short of room, the count alone.
+    const auto box = area.removeFromRight(std::min(area.getWidth(), 230.0f)).reduced(0.0f, 1.0f);
+    if (box.getWidth() < 90.0f)
+        return;
+    const bool both = box.getWidth() >= 190.0f;
+    g.setColour(theme::background.withAlpha(0.6f));
+    g.fillRoundedRectangle(box, 5.0f);
+    g.setColour(accent.withAlpha(0.4f));
+    g.drawRoundedRectangle(box.reduced(0.5f), 5.0f, 1.0f);
+    auto inner = box.reduced(10.0f, 0.0f);
+    const auto field = [&](juce::Rectangle<float> r, const juce::String& label, const juce::String& value) {
+        g.setFont(theme::mono(11.0f));
+        g.setColour(theme::dim);
+        const float w = static_cast<float>(juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label)) + 8.0f;
+        const auto at = r.removeFromLeft(w);
+        g.drawText(label, at, juce::Justification::centredLeft, false);
+        tip(at, label);
+        g.setFont(theme::mono(14.0f, true));
+        g.setColour(theme::text);
+        g.drawText(value, r, juce::Justification::centredLeft, false);
+    };
+    field(both ? inner.removeFromLeft(inner.getWidth() * 0.48f) : inner, "WRITES", juce::String(count) + "/s");
+    if (both)
+        field(inner, "LAST", last);
 }
 
 void ChipView::paintMeter(juce::Graphics& g, juce::Rectangle<float> area, int channel)
