@@ -1,6 +1,7 @@
 #include "VgmSong.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace opm86
@@ -30,10 +31,16 @@ public:
     void segaPcm(uint16_t offset, uint8_t value) override
     {
         song_.pcm.push_back({ time_, static_cast<uint16_t>(offset & 0xFF), value });
+        pcmRegs_[offset & 0xFF] = value;
         if ((offset & 0x87) == 0x86 && !(value & 1))
         {
             song_.pcmUsed = true;
-            onsets.push_back(time_);
+            // A trigger at volume 0 on both sides makes no sound, so it is no
+            // start for the beat: some drivers restart channels so many times
+            // a second.
+            const int base = (offset & 0x78);
+            if (pcmRegs_[static_cast<size_t>(base + 2)] != 0 || pcmRegs_[static_cast<size_t>(base + 3)] != 0)
+                onsets.push_back(time_);
         }
     }
 
@@ -48,6 +55,7 @@ public:
 
 private:
     VgmSong& song_;
+    std::array<uint8_t, 256> pcmRegs_ {}; // the SegaPCM's registers as written so far
     uint32_t time_ = 0;
 };
 
@@ -62,6 +70,16 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
     BeatGrid grid;
     std::sort(raw.begin(), raw.end());
     raw.erase(std::unique(raw.begin(), raw.end()), raw.end());
+    // Starts closer than 15 ms are one: a drum and the note that follows it,
+    // or a strummed chord. Counted apart, their gaps would vote for a step
+    // that is not the music's.
+    {
+        std::vector<uint32_t> merged;
+        for (uint32_t t : raw)
+            if (merged.empty() || t - merged.back() > 660)
+                merged.push_back(t);
+        raw = std::move(merged);
+    }
     if (raw.size() < 8)
     {
         return grid;
@@ -146,9 +164,36 @@ BeatGrid fitBeatGrid(std::vector<uint32_t> raw)
         origin = (st - step * sn) / count;
     }
 
-    int multiple = 1;
-    while (step * multiple < 60.0 / 160.0 * kVgmRate && multiple < 16)
-        multiple *= 2;
+    // A beat of steps in twos, the shortest from 375 ms (160 BPM) down; or
+    // in threes, as in 6/8 or 12/8, when a bar of four such beats is what
+    // the music repeats, clearly more than a bar of the twos' beats.
+    auto binary = [&] {
+        int m = 1;
+        while (step * m < 60.0 / 160.0 * kVgmRate && m < 16)
+            m *= 2;
+        return m;
+    };
+    auto ternary = [&] {
+        int m = 3;
+        while (step * m < 60.0 / 160.0 * kVgmRate && m < 48)
+            m *= 2;
+        return m;
+    };
+    // The share of starts with another start one bar of four beats later.
+    auto repeats = [&](int m) {
+        const double bar = 4.0 * step * m, tolerance = step * 0.25;
+        int hits = 0;
+        for (uint32_t t : raw)
+        {
+            const auto it = std::lower_bound(raw.begin(), raw.end(), static_cast<double>(t) + bar - tolerance,
+                                             [](uint32_t a, double b) { return static_cast<double>(a) < b; });
+            if (it != raw.end() && static_cast<double>(*it) <= static_cast<double>(t) + bar + tolerance)
+                ++hits;
+        }
+        return static_cast<double>(hits) / static_cast<double>(raw.size());
+    };
+    const int twos = binary(), threes = ternary();
+    const int multiple = repeats(threes) >= repeats(twos) + 0.2 ? threes : twos;
     const double beat = step * multiple;
 
     // Of the steps a beat could start on, take the one most starts fall on.
