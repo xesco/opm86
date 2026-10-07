@@ -121,6 +121,7 @@ juce::String explain(const juce::String& label)
         { "FLAGS", "The channel's flag register: bit 0 stops it, bit 1 stops it at its end instead of looping, bits 4 to 6 its bank" },
         { "BANK ROW", "A 64 KB bank of the sample ROM, and the song's samples in it: a sample lights and fills as a channel plays it, with the channel's number and where it reads" },
         { "OUT", "The channel's output now" },
+        { "HZ", "The operator's frequency, about: the channel's note times MUL, raised by DT2; DT1's fine detune is left out" },
         { "WRITES", "How many writes reached the chip in the last second" },
         { "LAST", "The last write: the register, then the value written" },
         { "VOL L", "Volume on the left" },
@@ -580,7 +581,9 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
     for (const float c : alg.column)
         columns = std::max(columns, c);
     const float cellW = diagram.getWidth() / (columns + 2.0f), cellH = diagram.getHeight() / 3.0f;
-    const float boxW = cellW * 0.62f, boxH = std::min(cellH * 0.7f, boxW * 0.6f);
+    // The boxes leave room under them for each operator's frequency.
+    // Never thinner than its name needs, as the cell allows.
+    const float boxW = cellW * 0.62f, boxH = std::max(std::min(cellH * 0.55f, boxW * 0.6f), std::min(cellH * 0.9f, 16.0f));
     auto box = [&](int d) {
         return juce::Rectangle<float>(boxW, boxH).withCentre({ diagram.getX() + (alg.column[d] + 0.5f) * cellW, diagram.getY() + (alg.row[d] + 0.5f) * cellH });
     };
@@ -631,6 +634,30 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         g.setColour(lit > 0.5f ? theme::background : theme::text);
         g.drawText(kChipOrder[d], r, juce::Justification::centred, false);
         tip(r, kChipOrder[d]);
+    }
+
+    // Each operator's frequency, under its box: the channel's note from its
+    // key code and fraction, at the chip's clock, times MUL (0 is a half),
+    // raised by DT2's coarse detune. DT1's few cents are left out.
+    {
+        const int kc = ym_[static_cast<size_t>(0x28 + ch)], code = kc & 15;
+        const double clockShift = 12.0 * std::log2((song_ != nullptr ? song_->fmRate : 62500.0) * 64.0 / 3579545.0);
+        const double note = 13.0 + ((kc >> 4) & 7) * 12 + code - code / 4 + (ym_[static_cast<size_t>(0x30 + ch)] >> 2) / 64.0 + clockShift;
+        const double base = 440.0 * std::pow(2.0, (note - 69.0) / 12.0);
+        static constexpr double kCoarse[4] = { 0.0, 600.0, 781.0, 950.0 }; // DT2, in cents
+        const float room = (cellH - boxH) * 0.5f, under = std::min(room * 0.8f, 12.0f);
+        g.setFont(theme::mono(under));
+        for (int d = 0; room >= 9.0f && d < 4; ++d) // short of room, left out
+        {
+            const int slot = ch + kRegisterOrder[d] * 8;
+            const int mul = ym_[static_cast<size_t>(0x40 + slot)] & 15, dt2 = ym_[static_cast<size_t>(0xC0 + slot)] >> 6;
+            const double hz = base * (mul == 0 ? 0.5 : mul) * std::pow(2.0, kCoarse[dt2] / 1200.0);
+            const auto r = box(d);
+            const auto label = juce::Rectangle<float>(r.getX() - 12.0f, r.getBottom() + 1.0f, r.getWidth() + 24.0f, under + 2.0f);
+            g.setColour(level(d) > 0.0f ? theme::text : theme::dim);
+            g.drawText(juce::String(juce::roundToInt(hz)) + "Hz", label, juce::Justification::centred, false);
+            tip(label, "HZ");
+        }
     }
     g.setColour(theme::background);
     g.fillRoundedRectangle(out, 4.0f);
