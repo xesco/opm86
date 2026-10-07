@@ -45,8 +45,27 @@ constexpr float kKnobArc = juce::MathConstants<float>::pi * 0.75f; // the knob t
 
 } // namespace
 
+const TrackerView::LabelShapes& TrackerView::labelShapes(const juce::String& label, float height) const
+{
+    // Sizes to half a pixel, so a zoom makes only a few new ones.
+    const int size = static_cast<int>(std::lround(height * 2.0f));
+    const auto key = std::make_pair(label, size);
+    if (auto it = labels_.find(key); it != labels_.end())
+        return it->second;
+    if (labels_.size() > 2000)
+        labels_.clear();
+    const float h = static_cast<float>(size) * 0.5f;
+    LabelShapes shapes;
+    juce::GlyphArrangement glyphs;
+    glyphs.addLineOfText(theme::mono(h, true), label, 0.0f, 0.0f);
+    glyphs.createPath(shapes.text);
+    juce::PathStrokeType(std::max(2.0f, h * 0.16f), juce::PathStrokeType::curved).createStrokedPath(shapes.outline, shapes.text);
+    return labels_.emplace(key, std::move(shapes)).first->second;
+}
+
 TrackerView::TrackerView(AppModel& model) : model_(model)
 {
+    setOpaque(true); // it paints every pixel, so nothing behind it repaints
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
 }
@@ -819,18 +838,18 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const float height = std::min({ 26.0f, r.getHeight() * 0.62f, (r.getWidth() - 6.0f) / (0.64f * static_cast<float>(label.length())) });
     if (label.isNotEmpty() && height >= 9.0f)
     {
-        juce::GlyphArrangement glyphs;
-        glyphs.addFittedText(theme::mono(height, true), label, r.getX(), r.getY(), r.getWidth(), r.getHeight(),
-                             juce::Justification::centred, 1, 1.0f);
-        juce::Path text;
-        glyphs.createPath(text);
+        // The text and its outline are made once per label and size, then
+        // moved into place: building them is most of the cost of a frame.
+        const auto& shapes = labelShapes(label, height);
+        const auto at = juce::AffineTransform::translation(r.getCentreX() - shapes.text.getBounds().getCentreX(),
+                                                           r.getCentreY() - shapes.text.getBounds().getCentreY());
         if (audible)
         {
             g.setColour(theme::background.withAlpha(0.7f));
-            g.strokePath(text, juce::PathStrokeType(std::max(2.0f, height * 0.16f), juce::PathStrokeType::curved));
+            g.fillPath(shapes.outline, at);
         }
         g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 1.0f : 0.7f) : 0.3f));
-        g.fillPath(text);
+        g.fillPath(shapes.text, at);
     }
 }
 

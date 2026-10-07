@@ -445,6 +445,7 @@ void VolumeKnob::paint(juce::Graphics& g)
 
 TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
 {
+    setOpaque(true);
     rewind_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
@@ -587,6 +588,7 @@ void TopBar::paint(juce::Graphics& g)
 
 ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
 {
+    setOpaque(true);
     keepPlayhead_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     keepPlayhead_.setClickingTogglesState(true);
     keepPlayhead_.setTooltip("Keep playhead");
@@ -885,6 +887,7 @@ void ToolBar::paint(juce::Graphics& g)
 
 SlidingStrip::SlidingStrip(const juce::String& name) : name_(name)
 {
+    setOpaque(true); // paintBar fills it first
     chevron_.setWantsKeyboardFocus(false);
     chevron_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
     chevron_.setTooltip("Hide " + name.toLowerCase());
@@ -1691,7 +1694,10 @@ void MainComponent::frame(double timestamp)
         hide ? mouse.hideCursor() : mouse.revealCursor();
         cursorHidden_ = hide;
     }
-    if (model_.playing() || model_.hasTune())
+    // Playing, everything moves each frame. Stopped, the playhead's fade and
+    // the meters falling back last a moment after the last activity; past
+    // that, nothing changes until an event repaints what it touches.
+    if (model_.playing() || (model_.hasTune() && view_.idleSeconds() < 2.0))
     {
         view_.repaint();
         top_.repaint();

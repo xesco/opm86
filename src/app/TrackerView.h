@@ -136,6 +136,13 @@ private:
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r);
     bool isSounding(const TuneNote& n) const; // under the playhead while playing
+    // A note label's text and its dark outline, at the origin, kept per label and size.
+    struct LabelShapes
+    {
+        juce::Path text, outline;
+    };
+    const LabelShapes& labelShapes(const juce::String& label, float height) const;
+    mutable std::map<std::pair<juce::String, int>, LabelShapes> labels_;
     double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
     enum class Drag { None, Lanes, Pan, Select, SelectEdge, SelectMove, Ruler, Knob };
