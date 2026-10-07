@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <vector>
 
 namespace opm86
 {
@@ -77,10 +78,13 @@ juce::String explain(const juce::String& label)
         { "KF", "Key fraction: pitch between notes" },
         { "PMS", "Pitch modulation sensitivity: how much the LFO bends this channel" },
         { "AMS", "Amplitude modulation sensitivity: how much the LFO moves its volume" },
-        { "M1", "Operator M1, modulator 1" },
-        { "M2", "Operator M2, modulator 2" },
-        { "C1", "Operator C1, carrier 1" },
-        { "C2", "Operator C2, carrier 2" },
+        { "M1", "Operator M1, modulator 1: in most algorithms it shapes another operator's sound; it can feed back into itself" },
+        { "M2", "Operator M2, modulator 2: in most algorithms it shapes another operator's sound" },
+        { "C1", "Operator C1, carrier 1: in many algorithms it is heard, or shapes C2" },
+        { "C2", "Operator C2, carrier 2: always heard" },
+        { "GRAPH", "Draw the algorithm and the envelopes" },
+        { "TABLE", "List the values" },
+        { "OUT", "The channel's output: the operators that are heard" },
         { "TL", "Total level: the operator's volume, 0 loudest" },
         { "AR", "Attack rate: how fast the sound rises" },
         { "D1R", "First decay rate: how fast it falls after the attack" },
@@ -221,7 +225,6 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     // The channels, four down in each of two columns.
     const float gap = 10.0f;
     const float cardW = (inner.getWidth() - gap) / 2.0f, cardH = (inner.getHeight() - 3.0f * gap) / 4.0f;
-    static const char* kColumns[11] = { "TL", "AR", "D1R", "D1L", "D2R", "RR", "MUL", "DT1", "DT2", "KS", "AM" };
     for (int ch = 0; ch < 8; ++ch)
     {
         const auto card = juce::Rectangle<float>(inner.getX() + static_cast<float>(ch / 4) * (cardW + gap),
@@ -300,58 +303,254 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         field("PMS", juce::String((pmsAms >> 4) & 7), 0x38 + ch, 2.0f);
         field("AMS", juce::String(pmsAms & 3), 0x38 + ch, 2.0f);
 
-        // Its operators: a row each, the key-on light and the eleven values.
-        const float rowH = c.getHeight() / 4.7f;
-        auto columns = c.removeFromTop(rowH * 0.7f);
-        const float valueFont = std::clamp(std::min(rowH * 0.78f, (c.getWidth() / 12.5f) * 0.55f), 10.0f, 24.0f);
-        const float labelW = valueFont * 2.8f, colW = (c.getWidth() - labelW) / 11.0f;
-        columns.removeFromLeft(labelW);
-        g.setFont(theme::mono(valueFont * 0.8f));
-        g.setColour(theme::dim);
-        for (const char* name : kColumns)
+        // A switch at the header's end: the operators listed or drawn.
+        drawToggle_[static_cast<size_t>(ch)] = head.removeFromRight(head.getHeight() * 1.5f).reduced(0.0f, 1.0f);
         {
-            tip(columns.withWidth(colW), name);
-            g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+            const auto t = drawToggle_[static_cast<size_t>(ch)];
+            const bool over = isMouseOver() && t.contains(getMouseXYRelative().toFloat());
+            g.setColour(drawn_[static_cast<size_t>(ch)] ? accent.withAlpha(0.25f) : over ? theme::panelLight : theme::background.withAlpha(0.6f));
+            g.fillRoundedRectangle(t, 4.0f);
+            g.setColour(drawn_[static_cast<size_t>(ch)] ? accent : theme::dim);
+            g.drawRoundedRectangle(t.reduced(0.5f), 4.0f, 1.0f);
+            // An envelope's shape: rise, fall, hold and fade.
+            const auto i2 = t.reduced(t.getWidth() * 0.22f, t.getHeight() * 0.28f);
+            juce::Path shape;
+            shape.startNewSubPath(i2.getX(), i2.getBottom());
+            shape.lineTo(i2.getX() + i2.getWidth() * 0.2f, i2.getY());
+            shape.lineTo(i2.getX() + i2.getWidth() * 0.4f, i2.getY() + i2.getHeight() * 0.45f);
+            shape.lineTo(i2.getX() + i2.getWidth() * 0.75f, i2.getY() + i2.getHeight() * 0.55f);
+            shape.lineTo(i2.getRight(), i2.getBottom());
+            g.strokePath(shape, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            tip(t, drawn_[static_cast<size_t>(ch)] ? "TABLE" : "GRAPH");
         }
-        g.setFont(theme::mono(valueFont, true));
-        for (int op = 0; op < 4; ++op)
-        {
-            auto row = c.removeFromTop(rowH);
-            const int slot = ch + op * 8;
-            const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
-            auto label = row.removeFromLeft(labelW);
-            const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
-            if (on)
-            {
-                g.setColour(accent.withAlpha(0.3f));
-                g.fillEllipse(light.expanded(3.0f));
-            }
-            g.setColour(on ? accent : theme::gridBar);
-            g.fillEllipse(light);
-            g.setColour(on ? theme::text : theme::dim);
-            g.drawText(kOperators[op], label, juce::Justification::centredLeft, false);
-            tip(label, kOperators[op]);
 
-            const int dtMul = ym_[static_cast<size_t>(0x40 + slot)], tl = ym_[static_cast<size_t>(0x60 + slot)] & 0x7F;
-            const int ksAr = ym_[static_cast<size_t>(0x80 + slot)], amD1r = ym_[static_cast<size_t>(0xA0 + slot)];
-            const int dt2D2r = ym_[static_cast<size_t>(0xC0 + slot)], d1lRr = ym_[static_cast<size_t>(0xE0 + slot)];
-            // The level, loudest at TL 0, as a bar behind its value.
-            const auto tlCell = row.removeFromLeft(colW);
-            g.setColour(accent.withAlpha(0.18f));
-            g.fillRoundedRectangle(tlCell.reduced(2.0f, 3.0f).withWidth((tlCell.getWidth() - 4.0f) * static_cast<float>(127 - tl) / 127.0f), 2.0f);
-            cell(g, tlCell, juce::String(tl), glow(true, 0x60 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(ksAr & 31), glow(true, 0x80 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(amD1r & 31), glow(true, 0xA0 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(d1lRr >> 4), glow(true, 0xE0 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(dt2D2r & 31), glow(true, 0xC0 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(d1lRr & 15), glow(true, 0xE0 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(dtMul & 15), glow(true, 0x40 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String((dtMul >> 4) & 7), glow(true, 0x40 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(dt2D2r >> 6), glow(true, 0xC0 + slot), accent);
-            cell(g, row.removeFromLeft(colW), juce::String(ksAr >> 6), glow(true, 0x80 + slot), accent);
-            cell(g, row.removeFromLeft(colW), (amD1r & 0x80) ? "ON" : "-", glow(true, 0xA0 + slot), accent, (amD1r & 0x80) == 0);
-        }
+        if (drawn_[static_cast<size_t>(ch)])
+            paintOperatorGraph(g, c, ch, accent);
+        else
+            paintOperatorTable(g, c, ch, accent);
     }
+}
+
+void ChipView::paintOperatorTable(juce::Graphics& g, juce::Rectangle<float> c, int ch, juce::Colour accent)
+{
+    static const char* kColumns[11] = { "TL", "AR", "D1R", "D1L", "D2R", "RR", "MUL", "DT1", "DT2", "KS", "AM" };
+    // Its operators: a row each, the key-on light and the eleven values.
+    const float rowH = c.getHeight() / 4.7f;
+    auto columns = c.removeFromTop(rowH * 0.7f);
+    const float valueFont = std::clamp(std::min(rowH * 0.78f, (c.getWidth() / 12.5f) * 0.55f), 10.0f, 24.0f);
+    const float labelW = valueFont * 2.8f, colW = (c.getWidth() - labelW) / 11.0f;
+    columns.removeFromLeft(labelW);
+    g.setFont(theme::mono(valueFont * 0.8f));
+    g.setColour(theme::dim);
+    for (const char* name : kColumns)
+    {
+        tip(columns.withWidth(colW), name);
+        g.drawText(name, columns.removeFromLeft(colW), juce::Justification::centred, false);
+    }
+    g.setFont(theme::mono(valueFont, true));
+    for (int op = 0; op < 4; ++op)
+    {
+        auto row = c.removeFromTop(rowH);
+        const int slot = ch + op * 8;
+        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
+        auto label = row.removeFromLeft(labelW);
+        tip(label, kOperators[op]); // the light and the name
+        const auto light = label.removeFromLeft(valueFont * 0.9f).withSizeKeepingCentre(valueFont * 0.5f, valueFont * 0.5f);
+        if (on)
+        {
+            g.setColour(accent.withAlpha(0.3f));
+            g.fillEllipse(light.expanded(3.0f));
+        }
+        g.setColour(on ? accent : theme::gridBar);
+        g.fillEllipse(light);
+        g.setColour(on ? theme::text : theme::dim);
+        g.drawText(kOperators[op], label, juce::Justification::centredLeft, false);
+
+        const int dtMul = ym_[static_cast<size_t>(0x40 + slot)], tl = ym_[static_cast<size_t>(0x60 + slot)] & 0x7F;
+        const int ksAr = ym_[static_cast<size_t>(0x80 + slot)], amD1r = ym_[static_cast<size_t>(0xA0 + slot)];
+        const int dt2D2r = ym_[static_cast<size_t>(0xC0 + slot)], d1lRr = ym_[static_cast<size_t>(0xE0 + slot)];
+        // The level, loudest at TL 0, as a bar behind its value.
+        const auto tlCell = row.removeFromLeft(colW);
+        g.setColour(accent.withAlpha(0.18f));
+        g.fillRoundedRectangle(tlCell.reduced(2.0f, 3.0f).withWidth((tlCell.getWidth() - 4.0f) * static_cast<float>(127 - tl) / 127.0f), 2.0f);
+        cell(g, tlCell, juce::String(tl), glow(true, 0x60 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(ksAr & 31), glow(true, 0x80 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(amD1r & 31), glow(true, 0xA0 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(d1lRr >> 4), glow(true, 0xE0 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(dt2D2r & 31), glow(true, 0xC0 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(d1lRr & 15), glow(true, 0xE0 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(dtMul & 15), glow(true, 0x40 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String((dtMul >> 4) & 7), glow(true, 0x40 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(dt2D2r >> 6), glow(true, 0xC0 + slot), accent);
+        cell(g, row.removeFromLeft(colW), juce::String(ksAr >> 6), glow(true, 0x80 + slot), accent);
+        cell(g, row.removeFromLeft(colW), (amD1r & 0x80) ? "ON" : "-", glow(true, 0xA0 + slot), accent, (amD1r & 0x80) == 0);
+    }
+}
+
+namespace
+{
+// The eight algorithms: where each operator sits, in columns and rows, and
+// what it feeds. Operators in the chip's order, M1, C1, M2, C2; a target of
+// 4 is the output.
+struct Algorithm
+{
+    float column[4], row[4];
+    std::vector<std::pair<int, int>> wires;
+};
+const Algorithm& algorithm(int alg)
+{
+    static const Algorithm kAlgorithms[8] = {
+        { { 0, 1, 2, 3 }, { 1, 1, 1, 1 }, { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 4 } } },
+        { { 0, 0, 1, 2 }, { 0, 2, 1, 1 }, { { 0, 2 }, { 1, 2 }, { 2, 3 }, { 3, 4 } } },
+        { { 1, 0, 1, 2 }, { 0, 2, 2, 1 }, { { 1, 2 }, { 0, 3 }, { 2, 3 }, { 3, 4 } } },
+        { { 0, 1, 1, 2 }, { 0, 0, 2, 1 }, { { 0, 1 }, { 1, 3 }, { 2, 3 }, { 3, 4 } } },
+        { { 0, 1, 0, 1 }, { 0, 0, 2, 2 }, { { 0, 1 }, { 2, 3 }, { 1, 4 }, { 3, 4 } } },
+        { { 0, 1, 1, 1 }, { 1, 0, 1, 2 }, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 4 }, { 2, 4 }, { 3, 4 } } },
+        { { 0, 1, 1, 1 }, { 0, 0, 1, 2 }, { { 0, 1 }, { 1, 4 }, { 2, 4 }, { 3, 4 } } },
+        { { 0, 0, 0, 0 }, { 0, 0.67f, 1.33f, 2 }, { { 0, 4 }, { 1, 4 }, { 2, 4 }, { 3, 4 } } },
+    };
+    return kAlgorithms[alg & 7];
+}
+constexpr const char* kChipOrder[4] = { "M1", "C1", "M2", "C2" };
+constexpr int kRegisterOrder[4] = { 0, 2, 1, 3 }; // each one's place in the register order M1, M2, C1, C2
+} // namespace
+
+void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area, int ch, juce::Colour accent)
+{
+    const int rlFbAlg = ym_[static_cast<size_t>(0x20 + ch)];
+    const Algorithm& alg = algorithm(rlFbAlg & 7);
+    auto diagram = area.removeFromLeft(area.getWidth() * 0.5f).reduced(4.0f, 4.0f);
+    area.removeFromLeft(10.0f);
+
+    // The algorithm: a box per operator, lit while keyed and as bright as
+    // its level, wired to what it feeds, and the output at the right.
+    float columns = 0;
+    for (const float c : alg.column)
+        columns = std::max(columns, c);
+    const float cellW = diagram.getWidth() / (columns + 2.0f), cellH = diagram.getHeight() / 3.0f;
+    const float boxW = cellW * 0.62f, boxH = std::min(cellH * 0.7f, boxW * 0.6f);
+    auto box = [&](int d) {
+        return juce::Rectangle<float>(boxW, boxH).withCentre({ diagram.getX() + (alg.column[d] + 0.5f) * cellW, diagram.getY() + (alg.row[d] + 0.5f) * cellH });
+    };
+    const auto out = juce::Rectangle<float>(boxW, boxH).withCentre({ diagram.getRight() - cellW * 0.5f, diagram.getCentreY() });
+    auto level = [&](int d) {
+        const int op = kRegisterOrder[d];
+        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
+        const int tl = ym_[static_cast<size_t>(0x60 + ch + op * 8)] & 0x7F;
+        return on ? 0.25f + 0.75f * static_cast<float>(127 - tl) / 127.0f : 0.0f;
+    };
+    for (const auto& [from, to] : alg.wires)
+    {
+        const auto a = box(from).getCentre().withX(box(from).getRight());
+        const auto end = to == 4 ? out : box(to);
+        const auto b = end.getCentre().withX(end.getX());
+        juce::Path wire;
+        wire.startNewSubPath(a);
+        wire.cubicTo(a.x + (b.x - a.x) * 0.5f, a.y, a.x + (b.x - a.x) * 0.5f, b.y, b.x, b.y);
+        const float lit = level(from);
+        g.setColour(lit > 0.0f ? accent.withAlpha(0.35f + 0.65f * lit) : theme::gridBar);
+        g.strokePath(wire, juce::PathStrokeType(lit > 0.0f ? 2.0f : 1.2f));
+    }
+    // M1's feedback: a loop over its box, as strong as FB.
+    if (const int fb = (rlFbAlg >> 3) & 7; fb > 0)
+    {
+        const auto m1 = box(0);
+        juce::Path loop;
+        loop.startNewSubPath(m1.getRight() - boxW * 0.2f, m1.getY());
+        loop.cubicTo(m1.getRight() - boxW * 0.2f, m1.getY() - boxH * 0.7f, m1.getX() + boxW * 0.2f, m1.getY() - boxH * 0.7f, m1.getX() + boxW * 0.2f, m1.getY());
+        g.setColour(level(0) > 0.0f ? accent.withAlpha(0.3f + 0.1f * static_cast<float>(fb)) : theme::gridBar);
+        g.strokePath(loop, juce::PathStrokeType(1.0f + 0.25f * static_cast<float>(fb)));
+    }
+    const float font = std::clamp(boxH * 0.55f, 9.0f, 16.0f);
+    g.setFont(theme::mono(font, true));
+    for (int d = 0; d < 4; ++d)
+    {
+        const auto r = box(d);
+        const float lit = level(d);
+        if (lit > 0.0f)
+        {
+            g.setColour(accent.withAlpha(0.25f * lit));
+            g.fillRoundedRectangle(r.expanded(3.0f), 6.0f);
+        }
+        g.setColour(lit > 0.0f ? accent.withAlpha(0.2f + 0.6f * lit) : theme::panelLight);
+        g.fillRoundedRectangle(r, 4.0f);
+        g.setColour(lit > 0.0f ? accent : theme::gridBar);
+        g.drawRoundedRectangle(r.reduced(0.5f), 4.0f, 1.0f);
+        g.setColour(lit > 0.5f ? theme::background : theme::text);
+        g.drawText(kChipOrder[d], r, juce::Justification::centred, false);
+        tip(r, kChipOrder[d]);
+    }
+    g.setColour(theme::background);
+    g.fillRoundedRectangle(out, 4.0f);
+    g.setColour(keyOn_[static_cast<size_t>(ch)] ? accent : theme::gridBar);
+    g.drawRoundedRectangle(out.reduced(0.5f), 4.0f, 1.0f);
+    g.setFont(theme::mono(font * 0.85f, true));
+    g.drawText("OUT", out, juce::Justification::centred, false);
+    tip(out, "OUT");
+
+    // The envelopes, one per operator: the rise at AR, the fall at D1R down
+    // to D1L, the slope at D2R while held, and the fade at RR; as tall as
+    // the operator's level, and bright while it is keyed.
+    const float gap = 6.0f;
+    const float graphW = (area.getWidth() - gap) / 2.0f, graphH = (area.getHeight() - gap) / 2.0f;
+    for (int d = 0; d < 4; ++d)
+    {
+        const int op = kRegisterOrder[d], slot = ch + op * 8;
+        const auto r = juce::Rectangle<float>(area.getX() + static_cast<float>(d % 2) * (graphW + gap),
+                                              area.getY() + static_cast<float>(d / 2) * (graphH + gap), graphW, graphH);
+        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
+        g.setColour(theme::background.withAlpha(0.5f));
+        g.fillRoundedRectangle(r, 4.0f);
+        const int ar = ym_[static_cast<size_t>(0x80 + slot)] & 31, d1r = ym_[static_cast<size_t>(0xA0 + slot)] & 31;
+        const int d2r = ym_[static_cast<size_t>(0xC0 + slot)] & 31, d1l = ym_[static_cast<size_t>(0xE0 + slot)] >> 4;
+        const int rr = ym_[static_cast<size_t>(0xE0 + slot)] & 15, tl = ym_[static_cast<size_t>(0x60 + slot)] & 0x7F;
+        // Faster rates take less width; a rate of 0 holds.
+        const float attack = ar == 0 ? 1.0f : static_cast<float>(32 - ar) / 32.0f;
+        const float decay = d1r == 0 ? 1.0f : static_cast<float>(32 - d1r) / 32.0f;
+        const float release = static_cast<float>(16 - rr) / 16.0f;
+        const float sustain = 1.0f - static_cast<float>(d1l) / 15.0f;
+        const float held = sustain * (1.0f - std::min(1.0f, static_cast<float>(d2r) / 31.0f * 0.9f));
+        const float total = attack * 0.25f + decay * 0.25f + 0.3f + release * 0.25f;
+        const auto plot = r.reduced(6.0f, 6.0f);
+        const float height = plot.getHeight() * (0.15f + 0.85f * static_cast<float>(127 - tl) / 127.0f);
+        auto x = [&](float t) { return plot.getX() + plot.getWidth() * t / total; };
+        auto y = [&](float lv) { return plot.getBottom() - height * lv; };
+        juce::Path shape;
+        float t = 0.0f;
+        shape.startNewSubPath(x(t), y(0.0f));
+        shape.lineTo(x(t += attack * 0.25f), y(1.0f));
+        shape.lineTo(x(t += decay * 0.25f), y(sustain));
+        shape.lineTo(x(t += 0.3f), y(held));
+        shape.lineTo(x(t += release * 0.25f), y(0.0f));
+        juce::Path fill(shape);
+        fill.closeSubPath();
+        g.setColour(accent.withAlpha(on ? 0.3f : 0.08f));
+        g.fillPath(fill);
+        g.setColour(on ? accent : accent.withAlpha(0.35f));
+        g.strokePath(shape, juce::PathStrokeType(on ? 1.8f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setFont(theme::mono(std::clamp(graphH * 0.3f, 9.0f, 13.0f), true));
+        g.setColour(on ? theme::text : theme::dim);
+        g.drawText(kChipOrder[d], r.reduced(5.0f, 3.0f), juce::Justification::topLeft, false);
+        tip(r, kChipOrder[d]);
+    }
+}
+
+void ChipView::mouseDown(const juce::MouseEvent& e)
+{
+    for (size_t ch = 0; ch < drawToggle_.size(); ++ch)
+        if (drawToggle_[ch].contains(e.position))
+        {
+            drawn_[ch] = !drawn_[ch];
+            repaint();
+            return;
+        }
+}
+
+void ChipView::mouseMove(const juce::MouseEvent& e)
+{
+    const bool over = std::any_of(drawToggle_.begin(), drawToggle_.end(), [&](const auto& r) { return r.contains(e.position); });
+    setMouseCursor(over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    repaint();
 }
 
 void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
