@@ -582,7 +582,7 @@ The keyboard controls the song like this:
 | Escape | Drops the selection |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
-the song plays to its end, the playhead goes back to the start 2s later. The mouse moves
+the song plays to its end, the playhead goes back to the start 1s later. The mouse moves
 around the song like this:
 
 | Mouse | Effect |
