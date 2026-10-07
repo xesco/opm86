@@ -102,7 +102,7 @@ void extendSnapshots(const VgmSong& song, SongSnapshots& snapshots, double until
         k = last.sample;
         write = last.write;
     }
-    pcm.setRom(song.rom.data());
+    pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
     for (;; ++k)
     {
         const double now = static_cast<double>(k) * kVgmRate / song.pcmRate;
@@ -157,7 +157,7 @@ std::shared_ptr<SongSnapshots> makeStartSnapshot(const VgmSong& song)
     out->fm.push_back({ 0, 0, state });
     SegaPcm pcm;
     pcm.reset();
-    pcm.setRom(song.rom.data());
+    pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
     out->pcm.push_back({ 0, 0, pcm });
     return out;
 }
@@ -283,7 +283,7 @@ bool SongPlayer::seek(Deck& deck, double songTime)
     deck.fmSample = fmSnap.sample;
     deck.ymWrite = fmSnap.write;
     deck.pcm = pcmSnap.chip;
-    deck.pcm.setRom(song.rom.data());
+    deck.pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
     deck.pcmSample = pcmSnap.sample;
     deck.pcmWrite = pcmSnap.write;
 

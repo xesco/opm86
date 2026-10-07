@@ -187,6 +187,10 @@ private:
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
     NoteRef hover_;
+    // The empty view's links, where it drew each and what it opens, refilled each paint.
+    std::vector<std::pair<juce::Rectangle<float>, juce::String>> links_;
+    int linkAt(juce::Point<float> p) const; // the link under p, or -1
+    void mouseExit(const juce::MouseEvent&) override { if (!model_.hasTune()) repaint(); } // a link lit by the pointer goes back
 
     // Meters: each chip channel belongs to the track of the note last started
     // on it, so a release still counts for its track.

@@ -52,7 +52,7 @@ private:
 
 // The transport and song display along the top: title, rewind, play, stop
 // and to the end, LED counters, the file, the master volume and Open.
-class TopBar : public juce::Component, public juce::TooltipClient
+class TopBar : public juce::Component
 {
 public:
     TopBar(AppModel& model, TrackerView& view);
@@ -62,9 +62,10 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    juce::String getTooltip() override; // the file's full path, over its name
+    void songChanged(); // a song opened or closed: its controls, all but OPEN, work while one is open
 
     std::function<void()> onOpen;
+    std::function<void()> onClose;
 
 private:
     AppModel& model_;
@@ -72,8 +73,9 @@ private:
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
     IconButton end_ { IconButton::Icon::End };
     juce::TextButton open_ { "OPEN" };
+    juce::TextButton close_ { "CLOSE" }; // beside OPEN; greyed while no song is open
     VolumeKnob master_;
-    juce::Rectangle<int> counters_, fileArea_, masterArea_;
+    juce::Rectangle<int> counters_, masterArea_;
 };
 
 // The tool bar under the top bar: the playhead, follow and loop toggles, the
@@ -85,6 +87,8 @@ public:
     ToolBar(AppModel& model, TrackerView& view);
 
     void songOpened(); // a new song: its first time zoom as the zoom's home
+    void setSongOpen(bool open); // every control works only while a song is open
+    void showTracks(); // the chips' view off, if it is on
     void syncZoom();   // the zoom sliders follow the view, however it was zoomed
     void syncSelection(); // the start and end fields follow the selection, unless being typed in
     void refresh();    // the M/S shortcuts light up as the tracks' solos stand
@@ -169,6 +173,7 @@ private:
     bool open_ = true;
     int headerWidth_ = 200;
     bool resizing_ = false;
+    bool inContent_ = false; // the press began in the content, right of the header
     int resizeFromY_ = 0, resizeFromHeight_ = 0; // screen y and height where the edge drag began
 };
 
@@ -213,6 +218,7 @@ public:
     void resized() override;
 
     static constexpr int kMinOctaves = 3, kMaxOctaves = 7;
+    void setSongOpen(bool open); // the octave and name buttons work only while a song is open
 
 private:
     void updateRange();
@@ -234,6 +240,9 @@ public:
     bool open(const juce::File& file);
     void openDialog();
     std::function<void(const juce::File&)> onOpened; // a file was opened
+    std::function<void()> onClosed;                  // the song was closed
+    void close();                                    // closes the song, back to the songs to start with
+    void songOpenChanged();                          // the controls follow whether a song is open
     std::function<void()> onColoursChanged;            // a pitch colour was chosen or reset
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }

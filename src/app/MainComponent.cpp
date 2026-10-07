@@ -40,7 +40,7 @@ public:
     void drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down) override
     {
         const auto r = b.getLocalBounds().toFloat().reduced(0.5f);
-        const juce::Colour accent = b.findColour(juce::TextButton::buttonOnColourId);
+        const juce::Colour accent = b.findColour(juce::TextButton::buttonOnColourId).withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.3f); // a lit switch dims while disabled
         const bool on = b.getToggleState();
         g.setColour(on ? accent : (down ? theme::panelLight.brighter(0.1f) : over ? theme::panelLight : theme::background));
         g.fillRoundedRectangle(r, 5.0f);
@@ -53,7 +53,8 @@ public:
     void drawButtonText(juce::Graphics& g, juce::TextButton& b, bool over, bool) override
     {
         g.setFont(getTextButtonFont(b, b.getHeight()));
-        g.setColour(b.getToggleState() ? theme::background : over ? theme::text : theme::dim);
+        // Faint while disabled, as the icon buttons are.
+        g.setColour((b.getToggleState() ? theme::background : over ? theme::text : theme::dim).withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.35f));
         g.drawText(b.getButtonText(), b.getLocalBounds(), juce::Justification::centred);
     }
 
@@ -488,6 +489,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
     play_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     stop_.setColour(juce::TextButton::buttonOnColourId, theme::orange);
     open_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
+    close_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     end_.setColour(juce::TextButton::buttonOnColourId, theme::magenta);
     rewind_.setTooltip("Rewind (Return)");
     end_.setTooltip("To the end (End)");
@@ -524,11 +526,13 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
     }
-}
-
-juce::String TopBar::getTooltip()
-{
-    return model_.hasTune() && fileArea_.contains(getMouseXYRelative()) ? model_.file().getFullPathName() : juce::String();
+    close_.setTooltip("Close (Cmd+W)");
+    close_.setWantsKeyboardFocus(false);
+    close_.onClick = [this] {
+        if (onClose)
+            onClose();
+    };
+    addAndMakeVisible(close_); // greyed while no song is open
 }
 
 void TopBar::rewind()
@@ -569,6 +573,8 @@ void TopBar::resized()
     end_.setBounds(r.removeFromLeft(44));
     r.removeFromLeft(14);
     open_.setBounds(r.removeFromRight(70));
+    r.removeFromRight(8);
+    close_.setBounds(r.removeFromRight(70));
     r.removeFromRight(14);
     // The master volume: its caption and level, then the knob.
     master_.setBounds(r.removeFromRight(40).withSizeKeepingCentre(40, 40));
@@ -576,6 +582,26 @@ void TopBar::resized()
     masterArea_ = r.removeFromRight(80);
     r.removeFromRight(14);
     counters_ = r;
+    songChanged();
+}
+
+namespace
+{
+// A control that works only while a song is open. A button draws itself
+// faint while disabled; anything else, a slider, a knob or a field, fades.
+void setSongControl(juce::Component& control, bool open)
+{
+    control.setEnabled(open);
+    if (dynamic_cast<juce::Button*>(&control) == nullptr)
+        control.setAlpha(open ? 1.0f : 0.45f);
+}
+} // namespace
+
+void TopBar::songChanged()
+{
+    for (auto* child : getChildren())
+        if (child != &open_)
+            setSongControl(*child, model_.hasTune());
 }
 
 void TopBar::paint(juce::Graphics& g)
@@ -617,11 +643,10 @@ void TopBar::paint(juce::Graphics& g)
         c.removeFromLeft(6);
         drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
         c.removeFromLeft(10);
-        g.setFont(theme::mono(13.0f, true));
+        g.setFont(theme::mono(17.0f, true));
         g.setColour(theme::text);
-        fileArea_ = c;
         g.drawText(model_.file().getFileName(), c.withTrimmedBottom(c.getHeight() / 2), juce::Justification::bottomLeft, true);
-        g.setFont(theme::mono(12.0f));
+        g.setFont(theme::mono(15.0f));
         g.setColour(theme::dim);
         g.drawText("length " + clock(song.length), c.withTrimmedTop(c.getHeight() / 2 + 2), juce::Justification::topLeft, true);
     }
@@ -756,6 +781,22 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     heightZoom_.onValueChange = [this] {
         view_.zoomLanes(heightZoom_.getValue() / view_.laneHeight(), TrackerView::kRulerHeight);
     };
+}
+
+void ToolBar::setSongOpen(bool open)
+{
+    for (auto* child : getChildren())
+        setSongControl(*child, open);
+    repaint();
+}
+
+void ToolBar::showTracks()
+{
+    if (!chips_.getToggleState())
+        return;
+    chips_.setToggleState(false, juce::dontSendNotification);
+    if (onChips)
+        onChips(false);
 }
 
 void ToolBar::songOpened()
@@ -1002,18 +1043,24 @@ void SlidingStrip::resized()
 
 void SlidingStrip::mouseMove(const juce::MouseEvent& e)
 {
-    setMouseCursor(!open_ ? juce::MouseCursor::NormalCursor : e.y < kEdge ? juce::MouseCursor::UpDownResizeCursor : contentCursor());
+    setMouseCursor(!open_                   ? juce::MouseCursor::NormalCursor
+                   : e.y < kEdge             ? juce::MouseCursor::UpDownResizeCursor
+                   : e.x >= headerWidth_     ? contentCursor()
+                                             : juce::MouseCursor::NormalCursor);
 }
 
 void SlidingStrip::mouseDown(const juce::MouseEvent& e)
 {
+    // The top edge resizes; the content, right of the header, takes the
+    // rest; the header itself takes no clicks but its buttons'.
     resizing_ = open_ && e.y < kEdge;
+    inContent_ = open_ && !resizing_ && e.x >= headerWidth_;
     if (resizing_)
     {
         resizeFromY_ = e.getScreenY();
         resizeFromHeight_ = getHeight();
     }
-    else if (open_)
+    else if (inContent_)
         contentDown(e);
 }
 
@@ -1025,14 +1072,15 @@ void SlidingStrip::mouseDrag(const juce::MouseEvent& e)
         if (onHeight)
             onHeight(resizeFromHeight_ + resizeFromY_ - e.getScreenY());
     }
-    else if (open_)
+    else if (inContent_)
         contentDrag(e);
 }
 
 void SlidingStrip::mouseUp(const juce::MouseEvent& e)
 {
-    if (!resizing_ && open_)
+    if (inContent_)
         contentUp(e);
+    inContent_ = false;
 }
 
 float SlidingStrip::contentAlpha() const
@@ -1219,6 +1267,12 @@ void OverviewStrip::centrePlayhead()
 }
 
 // PianoStrip ------------------------------------------------------------------
+
+void PianoStrip::setSongOpen(bool open)
+{
+    for (auto* button : { &fewer_, &more_, &names_ })
+        button->setEnabled(open);
+}
 
 PianoStrip::PianoStrip(AppModel& model) : SlidingStrip("KEYS"), model_(model)
 {
@@ -1440,6 +1494,7 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
+    top_.onClose = [this] { close(); };
     overview_.onHeight = [this](int height) {
         overviewHeight_ = std::clamp(height, kOverviewHeight, kStripMaxHeight);
         overview_.openHeight = overviewHeight_;
@@ -1476,6 +1531,7 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     model_.addChangeListener(this);
     setWantsKeyboardFocus(true);
     setSize(1400, 820);
+    songOpenChanged(); // no song yet
 }
 
 MainComponent::~MainComponent()
@@ -1500,6 +1556,7 @@ bool MainComponent::open(const juce::File& file)
     view_.zoomAround(view_.samplesPerPixel() / (bar * 8 / width), static_cast<float>(view_.headerWidth()));
     view_.setViewStart(std::min(0.0, model_.tune().source().firstBeat - bar * 0.25)); // from the start, notes before beat 1 too
     tools_.songOpened();
+    songOpenChanged();
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
     view_.grabKeyboardFocus();
@@ -1507,6 +1564,29 @@ bool MainComponent::open(const juce::File& file)
     if (onOpened)
         onOpened(file);
     return true;
+}
+
+void MainComponent::songOpenChanged()
+{
+    const bool open = model_.hasTune();
+    top_.songChanged();
+    tools_.setSongOpen(open);
+    piano_.setSongOpen(open);
+}
+
+void MainComponent::close()
+{
+    if (!model_.hasTune())
+        return;
+    model_.close();
+    tools_.showTracks(); // the songs to start with are in the tracks' place
+    status_ = {};
+    updateTitle();
+    songOpenChanged();
+    view_.repaint();
+    repaint();
+    if (onClosed)
+        onClosed();
 }
 
 void MainComponent::openDialog()
@@ -1708,6 +1788,8 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
             model_.play();
         return true;
     }
+    if (key == juce::KeyPress('w', juce::ModifierKeys::commandModifier, 0))
+        return close(), true;
     if (key == juce::KeyPress('o', juce::ModifierKeys::commandModifier, 0))
         return openDialog(), true;
     if (key == juce::KeyPress::returnKey || key == juce::KeyPress::homeKey)

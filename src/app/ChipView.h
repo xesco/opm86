@@ -85,7 +85,7 @@ private:
     static float tileLeast(float font) { return font * 2.6f + 6.0f; } // a tile's width that shows its address at that size: four hex digits and the margin
     static double tileLength(const Sample& s) { return std::max<double>(1, s.end > s.start ? s.end - s.start : 1); } // what a tile's width follows
     float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
-    std::array<bool, 8> drawn_ {};    // per FM channel: its operators drawn, not listed
+    std::array<bool, 8> drawn_ { false, false, false, false, true, true, true, true }; // per FM channel: its operators drawn, not listed; the right column, 5 to 8, drawn at first
     std::array<juce::Rectangle<float>, 8> drawToggle_ {}; // the switch between the two in each channel's header
 };
 

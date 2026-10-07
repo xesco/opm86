@@ -1,11 +1,37 @@
 # OPM86 Player
 
+![OPM86 Player playing Magical Sound Shower](docs/demo.webp)
+
 OPM86 Player is a desktop app for macOS, Linux and Windows that plays the music of Sega's
 arcade games from the late 1980s, such as Out Run, from VGM recordings of their sound
 chips. It plays each song exactly as the game did, shows its notes track by track, and
-shows the two sound chips at work. This page is for anyone who wants to build the app and
-listen to these songs closely. It explains the sound board the app emulates, how to build
-the app, where to find songs, and how to use the app.
+shows the two sound chips at work. This page is for anyone who wants to listen to these
+songs closely. It explains how to download the app, the sound board it emulates, where to
+find songs and how to use the app, and, for developers, how to build it.
+
+## Download
+
+Download the latest release for your system. Each link always points at the newest
+release, and every release is listed on the
+[releases page](https://github.com/xesco/opm86/releases).
+
+| System | Download | Then |
+| --- | --- | --- |
+| macOS 11 or later, Apple Silicon or Intel | [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip) | Unzip it and move **OPM86 Player** to Applications |
+| Windows 10 or later | [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip) | Unzip it and run **OPM86 Player.exe** |
+| Linux, x86-64 | [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz) | Unpack it with `tar -xzf OPM86-Player-linux.tar.gz` and run `./OPM86\ Player` |
+
+The apps are not signed, so the first launch needs one extra step:
+
+| System | What it says | What to do |
+| --- | --- | --- |
+| macOS | That Apple could not check the app for malware | Click **Done**, then **Open Anyway** in **System Settings > Privacy & Security** |
+| Windows | That SmartScreen prevented an unrecognised app from starting | Click **More info**, then **Run anyway** |
+
+On Linux the app needs the ALSA, FreeType, Fontconfig and X11 libraries, which most
+desktop distributions install already. It is built on Ubuntu 24.04, so it needs a
+distribution with glibc 2.39 or later, from 2024 on. To build the app yourself instead,
+see [Build](#build).
 
 ## The sound board
 
@@ -46,7 +72,11 @@ open "OPM86 Player.app"
 ```
 
 The first `make` configures the `build` folder, and `make clean` removes the app from the
-repository root. On Linux and Windows, build with CMake directly:
+repository root. When your keychain has a code-signing certificate named `OPM86 Dev`,
+`make` signs the app with it. macOS then sees every build as the same app and remembers
+the folders you allowed it to read, such as Downloads. Without the certificate, macOS asks
+again after every build. To use a certificate with another name, run
+`make SIGN_ID="its name"`. On Linux and Windows, build with CMake directly:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -66,13 +96,12 @@ When a tag that starts with `v`, such as `v0.2.0`, is pushed, GitHub builds the 
 all three systems, runs the tests (see [Tests](#tests)), and publishes the three apps as a
 release. GitHub also builds and tests the three apps for every pull request, but not for a
 push to a branch. A pull request's run, or a run of the **Build** workflow started by hand
-under **Actions**, keeps the apps as downloads on its page. To release, run `make release
-VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The command sets the
-version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each
-pull request merged since the last release. It then commits both, tags the commit
-`v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the same list as
-its notes. The macOS app is not signed, so macOS blocks it the first time you open it. To
-open it anyway, click **Open Anyway** in **System Settings > Privacy & Security**.
+under **Actions**, keeps the apps as downloads on its page. To release, run
+`make release VERSION=0.2.0` on an up-to-date `main` with no uncommitted changes. The
+command sets the version in `CMakeLists.txt` and adds the release to `CHANGELOG.md`, with
+the title of each pull request merged since the last release. It then commits both, tags
+the commit `v0.2.0`, and pushes the commit and the tag. The release on GitHub shows the
+same list as its notes.
 
 ## Get songs
 
@@ -100,7 +129,10 @@ The archive lists every pack that uses the Sega PCM chip at
 the YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM chip with
 a YM2203 instead of a YM2151, so the player plays only their drums.
 
-The app does not include or download any of this music, so you open a file you have.
+The app does not include or download any of this music, so you open a file you have. While
+no song is open, the window shows links to songs to start with, such as Magical Sound
+Shower from Out Run. A click on a link downloads the song's file in your browser, and you
+then open the file in the app.
 
 ## Use OPM86 Player
 
@@ -113,6 +145,11 @@ section, and watch the registers of the two chips.
 Click **Open** in the top bar or press Cmd+O to choose a `.vgz` or `.vgm` file, or drop the
 file on the window. When the app starts, it opens the song you played last. The app also
 remembers the size and place of its window and the pitch colours you chose.
+
+To close the song, click **Close** in the top bar, beside **Open**, or press Cmd+W. The
+window then shows the links to songs to start with (see [Get songs](#get-songs)), and the
+next launch opens on them instead of the last song. While no song is open, every control
+except **Open** is greyed out and does nothing.
 
 ### The window
 
@@ -183,6 +220,7 @@ The keyboard controls the song like this:
 | Cmd+= and Cmd+- | Zooms in and out in time |
 | Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
 | Escape | Drops the selection |
+| Cmd+W | Closes the song |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
 the song plays to its end, the playhead goes back to the start 1s later. The mouse moves
@@ -255,7 +293,23 @@ The app differs from the arcade board in these ways:
 - The app reads VGM files only. A dump of the arcade's sample memory does not say where
   each sample starts, because the game's program holds that information.
 
-The emulation comes from [ymfm](https://github.com/aaronsgiles/ymfm) for the YM2151, and
-from the behaviour of `segapcm.cpp` in [MAME](https://github.com/mamedev/mame) for the Sega
-PCM chip. The [VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt) defines the
-VGM format, and [JUCE](https://juce.com) is the app framework.
+## Licence
+
+OPM86 Player is free software under the GNU Affero General Public License, version 3 (see
+[LICENSE](LICENSE)). You may use, change and share it. When you share a changed version,
+you must also share its source under the same licence.
+
+The app is built on these parts, each under its own licence:
+
+| Part | What it does in the app | Licence |
+| --- | --- | --- |
+| [JUCE](https://juce.com) | The window, the controls and the sound output | AGPLv3, the terms the app uses it under |
+| [ymfm](https://github.com/aaronsgiles/ymfm) | Emulates the YM2151 | BSD 3-Clause |
+| [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
+| [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |
+
+The Sega PCM emulation is the project's own code, written to behave as `segapcm.cpp` in
+[MAME](https://github.com/mamedev/mame) does. The
+[VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt)
+defines the format of the files the app reads. The app includes no music, and the songs in
+VGM files belong to their rights holders.

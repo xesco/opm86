@@ -64,7 +64,7 @@ void testSegaPcm()
 
     SegaPcm chip;
     chip.reset();
-    chip.setRom(rom.data());
+    chip.setRom(rom.data(), rom.size(), 0);
     chip.write(0x86, 0x23);
     chip.write(0x02, 10);
     chip.write(0x03, 20);
@@ -87,6 +87,10 @@ void testSegaPcm()
     while (!(chip.read(0x86) & 1) && samples < 1000)
         chip.generate(l, r), ++samples;
     check(samples == 259, "a one-shot sample stops at the end of its last page");
+
+    // Boards wire the bank bits differently; the VGM header's interface value says how.
+    check(SegaPcm::bankOffset(0x23, 0) == 0x20000 && SegaPcm::bankOffset(0x23, 0x0C) == 0x20000, "Out Run's banks are 64 KB, from bits 4 to 6");
+    check(SegaPcm::bankOffset(0x2B, 0xF8000D) == 0x50000, "a wider mask and a shift of 13 reach past 512 KB");
 }
 
 } // namespace

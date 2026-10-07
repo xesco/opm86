@@ -83,6 +83,23 @@ bool AppModel::open(const juce::File& file, juce::String& error)
     return true;
 }
 
+void AppModel::close()
+{
+    if (!tune_)
+        return;
+    stop();
+    tune_.reset();
+    ++revision_;
+    file_ = juce::File();
+    undo_.clearUndoHistory();
+    built_ = nullptr; // nothing to play: play() waits for a build
+    report_ = {};
+    position_.store(0.0);
+    selectionStart_.store(0.0);
+    selectionEnd_.store(0.0);
+    sendChangeMessage();
+}
+
 void AppModel::edit(const juce::String& name, const std::function<void(Tune&)>& change, bool newStep)
 {
     if (!tune_)
@@ -224,7 +241,7 @@ void AppModel::scrub(double songTime)
 void AppModel::timerCallback()
 {
     auto version = rebuilder_.take();
-    if (!version)
+    if (!version || !tune_) // a build that finishes after the song was closed is dropped
         return;
     report_ = version->report;
     ++reportRevision_;

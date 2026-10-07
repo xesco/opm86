@@ -9,23 +9,41 @@ namespace opm86
 
 // Sega 315-5218 PCM chip: 16 channels of unsigned 8-bit samples with
 // 7-bit stereo volume and an 8.8 fixed-point step. Behaviour follows
-// MAME's segapcm.cpp in its 512 KB bank mode, as wired in Out Run.
+// MAME's segapcm.cpp. How a channel's bank bits reach the ROM depends on the
+// board; a VGM file's header gives it as an interface value (see bankOffset).
 //
 // Per-channel registers, at channel * 8 + offset:
 //   0x02 left volume    0x03 right volume
 //   0x04 loop low       0x05 loop high
 //   0x06 end page       0x07 step (0x80 = half a byte per sample)
 //   0x84 address low    0x85 address high
-//   0x86 flags: bit 0 off, bit 1 no loop, bits 4-6 bank
+//   0x86 flags: bit 0 off, bit 1 no loop, bits 4-7 (or 3-7) bank
 class SegaPcm
 {
 public:
     static constexpr double kClock = 4000000.0;
     static constexpr double kSampleRate = kClock / 128.0; // 31250 Hz
     static constexpr int kChannels = 16;
-    static constexpr size_t kRomSize = 0x80000;           // 8 banks of 64 KB
+    static constexpr size_t kRomSize = 0x80000;           // Out Run's: 8 banks of 64 KB; a ROM is at least this
 
-    void setRom(const uint8_t* rom) { rom_ = rom; }
+    // Where a channel's bank starts in the ROM, from its flags and the VGM
+    // header's interface value, decoded as MAME does: the low byte is how far
+    // the bank bits shift, and bits 16 to 23 widen their mask. 0 means
+    // Out Run's wiring, the same as 0x0C.
+    static uint32_t bankOffset(uint8_t flags, uint32_t interfaceValue)
+    {
+        const uint32_t shift = interfaceValue ? interfaceValue & 0xFF : 12;
+        const uint32_t mask = 0x70 | ((interfaceValue >> 16) & 0xFC);
+        return static_cast<uint32_t>(flags & mask) << shift;
+    }
+
+    // The sample ROM, size bytes, a power of two; and the board's wiring.
+    void setRom(const uint8_t* rom, size_t size, uint32_t interfaceValue)
+    {
+        rom_ = rom;
+        romMask_ = static_cast<uint32_t>(size - 1);
+        interface_ = interfaceValue;
+    }
     void reset();
 
     void write(int offset, uint8_t value);
@@ -36,7 +54,7 @@ public:
     uint32_t address(int ch) const
     {
         const auto* regs = &ram_[static_cast<size_t>(ch * 8)];
-        return (static_cast<uint32_t>(regs[0x86] & 0x70) << 12) + (static_cast<uint32_t>(regs[0x85]) << 8 | regs[0x84]);
+        return bankOffset(regs[0x86], interface_) + (static_cast<uint32_t>(regs[0x85]) << 8 | regs[0x84]);
     }
 
     // Advance by one sample at kSampleRate. Channels outside the mask
@@ -49,6 +67,8 @@ private:
     std::array<uint8_t, 0x100> ram_ {};
     std::array<uint8_t, kChannels> low_ {};
     const uint8_t* rom_ = nullptr;
+    uint32_t romMask_ = kRomSize - 1;
+    uint32_t interface_ = 0;
 };
 
 } // namespace opm86
