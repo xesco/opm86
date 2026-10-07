@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppModel.h"
+#include "ChipView.h"
 #include "TrackerView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -12,7 +13,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -91,6 +92,8 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    std::function<void(bool shown)> onChips; // the chips' view was turned on or off
+
 private:
     enum class Only { None, Instruments, Drums };
     Only soloed() const; // every instrument soloed and no drum, or the other way round
@@ -102,6 +105,7 @@ private:
     IconButton follow_ { IconButton::Icon::Follow };         // on, the view follows the playhead
     IconButton loop_ { IconButton::Icon::Loop };             // on, the selection or the song plays over and over
     IconButton order_ { IconButton::Icon::Order };           // on, the tracks go by patch, FM 1 first; off, by voice
+    IconButton chips_ { IconButton::Icon::Chips };           // on, the chips' registers show in place of the tracks
     IconButton reset_ { IconButton::Icon::Reset }, invert_ { IconButton::Icon::Invert }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes
@@ -271,6 +275,7 @@ private:
     std::unique_ptr<juce::LookAndFeel> look_;
     AppModel model_;
     TrackerView view_ { model_ };
+    ChipView chipView_ { model_ }; // in the tracks' place while the tool bar's Chips is on
     TopBar top_ { model_, view_ };
     ToolBar tools_ { model_, view_ };
     OverviewStrip overview_ { model_, view_ };

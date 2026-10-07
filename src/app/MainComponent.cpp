@@ -215,6 +215,17 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
             p.addTriangle(x0 + 0.5f, y1, x0 + 4.5f, y1 - 3.0f, x0 + 4.5f, y1 + 3.0f);
             break;
         }
+        case Icon::Chips: // a chip: a body with pins down both sides
+        {
+            const auto body = box.withSizeKeepingCentre(9.0f, 14.0f);
+            juce::Path outline;
+            outline.addRoundedRectangle(body, 1.5f);
+            juce::PathStrokeType(1.4f).createStrokedPath(p, outline);
+            for (float y = body.getY() + 2.0f; y < body.getBottom() - 1.0f; y += 3.0f)
+                p.addRectangle(body.getX() - 3.0f, y, 3.0f, 1.3f), p.addRectangle(body.getRight(), y, 3.0f, 1.3f);
+            p.addEllipse(body.getX() + 2.0f, body.getY() + 2.0f, 1.6f, 1.6f); // pin 1's mark
+            break;
+        }
         case Icon::Order: // lines of falling length, and an arrow down: sorted
         {
             const float x0 = box.getX() - 1.0f, y0 = box.getY() + 1.0f;
@@ -603,6 +614,13 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     loop_.setClickingTogglesState(true);
     loop_.setTooltip("Loop the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
+    chips_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    chips_.setClickingTogglesState(true);
+    chips_.setTooltip("Show the chips");
+    chips_.onClick = [this] {
+        if (onChips)
+            onChips(chips_.getToggleState());
+    };
     order_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     order_.setClickingTogglesState(true);
     order_.setTooltip("Order by patch");
@@ -649,7 +667,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &chips_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -834,6 +852,7 @@ void ToolBar::resized()
     button(follow_);
     button(loop_);
     button(order_);
+    button(chips_);
     r.removeFromLeft(10);
     button(reset_);
     button(invert_);
@@ -1345,6 +1364,11 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(top_);
     addAndMakeVisible(tools_);
     addAndMakeVisible(view_);
+    addChildComponent(chipView_);
+    tools_.onChips = [this](bool shown) {
+        chipView_.setVisible(shown);
+        view_.setVisible(!shown);
+    };
     addAndMakeVisible(overview_);
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
@@ -1440,6 +1464,7 @@ void MainComponent::resized()
     overview_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(overviewShown_))));
     piano_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(pianoShown_))));
     view_.setBounds(r);
+    chipView_.setBounds(r);
     // The strips line up with the header column from the first paint, not a frame later.
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
@@ -1704,6 +1729,7 @@ void MainComponent::frame(double timestamp)
     if (model_.playing() || (model_.hasTune() && view_.idleSeconds() < 2.0))
     {
         view_.repaint();
+        chipView_.repaint();
         top_.repaint();
         overview_.repaint();
         piano_.repaint();

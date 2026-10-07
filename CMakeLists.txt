@@ -81,6 +81,7 @@ juce_add_gui_app(opm86_player
     DOCUMENT_EXTENSIONS vgz vgm)
 target_sources(opm86_player PRIVATE
     src/app/AppModel.cpp
+    src/app/ChipView.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/Theme.cpp
