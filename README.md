@@ -121,19 +121,15 @@ with it, so macOS keeps the folders you allowed it to read across builds. Use
 
 ### Windows
 
-Visual Studio 2022 with its C++ tools. In a terminal:
+Visual Studio 2022 with its C++ tools, whose CMake runs presets (3.25 or later).
 
 ```sh
 # Get the code
 git clone https://github.com/xesco/opm86.git && cd opm86
-# Configure the build; on Windows, CMake also downloads zlib
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-# Build build/opm86_player_artefacts/Release/OPM86 Player.exe
-cmake --build build --config Release
+# Configure and build build/opm86_player_artefacts/Release/OPM86 Player.exe; on Windows,
+# CMake also downloads zlib
+cmake --workflow --preset release
 ```
-
-In Git Bash with `make` installed, `make` does both steps and copies `OPM86 Player.exe` to
-the repository root.
 
 ### Linux and Raspberry Pi
 
