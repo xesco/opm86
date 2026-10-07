@@ -15,6 +15,7 @@ namespace
 
 constexpr double kGlow = 0.25 * kVgmRate; // a written value glows this long
 constexpr float kBankRow = 56.0f;          // the tallest a bank's row in the sample map grows
+constexpr float kMeterRoom = 150.0f;       // a chip header keeps this for its output meters before its write box
 constexpr double kNever = -1.0e18;
 
 // The operators in register order, and each one's key-on bit in a 0x08 write.
@@ -276,8 +277,11 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     auto inner = section(g, area, "YM2151", role, accent);
     // The bus, in the header after the title.
     {
-        const auto rest = paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role) - 10.0f), true, accent);
-        paintChipOutput(g, rest.withTrimmedRight(12.0f), true, true); // right after the title, between dividers
+        // The meters keep kMeterRoom after the title; the write box takes
+        // its share of the rest, and the meters any it leaves.
+        const auto header = area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("YM2151", role) - 10.0f);
+        const auto rest = paintBus(g, header.withTrimmedLeft(kMeterRoom), true, accent);
+        paintChipOutput(g, header.withRight(rest.getRight()).withTrimmedRight(12.0f), true, true); // right after the title, between dividers
     }
 
     // The chip-wide settings, in a card of their own like a channel's: a
@@ -905,12 +909,15 @@ void ChipView::paintPcm(juce::Graphics& g, juce::Rectangle<float> area)
     // The subtitle gives way when the output meters would have no room.
     const juce::String full = juce::String::fromUTF8("SAMPLES  \xc2\xb7  16 CHANNELS");
     const float headerW = area.reduced(14.0f, 10.0f).getWidth();
-    const juce::String role = headerW - titleWidth("SEGAPCM", full) - writesBoxWidth() - 12.0f >= 100.0f ? full : juce::String();
+    const juce::String role = headerW - titleWidth("SEGAPCM", full) - writesBoxWidth() - 12.0f >= kMeterRoom ? full : juce::String();
     auto inner = section(g, area, "SEGAPCM", role, accent);
     // The bus, in the header after the title.
     {
-        const auto rest = paintBus(g, area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("SEGAPCM", role)), false, accent);
-        paintChipOutput(g, rest.withTrimmedRight(12.0f), false);
+        // The meters keep kMeterRoom after the title; the write box takes
+        // its share of the rest, and the meters any it leaves.
+        const auto header = area.reduced(14.0f, 10.0f).removeFromTop(28.0f).withTrimmedLeft(titleWidth("SEGAPCM", role) - 10.0f);
+        const auto rest = paintBus(g, header.withTrimmedLeft(kMeterRoom), false, accent);
+        paintChipOutput(g, header.withRight(rest.getRight()).withTrimmedRight(12.0f), false, true); // right after the title, between dividers
     }
     // The channels at the YM2151's size at the bottom, the samples above in the rest.
     // The samples as tall as their banks need, out of the room the channels
