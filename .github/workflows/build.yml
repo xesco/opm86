@@ -21,16 +21,22 @@ jobs:
             configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           - name: linux
             os: ubuntu-24.04
+          # For the Raspberry Pi 3, 4 and 5 on 64-bit Raspberry Pi OS: built on
+          # Debian 12, whose glibc that system shares.
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            container: debian:bookworm
           - name: windows
             os: windows-2022
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }} # none but for linux-arm64
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install the Linux packages
         if: runner.os == 'Linux'
-        run: sudo ./scripts/linux-deps.sh
+        run: if command -v sudo >/dev/null; then sudo ./scripts/linux-deps.sh; else ./scripts/linux-deps.sh; fi # a container runs as root, without sudo
 
       - name: Install Ninja
         if: runner.os != 'Linux'
@@ -66,7 +72,7 @@ jobs:
           case "${{ runner.os }}" in
             macOS) ditto -c -k --keepParent "$out/OPM86 Player.app" "OPM86-Player-macos.zip" ;;
             Linux) cp resources/icon.png "$out/OPM86 Player.png"  # for a launcher entry
-                   tar -czf "OPM86-Player-linux.tar.gz" -C "$out" "OPM86 Player" "OPM86 Player.png" ;;
+                   tar -czf "OPM86-Player-${{ matrix.name }}.tar.gz" -C "$out" "OPM86 Player" "OPM86 Player.png" ;;
             Windows) 7z a "OPM86-Player-windows.zip" "./$out/OPM86 Player.exe" ;;
           esac
 

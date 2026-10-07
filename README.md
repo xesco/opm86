@@ -33,7 +33,7 @@ The app runs on Windows 10 or later.
 3. SmartScreen says that it prevented an unrecognised app from starting; click **More
    info**, then **Run anyway**.
 
-### Linux
+### Linux, x86-64
 
 The app runs on x86-64 Linux with glibc 2.39 or later, which distributions have from 2024
 on, because it is built on Ubuntu 24.04. It needs the ALSA, FreeType, Fontconfig and X11
@@ -48,6 +48,20 @@ libraries, which most desktop distributions install already.
    ```
 
 The download also holds the app's icon, `OPM86 Player.png`, for a launcher entry.
+
+### Raspberry Pi
+
+The app runs on a Raspberry Pi 3, 4 or 5 with the 64-bit Raspberry Pi OS. It is built on
+Debian 12, which that system is based on. It has not been tried on a Pi yet, and a Pi 3
+may be too slow to play smoothly.
+
+1. Download [OPM86-Player-linux-arm64.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz).
+2. Unpack it and run the app:
+
+   ```sh
+   tar -xzf OPM86-Player-linux-arm64.tar.gz
+   ./"OPM86 Player"
+   ```
 
 ## The sound board
 
@@ -76,11 +90,14 @@ The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Ea
 
 Every system builds the app with CMake 3.22 or later and a C++20 compiler. The first build
 needs a network connection, because CMake downloads JUCE 9.0.3 and the ymfm chip emulator.
+From the repository root, `make` builds the app for the system it runs on, the same as
+`make mac`, `make linux` or `make windows`, and puts it in the repository root. Each
+command compiles one file per processor core at once; on a machine short of memory, such
+as a Raspberry Pi 3, add `JOBS=1`.
 
 ### macOS
 
-macOS needs the Xcode command line tools. From the repository root, `make` builds the app
-and puts it there as `OPM86 Player.app`:
+macOS needs the Xcode command line tools. `make` builds the app as `OPM86 Player.app`:
 
 ```sh
 make
@@ -97,7 +114,8 @@ again after every build. To use a certificate with another name, run
 ### Windows
 
 Windows needs Visual Studio 2022 with its C++ tools. CMake also downloads zlib, which the
-app needs to read `.vgz` files. Build from the repository root:
+app needs to read `.vgz` files. In Git Bash with `make` installed, `make` builds the app as
+`OPM86 Player.exe`. Without `make`, build with CMake from the repository root:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -109,16 +127,10 @@ The app is then `build/opm86_player_artefacts/Release/OPM86 Player.exe`.
 ### Linux
 
 Linux needs GCC or Clang, and the development packages of ALSA, JACK, FreeType,
-Fontconfig, X11 and OpenGL, which JUCE builds against. On Ubuntu,
-`sudo scripts/linux-deps.sh` installs them and the build tools. Then build from the
-repository root:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-The app is then `build/opm86_player_artefacts/Release/OPM86 Player`.
+Fontconfig, X11 and OpenGL, which JUCE builds against. `sudo scripts/linux-deps.sh`
+installs them and the build tools on Ubuntu, Debian and Raspberry Pi OS (with `apt`) and on
+Arch and Omarchy (with `pacman`). Then `make` builds the app as `OPM86 Player`, and
+`./"OPM86 Player"` runs it. A Raspberry Pi builds the same way.
 
 On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
 Ubuntu container, to check a change before GitHub builds it. The container keeps its build
@@ -127,10 +139,10 @@ first run takes about 5 minutes, and a run after a small change takes seconds.
 
 ## Release
 
-GitHub builds the app for all three systems and runs the tests (see [Tests](#tests)) in
-two cases:
+GitHub builds the app for macOS, Windows, Linux and the Raspberry Pi, and runs the tests
+(see [Tests](#tests)), in two cases:
 
-| Case | What GitHub does with the three builds |
+| Case | What GitHub does with the four builds |
 | --- | --- |
 | A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
 | A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
