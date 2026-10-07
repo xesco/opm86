@@ -57,7 +57,7 @@ private:
     const VgmSong* song_ = nullptr; // the song the registers belong to
     size_t ymNext_ = 0, pcmNext_ = 0; // the next writes to apply
     double at_ = 0.0;                 // the song time they are applied up to
-    double firstSound_ = 0.0;         // the song's first key on or drum trigger; the writes before it set the chips up, and do not glow
+    double setUpEnd_ = -1.0;          // the end of the song's opening burst of writes, which sets the chips up and does not glow
     std::array<uint8_t, 256> ym_ {}, pcm_ {};
     std::array<double, 256> ymWritten_ {}, pcmWritten_ {}; // song time of each register's last write
     std::array<bool, 256> ymChanged_ {}, pcmChanged_ {};   // and whether that write changed its value

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <map>
 #include <vector>
 
@@ -162,7 +161,7 @@ juce::String ChipView::getTooltip()
 void ChipView::write(bool fm, uint16_t reg, uint8_t value, double written)
 {
     const auto r = static_cast<size_t>(reg & 0xFF);
-    const double time = written < firstSound_ ? kNever : written; // the set-up writes do not glow
+    const double time = written <= setUpEnd_ ? kNever : written; // the set-up writes do not glow
     if (fm)
     {
         if (r == 0x08)
@@ -212,20 +211,16 @@ void ChipView::catchUp()
             }
             std::sort(samples_.begin(), samples_.end());
             samples_.erase(std::unique(samples_.begin(), samples_.end()), samples_.end());
-            // And its first sound, a key on or a trigger.
-            firstSound_ = std::numeric_limits<double>::max();
-            for (const VgmWrite& w : song.ym)
-                if ((w.address & 0xFF) == 0x08 && (w.value & 0x78) != 0)
-                {
-                    firstSound_ = static_cast<double>(w.time);
-                    break;
-                }
-            for (const VgmWrite& w : song.pcm)
-                if ((w.address & 0x87) == 0x86 && (w.value & 1) == 0)
-                {
-                    firstSound_ = std::min(firstSound_, static_cast<double>(w.time));
-                    break;
-                }
+            // And its set-up: the writes from its first one on, both chips',
+            // until a gap of more than 20 ms.
+            std::vector<double> times;
+            for (const auto* writes : { &song.ym, &song.pcm })
+                for (const VgmWrite& w : *writes)
+                    times.push_back(static_cast<double>(w.time));
+            std::sort(times.begin(), times.end());
+            setUpEnd_ = times.empty() ? -1.0 : times.front();
+            for (size_t k = 1; k < times.size() && times[k] - setUpEnd_ <= 0.02 * kVgmRate; ++k)
+                setUpEnd_ = times[k];
         }
         song_ = &song;
         ymNext_ = pcmNext_ = 0;
