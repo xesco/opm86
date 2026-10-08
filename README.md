@@ -9,68 +9,67 @@ find songs and how to use the app, and, for developers, how to build it.
 
 ## Download
 
-Each link below downloads the latest release, and every release is listed on the
-[releases page](https://github.com/xesco/opm86/releases). The downloads are not signed, so
-the first launch on macOS and on Windows needs one extra step. To build the app yourself
-instead, see [Build](#build).
+The commands download the latest release. Older releases are on the
+[releases page](https://github.com/xesco/opm86/releases), and [Build](#build) shows how to
+build the app yourself.
 
 ### macOS
 
-The app runs on macOS 11 or later, on Apple Silicon and on Intel.
+macOS 11 or later, on Apple Silicon or Intel.
 
-1. Download [OPM86-Player-macos.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip).
-2. Unzip it and move **OPM86 Player** to Applications.
-3. Open it. macOS says that Apple could not check it for malware; click **Done**.
-4. Open **System Settings > Privacy & Security**, click **Open Anyway** next to the message
-   about OPM86 Player, and confirm.
+```sh
+# Download the app and unpack it
+curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip
+unzip OPM86-Player-macos.zip
+# Move it to Applications
+mv "OPM86 Player.app" /Applications/
+# Clear the download flag, so macOS opens the unsigned app without a warning
+xattr -dr com.apple.quarantine "/Applications/OPM86 Player.app"
+# Start it
+open "/Applications/OPM86 Player.app"
+```
 
 ### Windows
 
-The app runs on Windows 10 or later.
+Windows 10 or later. In PowerShell:
 
-1. Download [OPM86-Player-windows.zip](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip).
-2. Unzip it and run **OPM86 Player.exe**.
-3. SmartScreen says that it prevented an unrecognised app from starting; click **More
-   info**, then **Run anyway**.
+```powershell
+# Download the app; on a PC with an ARM processor, use OPM86-Player-windows-arm64.zip
+Invoke-WebRequest https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip -OutFile OPM86-Player-windows.zip
+# Clear the download flag, so SmartScreen does not stop the unsigned app
+Unblock-File OPM86-Player-windows.zip
+# Unpack it into a folder
+Expand-Archive OPM86-Player-windows.zip -DestinationPath "OPM86 Player"
+# Start it
+& "OPM86 Player\OPM86 Player.exe"
+```
 
 ### Linux, x86-64
 
-The app runs on x86-64 Linux with glibc 2.39 or later, which distributions have from 2024
-on, because it is built on Ubuntu 24.04. It needs the ALSA, FreeType, Fontconfig and X11
-libraries, which most desktop distributions install already.
+A distribution from 2024 on (glibc 2.39 or later), with the ALSA, FreeType, Fontconfig and
+X11 libraries, which most desktops install already.
 
-1. Download [OPM86-Player-linux.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz).
-2. Unpack it and run the app:
-
-   ```sh
-   tar -xzf OPM86-Player-linux.tar.gz
-   ./opm86-player
-   ```
-
-The download also holds the app's icon, `opm86-player.png`, for a launcher entry.
+```sh
+# Download the app and unpack it
+curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz
+tar -xzf OPM86-Player-linux.tar.gz
+# Start it; opm86-player.png is its icon, for a launcher entry
+./opm86-player
+```
 
 ### Raspberry Pi
 
-The app is built for the 64-bit Raspberry Pi OS, on Debian 12, which that system is based
-on. How well it runs depends on the model:
+The 64-bit Raspberry Pi OS. A Pi 5 or 500 plays songs, though the scrolling is not fully
+smooth: the app redraws 30 times a second on a Pi. A Pi 4 or 3 has not been tried, and is
+probably too slow.
 
-| Model | Status |
-| --- | --- |
-| Raspberry Pi 5 or 500 | Tested on a 500: plays, though the scrolling is not fully smooth |
-| Raspberry Pi 4 | Not tried; may be too slow to play smoothly, or at all |
-| Raspberry Pi 3 | Not tried; probably too slow to play at all |
-
-On a Pi, the app redraws its window 30 times a second instead of 60, because the Pi's
-display cannot take the full rate. It needs the 64-bit system; the 32-bit one cannot run
-it.
-
-1. Download [OPM86-Player-linux-arm64.tar.gz](https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz).
-2. Unpack it and run the app:
-
-   ```sh
-   tar -xzf OPM86-Player-linux-arm64.tar.gz
-   ./opm86-player
-   ```
+```sh
+# Download the app and unpack it
+curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz
+tar -xzf OPM86-Player-linux-arm64.tar.gz
+# Start it
+./opm86-player
+```
 
 ## The sound board
 
@@ -97,54 +96,62 @@ The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Ea
 
 ## Build
 
-Every system builds the app with CMake 3.22 or later and a C++20 compiler. The first build
-needs a network connection, because CMake downloads JUCE 9.0.3 and the ymfm chip emulator.
-From the repository root, `make` builds the app for the system it runs on, the same as
-`make mac`, `make linux` or `make windows`, and puts it in the repository root. Each
-command compiles one file per processor core at once; on a machine short of memory, such
-as a Raspberry Pi 3, add `JOBS=1`.
+Every system needs CMake 3.22 or later, a C++20 compiler, and a network connection the
+first time, when CMake downloads JUCE 9.0.3 and the ymfm chip emulator. `make` builds the
+app for the system it runs on and puts it in the repository root; `make clean` removes it.
+On a machine short of memory, such as a Raspberry Pi, add `JOBS=1` to compile one file at a
+time.
 
 ### macOS
 
-macOS needs the Xcode command line tools. `make` builds the app as `OPM86 Player.app`:
+The Xcode command line tools.
 
 ```sh
+# Get the code
+git clone https://github.com/xesco/opm86.git && cd opm86
+# Build OPM86 Player.app
 make
+# Start it
 open "OPM86 Player.app"
 ```
 
-The first `make` configures the `build` folder, and `make clean` removes the app from the
-repository root. When your keychain has a code-signing certificate named `OPM86 Dev`,
-`make` signs the app with it. macOS then sees every build as the same app and remembers
-the folders you allowed it to read, such as Downloads. Without the certificate, macOS asks
-again after every build. To use a certificate with another name, run
-`make SIGN_ID="its name"`.
+When your keychain has a code-signing certificate named `OPM86 Dev`, `make` signs the app
+with it, so macOS keeps the folders you allowed it to read across builds. Use
+`make SIGN_ID="its name"` for a certificate with another name.
 
 ### Windows
 
-Windows needs Visual Studio 2022 with its C++ tools. CMake also downloads zlib, which the
-app needs to read `.vgz` files. In Git Bash with `make` installed, `make` builds the app as
-`OPM86 Player.exe`. Without `make`, build with CMake from the repository root:
+Visual Studio 2022 with its C++ tools, whose CMake runs presets (3.25 or later).
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+# Get the code
+git clone https://github.com/xesco/opm86.git && cd opm86
+# Configure and build build/opm86_player_artefacts/Release/OPM86 Player.exe; on Windows,
+# CMake also downloads zlib
+cmake --workflow --preset release
 ```
 
-The app is then `build/opm86_player_artefacts/Release/OPM86 Player.exe`.
+### Linux and Raspberry Pi
 
-### Linux
+```sh
+# Get the code
+git clone https://github.com/xesco/opm86.git && cd opm86
+# Install the compiler and the libraries JUCE needs: apt on Ubuntu, Debian and
+# Raspberry Pi OS, pacman on Arch and Omarchy
+sudo scripts/linux-deps.sh
+# Build ./opm86-player
+make
+# Start it
+./opm86-player
+```
 
-Linux needs GCC or Clang, and the development packages of ALSA, JACK, FreeType,
-Fontconfig, X11 and OpenGL, which JUCE builds against. `sudo scripts/linux-deps.sh`
-installs them and the build tools on Ubuntu, Debian and Raspberry Pi OS (with `apt`) and on
-Arch and Omarchy (with `pacman`). Then `make` builds the app as `opm86-player`, and
-`./opm86-player` runs it. A Raspberry Pi builds the same way.
+### Linux, from a Mac
 
-On a Mac with Docker, `make linux` builds the app and runs the tests on Linux, in an
-Ubuntu container, to check a change before GitHub builds it. The container keeps its build
-and its compiler cache in `build-linux`, so a second run recompiles only what changed. The
-first run takes about 5 minutes, and a run after a small change takes seconds.
+```sh
+# Build the app and run the tests in an Ubuntu container, with Docker; build-linux keeps
+# the build and its compiler cache, so a second run takes seconds instead of 5 minutes
+make linux
+```
 
 ## Release
 

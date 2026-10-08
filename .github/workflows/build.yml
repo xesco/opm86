@@ -28,6 +28,10 @@ jobs:
             container: debian:bookworm
           - name: windows
             os: windows-2022
+          # For Windows on ARM PCs, which otherwise run the x64 app translated.
+          - name: windows-arm64
+            os: windows-11-arm
+            msvc: arm64
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }} # none but for linux-arm64
     name: ${{ matrix.name }}
@@ -52,6 +56,8 @@ jobs:
       - name: Set up the Visual Studio compiler
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc || 'x64' }}
 
       - name: Configure
         run: >
@@ -82,7 +88,7 @@ jobs:
             macOS) ditto -c -k --keepParent "$out/OPM86 Player.app" "OPM86-Player-macos.zip" ;;
             Linux) cp resources/icon.png "$out/opm86-player.png"  # for a launcher entry
                    tar -czf "OPM86-Player-${{ matrix.name }}.tar.gz" -C "$out" opm86-player opm86-player.png ;;
-            Windows) 7z a "OPM86-Player-windows.zip" "./$out/OPM86 Player.exe" ;;
+            Windows) 7z a "OPM86-Player-${{ matrix.name }}.zip" "./$out/OPM86 Player.exe" ;;
           esac
 
       - uses: actions/upload-artifact@v4

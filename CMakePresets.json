@@ -1,0 +1,33 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Configures an optimised build of OPM86 Player in the build folder",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Builds OPM86 Player",
+      "configurePreset": "release",
+      "configuration": "Release",
+      "targets": [ "opm86_player" ]
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Configures and builds OPM86 Player in one step: cmake --workflow --preset release",
+      "steps": [
+        { "type": "configure", "name": "release" },
+        { "type": "build", "name": "release" }
+      ]
+    }
+  ]
+}
