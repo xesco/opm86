@@ -385,8 +385,8 @@ OPM86 Player is built on these parts, each under its own licence:
 | [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
 | [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |
 
-The Sega PCM emulation is the project's own code, written to behave as `segapcm.cpp` in
-[MAME](https://github.com/mamedev/mame) does. The
+The Sega PCM emulation is the project's own code, written to behave like
+[MAME](https://github.com/mamedev/mame)'s `segapcm.cpp`. The
 [VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt)
 defines the format of the files the app reads. The app includes no music, and the songs in
 VGM files belong to their rights holders.
