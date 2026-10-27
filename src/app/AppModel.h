@@ -75,7 +75,7 @@ public:
     double selectionEnd() const { return selectionEnd_.load(); }
     // Play only some notes, each a track index and note id, from the first
     // note's start to the end of the last one's release. Then playing stops,
-    // and the mix and the playhead go back to what they were.
+    // the mix goes back to what it was, and the playhead to the first note's start.
     void playNotes(const std::set<std::pair<int, int>>& notes);
     const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays
     // Loop: the selection over and over, or the whole song without one.
@@ -133,7 +133,7 @@ private:
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
     double notesEnd_ = -1;             // audio thread: where notes played alone stop; -1 for the song
     std::set<std::pair<int, int>> playingNotes_;
-    double notesReturn_ = 0;           // where the playhead goes back to after them
+    double notesFrom_ = 0;             // the first note's start, where the playhead goes after them
     std::atomic<bool> notesDone_ { false }; // set where the notes' playing ends
 
     std::atomic<bool> playing_ { false };

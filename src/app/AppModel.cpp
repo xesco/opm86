@@ -171,9 +171,8 @@ void AppModel::playNotes(const std::set<std::pair<int, int>>& notes)
     if (!built_ || notes.empty())
         return;
     const NoteMix played = noteMixOf(*tune_, report_, notes);
-    if (playingNotes_.empty())
-        notesReturn_ = position_.load();
     playingNotes_ = notes;
+    notesFrom_ = played.from;
     position_.store(played.from);
     {
         const juce::SpinLock::ScopedLockType lock(commandLock_);
@@ -195,7 +194,7 @@ void AppModel::endNotes()
         return;
     playingNotes_.clear();
     sendMix();
-    position_.store(notesReturn_);
+    position_.store(notesFrom_);
     sendChangeMessage();
 }
 
