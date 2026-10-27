@@ -154,10 +154,10 @@ use the YM2151 and the Sega PCM chip:
 | Power Drift | Y Board | [power-drift-sega-y](https://vgmrips.net/packs/pack/power-drift-sega-y) |
 | Galaxy Force II | Y Board | [galaxy-force-ii-sega-y](https://vgmrips.net/packs/pack/galaxy-force-ii-sega-y) |
 
-The archive lists every pack that uses the Sega PCM chip at
-[Packs using SegaPCM](https://vgmrips.net/packs/chip/segapcm). Hang-On, Space Harrier and
-the YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM chip with
-a YM2203 instead of a YM2151, so the player plays only their drums.
+For every game that uses the Sega PCM chip, see the
+[vgmrips.net list of SegaPCM packs](https://vgmrips.net/packs/chip/segapcm). Hang-On, Space
+Harrier and the YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM
+chip with a YM2203 instead of a YM2151, so the player plays only their drums.
 
 The app does not include or download any of this music, so you open a file you have. While
 no song is open, the window shows links to songs to start with, such as Magical Sound
