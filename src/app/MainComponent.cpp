@@ -337,6 +337,19 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
                 p.addRectangle(board.getX() + w * static_cast<float>(k) - w * 0.3f, board.getY(), w * 0.6f, board.getHeight() * 0.6f);
             break;
         }
+        case Icon::Bends: // a note with its pitch line across: low, a ramp, then high
+        {
+            const auto note = box.withSizeKeepingCentre(18.0f, 12.0f);
+            juce::Path outline, line;
+            outline.addRoundedRectangle(note, 2.5f);
+            juce::PathStrokeType(1.4f).createStrokedPath(p, outline);
+            line.startNewSubPath(note.getX() + 2.5f, note.getBottom() - 3.5f);
+            line.lineTo(note.getX() + 6.5f, note.getBottom() - 3.5f);
+            line.lineTo(note.getX() + 11.0f, note.getY() + 3.5f);
+            line.lineTo(note.getRight() - 2.5f, note.getY() + 3.5f);
+            juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, line);
+            break;
+        }
         case Icon::NoteNames: // a note with lines of text beside it: the note's name
         {
             const auto c = getLocalBounds().toFloat().getCentre().translated(-5.0f, 0.0f);
@@ -503,7 +516,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (model_.playing())
             model_.stop();
         else
-            model_.play();
+            model_.playSelected();
     };
     stop_.onClick = [this] {
         // A second stop returns to the start.
@@ -670,7 +683,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     follow_.onClick = [this] { view_.setFollow(follow_.getToggleState()); };
     loop_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     loop_.setClickingTogglesState(true);
-    loop_.setTooltip("Loop the selection, or the song");
+    loop_.setTooltip("Loop the selected notes, the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
     chips_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     chips_.setClickingTogglesState(true);
@@ -678,6 +691,15 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     chips_.onClick = [this] {
         if (onChips)
             onChips(chips_.getToggleState());
+    };
+    bends_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    bends_.setClickingTogglesState(true);
+    bends_.setToggleState(view_.showBends(), juce::dontSendNotification);
+    bends_.setTooltip("Show pitch lines");
+    bends_.onClick = [this] {
+        view_.setShowBends(bends_.getToggleState());
+        if (onBends)
+            onBends(bends_.getToggleState());
     };
     order_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     order_.setClickingTogglesState(true);
@@ -725,7 +747,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &chips_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &chips_, &bends_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -788,6 +810,12 @@ void ToolBar::setSongOpen(bool open)
     for (auto* child : getChildren())
         setSongControl(*child, open);
     repaint();
+}
+
+void ToolBar::setShowBends(bool show)
+{
+    bends_.setToggleState(show, juce::dontSendNotification);
+    view_.setShowBends(show);
 }
 
 void ToolBar::showTracks()
@@ -972,7 +1000,7 @@ void ToolBar::resized()
     divider(false);
     buttons(r.removeFromRight(width(4)), "ZOOM", { &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ });
     divider(false);
-    buttons(r.removeFromRight(width(2)), "VIEW", { &order_, &chips_ });
+    buttons(r.removeFromRight(width(3)), "VIEW", { &order_, &chips_, &bends_ });
     divider(false);
     syncZoom();
 }
@@ -1355,9 +1383,12 @@ void PianoStrip::paint(juce::Graphics& g)
     std::array<bool, 128> on {};
     std::array<double, 128> struck {}; // when the latest note on each key began
     const double now = model_.displayPosition();
+    // Notes played alone light their keys, and no others.
+    const auto& alone = model_.playingNotes();
     for (const TuneTrack& t : model_.tune().tracks)
         {
-            if (t.kind != TuneTrack::Kind::Fm || !model_.tune().audible(t))
+            const int track = static_cast<int>(&t - model_.tune().tracks.data());
+            if (t.kind != TuneTrack::Kind::Fm || (alone.empty() && !model_.tune().audible(t)))
                 continue;
             auto it = std::upper_bound(t.notes.begin(), t.notes.end(), now,
                                        [](double time, const TuneNote& n) { return time < static_cast<double>(n.start); });
@@ -1365,9 +1396,14 @@ void PianoStrip::paint(juce::Graphics& g)
             for (int back = 0; back < 4 && it != t.notes.begin(); ++back)
             {
                 --it;
-                if (now < static_cast<double>(it->start + it->length) && model_.tune().audible(t, *it))
+                const bool heard = alone.empty() ? model_.tune().audible(t, *it) : alone.count({ track, it->id }) > 0;
+                if (now < static_cast<double>(it->start + it->length) && heard)
                 {
-                    const int p = model_.tune().pitch(t, *it);
+                    // The key nearest the pitch now, which the game can bend or move while the note is held.
+                    const auto bends = model_.tune().bends(t, *it);
+                    const auto bend = std::find_if(bends.rbegin(), bends.rend() - 1,
+                                                   [now](const auto& b) { return now >= static_cast<double>(b.first); });
+                    const int p = static_cast<int>(std::lround(bend->second));
                     if (p >= 0 && p < 128)
                     {
                         const auto key = static_cast<size_t>(p);
@@ -1480,6 +1516,10 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addChildComponent(chipView_);
     // The chips take the strips' room too: KEYS and OVERVIEW slide down while
     // they show, and come back as they were.
+    tools_.onBends = [this](bool shown) {
+        if (onBendsChanged)
+            onBendsChanged(shown);
+    };
     tools_.onChips = [this](bool shown) {
         chipView_.setVisible(shown);
         view_.setVisible(!shown);
@@ -1785,7 +1825,7 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
         if (model_.playing())
             model_.stop();
         else
-            model_.play();
+            model_.playSelected();
         return true;
     }
     if (key == juce::KeyPress('w', juce::ModifierKeys::commandModifier, 0))
@@ -1845,6 +1885,7 @@ void MainComponent::frame(double timestamp)
         return;
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
     lastFrame_ = timestamp;
+    model_.beginFrame(timestamp);
     // Strips sliding open or closed ease to their height.
     bool sliding = false;
     using Slide = std::pair<SlidingStrip*, double*>;

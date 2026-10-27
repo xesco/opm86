@@ -158,31 +158,56 @@ juce::String ChipView::getTooltip()
     return {};
 }
 
+namespace
+{
+// The chip channel a register belongs to, 8 FM then 16 PCM, or -1 for the
+// FM chip's own registers below 0x20. From 0x20 on, FM registers belong to
+// channel reg & 7, and PCM registers to channel (reg >> 3) & 15.
+int channelOf(bool fm, size_t r)
+{
+    return fm ? (r >= 0x20 ? static_cast<int>(r & 7) : -1) : 8 + static_cast<int>((r >> 3) & 15);
+}
+} // namespace
+
 void ChipView::write(bool fm, uint16_t reg, uint8_t value, double written)
 {
     const auto r = static_cast<size_t>(reg & 0xFF);
     const double time = written <= setUpEnd_ ? kNever : written; // the set-up writes do not glow
-    if (fm)
+    if (fm && r == 0x08)
     {
-        if (r == 0x08)
+        // Key on and off: the channel, and its operators in bits 3 to 6.
+        keyOnReal_[value & 7] = static_cast<uint8_t>((value >> 3) & 15);
+        if (heard(value & 7))
         {
-            // Key on and off: the channel, and its operators in bits 3 to 6.
-            keyOn_[value & 7] = static_cast<uint8_t>((value >> 3) & 15);
+            keyOn_[value & 7] = keyOnReal_[value & 7];
             keyWritten_[value & 7] = time;
-            return;
         }
-        if (r == 0x19)
-            ((value & 0x80) ? pmd_ : amd_) = value & 0x7F;
-        ymChanged_[r] = ym_[r] != value;
-        ym_[r] = value;
-        ymWritten_[r] = time;
+        return;
     }
-    else
+    if (fm && r == 0x19)
+        ((value & 0x80) ? pmd_ : amd_) = value & 0x7F;
+    (fm ? ymReal_ : pcmReal_)[r] = value;
+    // A channel the mix silences keeps showing what it had.
+    if (const int ch = channelOf(fm, r); ch >= 0 && !heard(ch))
+        return;
+    auto& shown = fm ? ym_ : pcm_;
+    (fm ? ymChanged_ : pcmChanged_)[r] = shown[r] != value;
+    shown[r] = value;
+    (fm ? ymWritten_ : pcmWritten_)[r] = time;
+}
+
+void ChipView::showHeard()
+{
+    for (size_t r = 0; r < 256; ++r)
     {
-        pcmChanged_[r] = pcm_[r] != value;
-        pcm_[r] = value;
-        pcmWritten_[r] = time;
+        if (const int ch = channelOf(true, r); ch >= 0 && heard(ch))
+            ym_[r] = ymReal_[r];
+        if (heard(channelOf(false, r)))
+            pcm_[r] = pcmReal_[r];
     }
+    for (int ch = 0; ch < 8; ++ch)
+        if (heard(ch))
+            keyOn_[static_cast<size_t>(ch)] = keyOnReal_[static_cast<size_t>(ch)];
 }
 
 void ChipView::catchUp()
@@ -225,6 +250,7 @@ void ChipView::catchUp()
         song_ = &song;
         ymNext_ = pcmNext_ = 0;
         ym_.fill(0), pcm_.fill(0), keyOn_.fill(0);
+        ymReal_.fill(0), pcmReal_.fill(0), keyOnReal_.fill(0);
         ymWritten_.fill(kNever), pcmWritten_.fill(kNever), keyWritten_.fill(kNever);
         ymChanged_.fill(false), pcmChanged_.fill(false);
         pmd_ = amd_ = 0;
@@ -233,16 +259,30 @@ void ChipView::catchUp()
         write(true, song.ym[ymNext_].address, song.ym[ymNext_].value, song.ym[ymNext_].time);
     for (; pcmNext_ < song.pcm.size() && song.pcm[pcmNext_].time <= now; ++pcmNext_)
         write(false, song.pcm[pcmNext_].address, song.pcm[pcmNext_].value, song.pcm[pcmNext_].time);
+    showHeard(); // a channel heard again shows the chips' values
     at_ = now;
+}
+
+bool ChipView::heard(int channel) const
+{
+    return !live_.valid || live_.gain[static_cast<size_t>(channel)] > 0.0f;
+}
+
+uint8_t ChipView::keyBits(int ch) const
+{
+    return heard(ch) ? keyOn_[static_cast<size_t>(ch)] : 0;
 }
 
 float ChipView::liveLevel(int slot) const
 {
-    return live_.valid ? live_.level[static_cast<size_t>(slot)] : 0.0f;
+    return live_.valid && heard(slot & 7) ? live_.level[static_cast<size_t>(slot)] : 0.0f;
 }
 
 float ChipView::glow(bool fm, int reg) const
 {
+    // A channel's own register glows only while the channel is heard.
+    if (const int ch = channelOf(fm, static_cast<size_t>(reg & 0xFF)); ch >= 0 && !heard(ch))
+        return 0.0f;
     // A new value glows full; the same value written again, faintly.
     const auto r = static_cast<size_t>(reg & 0xFF);
     const double written = (fm ? ymWritten_ : pcmWritten_)[r];
@@ -259,9 +299,10 @@ void ChipView::paint(juce::Graphics& g)
         song_ = nullptr; // so a song opened next is read from its start, wherever it lands
         return;
     }
+    live_ = model_.chipState(); // first: which channels are heard decides what catchUp shows
     catchUp();
-    live_ = model_.chipState();
     const double started = juce::Time::getMillisecondCounterHiRes();
+    frameSeconds_ = static_cast<float>(std::clamp((started - lastPaint_) / 1000.0, 0.0, 0.1));
     // The chips' outputs fall back over about a third of a second, as the track meters do.
     {
         const auto peaks = model_.takeChipPeaks();
@@ -420,7 +461,7 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
     {
         const auto card = juce::Rectangle<float>(inner.getX() + static_cast<float>(ch / 4) * (cardW + gap),
                                                  inner.getY() + static_cast<float>(ch % 4) * (cardH + gap), cardW, cardH);
-        const bool keyed = keyOn_[static_cast<size_t>(ch)] != 0;
+        const bool keyed = keyBits(ch) != 0;
         g.setColour(theme::background.withAlpha(0.6f));
         g.fillRoundedRectangle(card, 6.0f);
         g.setColour(keyed ? accent.withAlpha(0.5f) : theme::gridBar.withAlpha(0.6f));
@@ -456,7 +497,7 @@ void ChipView::paintFm(juce::Graphics& g, juce::Rectangle<float> area)
         g.setColour(keyed ? pitch : pitch.withAlpha(0.18f));
         g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
         // A new note, keyed on or its pitch written, rings the pill white.
-        const float struck = std::max(glow(true, 0x28 + ch), static_cast<float>(std::clamp(1.0 - (at_ - keyWritten_[static_cast<size_t>(ch)]) / kGlow, 0.0, 1.0)));
+        const float struck = heard(ch) ? std::max(glow(true, 0x28 + ch), static_cast<float>(std::clamp(1.0 - (at_ - keyWritten_[static_cast<size_t>(ch)]) / kGlow, 0.0, 1.0))) : 0.0f;
         if (struck > 0.0f)
         {
             g.setColour(juce::Colours::white.withAlpha(0.9f * struck));
@@ -547,7 +588,7 @@ void ChipView::paintOperatorTable(juce::Graphics& g, juce::Rectangle<float> c, i
     {
         auto row = c.removeFromTop(rowH);
         const int slot = ch + op * 8;
-        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
+        const bool on = (keyBits(ch) >> kKeyBit[op]) & 1;
         auto label = row.removeFromLeft(labelW);
         tip(label, kOperators[op]); // the light and the name
         // The light: as bright as the operator's envelope is loud now.
@@ -706,7 +747,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
     }
     g.setColour(theme::background);
     g.fillRoundedRectangle(out, 4.0f);
-    g.setColour(keyOn_[static_cast<size_t>(ch)] ? accent : theme::gridBar);
+    g.setColour(keyBits(ch) ? accent : theme::gridBar);
     g.drawRoundedRectangle(out.reduced(0.5f), 4.0f, 1.0f);
     g.setFont(theme::mono(font * 0.85f, true));
     g.drawText("OUT", out, juce::Justification::centred, false);
@@ -722,7 +763,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         const int op = kRegisterOrder[d], slot = ch + op * 8;
         const auto r = juce::Rectangle<float>(area.getX() + static_cast<float>(d % 2) * (graphW + gap),
                                               area.getY() + static_cast<float>(d / 2) * (graphH + gap), graphW, graphH);
-        const bool on = (keyOn_[static_cast<size_t>(ch)] >> kKeyBit[op]) & 1;
+        const bool on = (keyBits(ch) >> kKeyBit[op]) & 1;
         g.setColour(theme::background.withAlpha(0.5f));
         g.fillRoundedRectangle(r, 4.0f);
         const int ar = ym_[static_cast<size_t>(0x80 + slot)] & 31, d1r = ym_[static_cast<size_t>(0xA0 + slot)] & 31;
@@ -753,7 +794,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
 
         // Where the envelope is now: on its stage's stretch, at its level.
         const float times[5] = { 0.0f, attack * 0.25f, attack * 0.25f + decay * 0.25f, attack * 0.25f + decay * 0.25f + 0.3f, t };
-        const auto stage = live_.valid ? live_.stage[static_cast<size_t>(slot)] : ChipState::Stage::Off;
+        const auto stage = live_.valid && heard(slot & 7) ? live_.stage[static_cast<size_t>(slot)] : ChipState::Stage::Off;
         const float now = liveLevel(slot);
         auto along = [](float value, float from, float to) { return std::abs(to - from) < 1e-4f ? 0.0f : std::clamp((value - from) / (to - from), 0.0f, 1.0f); };
         int segment = -1;
@@ -766,6 +807,24 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
             case ChipState::Stage::Release: segment = 3, fraction = along(now, held, 0.0f); break;
             case ChipState::Stage::Off: break;
         }
+        // An instant attack would jump the dot from the release to the peak
+        // between two frames. So the dot travels the line instead: it eases
+        // toward the envelope's place over about 60 ms, and a new key on sends
+        // it back to the start. Its place is the stretch and how far along,
+        // 0 to 4.
+        float& shown = along_[static_cast<size_t>(slot)];
+        const float target = segment >= 0 ? static_cast<float>(segment) + fraction : -1.0f;
+        if (target < 0.0f)
+            shown = -1.0f;
+        else if (shown < 0.0f || std::floor(target) < std::floor(shown))
+            shown = std::floor(target) < 3.0f ? 0.0f : target;
+        else
+            shown += (target - shown) * std::min(1.0f, frameSeconds_ / 0.06f);
+        if (shown >= 0.0f)
+        {
+            segment = std::min(3, static_cast<int>(shown));
+            fraction = shown - static_cast<float>(segment);
+        }
         // On the drawn line: across its stretch by how far the stage has
         // gone, at the line's height there.
         const float levels[5] = { 0.0f, 1.0f, sustain, held, 0.0f };
@@ -777,14 +836,26 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         fill.closeSubPath();
         g.setColour(accent.withAlpha(on ? 0.3f : 0.08f));
         g.fillPath(fill);
-        g.setColour(on ? accent : accent.withAlpha(0.35f));
-        g.strokePath(shape, juce::PathStrokeType(on ? 1.8f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(accent.withAlpha(0.35f));
+        g.strokePath(shape, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // An attack or decay can pass in a few milliseconds, too fast for a
+        // dot to show. So the stretch the envelope has run lights up and
+        // stays lit: while the key is held, from the start to where it is
+        // now, and in the release, from the release's start.
         if (segment >= 0)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.25f));
-            g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre(dot));
+            juce::Path trail;
+            const int from = segment == 3 ? 3 : 0;
+            trail.startNewSubPath(x(times[from]), y(levels[from]));
+            for (int k = from + 1; k <= segment; ++k)
+                trail.lineTo(x(times[k]), y(levels[k]));
+            trail.lineTo(dot);
+            g.setColour(accent.withAlpha(0.3f));
+            g.strokePath(trail, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(accent.brighter(0.4f));
+            g.strokePath(trail, juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.setColour(juce::Colours::white);
-            g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(dot));
+            g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(dot));
         }
         g.setFont(theme::mono(nameFont, true));
         g.setColour(on ? theme::text : theme::dim);
@@ -814,15 +885,27 @@ void ChipView::mouseMove(const juce::MouseEvent& e)
 juce::Rectangle<float> ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm, juce::Colour accent)
 {
     // A box at the header's right end: how many writes reached the chip in
-    // the last second, and the last one, register and value.
+    // the last second, and the last one, register and value. Only writes to
+    // channels that are heard count: a key on counts for its channel, and
+    // the chip's own registers while any of its channels is heard.
     if (song_ == nullptr)
         return area;
     const auto& writes = fm ? song_->ym : song_->pcm;
     const size_t end = fm ? ymNext_ : pcmNext_;
+    bool anyHeard = false;
+    for (int c = fm ? 0 : 8; c < (fm ? 8 : 24); ++c)
+        anyHeard = anyHeard || heard(c);
     int count = 0;
+    juce::String last = "-";
     for (size_t i = end; i-- > 0 && static_cast<double>(writes[i].time) >= at_ - kVgmRate;)
-        ++count;
-    const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
+    {
+        const auto r = static_cast<size_t>(writes[i].address & 0xFF);
+        const int ch = fm && r == 0x08 ? writes[i].value & 7 : channelOf(fm, r);
+        if (ch >= 0 ? !heard(ch) : !anyHeard)
+            continue;
+        if (count++ == 0)
+            last = hex(static_cast<int>(r), 2) + "=" + hex(writes[i].value, 2);
+    }
 
     // At the header's right end, after a divider, each readout a label and
     // then its value in a box as wide as its widest value, so nothing moves
@@ -1024,7 +1107,7 @@ void ChipView::paintSampleMap(juce::Graphics& g, juce::Rectangle<float> area, ju
             for (int ch = 0; live_.valid && ch < 16; ++ch)
             {
                 const int base = ch * 8;
-                if (((live_.pcmPlaying >> ch) & 1) == 0 || SegaPcm::bankOffset(pcm_[static_cast<size_t>(0x86 + base)], model_.tune().source().header.segaPcmInterface) != s->bank)
+                if (((live_.pcmPlaying >> ch) & 1) == 0 || !heard(8 + ch) || SegaPcm::bankOffset(pcm_[static_cast<size_t>(0x86 + base)], model_.tune().source().header.segaPcmInterface) != s->bank)
                     continue;
                 const uint32_t start = static_cast<uint32_t>(pcm_[static_cast<size_t>(0x84 + base)] | pcm_[static_cast<size_t>(0x85 + base)] << 8);
                 const uint32_t end = static_cast<uint32_t>((pcm_[static_cast<size_t>(0x06 + base)] + 1) << 8);
@@ -1090,7 +1173,7 @@ void ChipView::paintPcmTable(juce::Graphics& g, juce::Rectangle<float> inner, ju
         auto row = inner.removeFromTop(rowH);
         const int base = ch * 8;
         const int flagBits = pcm_[static_cast<size_t>(0x86 + base)];
-        const bool on = (flagBits & 1) == 0 && (pcm_[static_cast<size_t>(0x02 + base)] || pcm_[static_cast<size_t>(0x03 + base)]);
+        const bool on = heard(8 + ch) && (flagBits & 1) == 0 && (pcm_[static_cast<size_t>(0x02 + base)] || pcm_[static_cast<size_t>(0x03 + base)]);
         if (ch % 2 == 1)
         {
             g.setColour(theme::background.withAlpha(0.35f));

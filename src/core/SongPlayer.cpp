@@ -531,6 +531,7 @@ void SongPlayer::publishChips(const Deck& deck)
         if (deck.pcm.playing(ch))
             state.pcmPlaying = static_cast<uint16_t>(state.pcmPlaying | (1 << ch));
     }
+    state.gain = deck.lastGain;
     state.valid = true;
     // A sequence counter, odd while writing: the reader copies and retries
     // until it reads the same even count before and after.

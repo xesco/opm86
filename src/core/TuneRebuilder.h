@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <thread>
 
 namespace opm86
@@ -19,6 +20,16 @@ namespace opm86
 // has the build put it, from the note's start at its track's volume, or
 // silent when the note is not heard.
 std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report);
+
+// Some notes played alone, whatever the mute and solo. The mix silences every
+// other note, and each chosen note from its end, with no release. The song
+// time runs from the first note's start to the last one's end.
+struct NoteMix
+{
+    std::shared_ptr<ChannelMix> mix;
+    double from = 0, to = 0;
+};
+NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<std::pair<int, int>>& notes); // each a track and note id
 
 // A built version of a tune, ready for the player.
 struct TuneVersion

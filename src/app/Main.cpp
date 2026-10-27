@@ -86,6 +86,12 @@ public:
             if (auto* user = settings_.getUserSettings())
                 user->setValue("pitchColours", theme::pitchColoursText()), user->saveIfNeeded();
         };
+        content->onBendsChanged = [this](bool shown) {
+            if (auto* user = settings_.getUserSettings())
+                user->setValue("pitchLines", shown), user->saveIfNeeded();
+        };
+        if (auto* user = settings_.getUserSettings())
+            content->setShowBends(user->getBoolValue("pitchLines", true)); // as chosen last time
         const juce::File last(settings_.getUserSettings() ? settings_.getUserSettings()->getValue("lastFile") : juce::String());
         if (args.size() == 1 && juce::File(args[0].unquoted()).existsAsFile())
             content->open(juce::File(args[0].unquoted()));

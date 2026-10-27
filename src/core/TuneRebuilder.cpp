@@ -20,30 +20,94 @@ size_t firstDifferent(const std::vector<VgmWrite>& a, const std::vector<VgmWrite
 
 } // namespace
 
+namespace
+{
+
+// The chip channel a note plays on: the report's, or with no free channel
+// the one it had in the game, as the build does. FM channels are 0-7 and
+// PCM channels 8 on.
+size_t mixSlot(const Tune& tune, const BuildReport& report, size_t t, size_t n)
+{
+    const TuneTrack& track = tune.tracks[t];
+    int ch = t < report.channels.size() && n < report.channels[t].size() ? report.channels[t][n] : -1;
+    if (ch < 0)
+        ch = tune.originalChannel(track, track.notes[n]);
+    return static_cast<size_t>(ch + (track.kind == TuneTrack::Kind::Drum ? 8 : 0));
+}
+
+// A track's volume as a gain, as the build would set it, up to the boost's limit.
+float volumeGain(const TuneTrack& track)
+{
+    return track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxVolume) / 20.0f);
+}
+
+void sortMix(ChannelMix& mix)
+{
+    for (auto& v : mix.changes)
+        std::stable_sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+}
+
+} // namespace
+
 std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report)
 {
     auto mix = std::make_shared<ChannelMix>();
     for (size_t t = 0; t < tune.tracks.size(); ++t)
     {
         const TuneTrack& track = tune.tracks[t];
-        const bool drum = track.kind == TuneTrack::Kind::Drum;
-        // The volume, as the build would set it, up to the boost's limit.
-        const float volume = track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxVolume) / 20.0f);
+        const float volume = volumeGain(track);
+        for (size_t n = 0; n < track.notes.size(); ++n)
+        {
+            const size_t slot = mixSlot(tune, report, t, n);
+            if (slot < mix->changes.size())
+                mix->changes[slot].push_back({ static_cast<double>(track.notes[n].start), tune.audible(track, track.notes[n]) ? volume : 0.0f });
+        }
+    }
+    sortMix(*mix);
+    return mix;
+}
+
+NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<std::pair<int, int>>& notes)
+{
+    NoteMix out;
+    out.mix = std::make_shared<ChannelMix>();
+    ChannelMix& mix = *out.mix;
+    // Every channel silent from the start, and each chosen note silent from
+    // its end; then each note's own gain from its start, which comes after a
+    // chosen note's end at the same time.
+    for (auto& v : mix.changes)
+        v.push_back({ 0.0, 0.0f });
+    for (size_t t = 0; t < tune.tracks.size(); ++t)
+        for (size_t n = 0; n < tune.tracks[t].notes.size(); ++n)
+        {
+            const TuneNote& note = tune.tracks[t].notes[n];
+            const size_t slot = mixSlot(tune, report, t, n);
+            if (slot < mix.changes.size() && notes.count({ static_cast<int>(t), note.id }) > 0)
+                mix.changes[slot].push_back({ static_cast<double>(note.start + note.length), 0.0f });
+        }
+    double from = -1;
+    for (size_t t = 0; t < tune.tracks.size(); ++t)
+    {
+        const TuneTrack& track = tune.tracks[t];
+        const float volume = volumeGain(track);
         for (size_t n = 0; n < track.notes.size(); ++n)
         {
             const TuneNote& note = track.notes[n];
-            // A note with no free channel keeps the one it had in the game, as the build does.
-            int ch = t < report.channels.size() && n < report.channels[t].size() ? report.channels[t][n] : -1;
-            if (ch < 0)
-                ch = tune.originalChannel(track, note);
-            const size_t slot = static_cast<size_t>(ch + (drum ? 8 : 0));
-            if (slot < mix->changes.size())
-                mix->changes[slot].push_back({ static_cast<double>(note.start), tune.audible(track, note) ? volume : 0.0f });
+            const size_t slot = mixSlot(tune, report, t, n);
+            if (slot >= mix.changes.size())
+                continue;
+            const bool heard = notes.count({ static_cast<int>(t), note.id }) > 0;
+            mix.changes[slot].push_back({ static_cast<double>(note.start), heard ? volume : 0.0f });
+            if (heard)
+            {
+                from = from < 0 ? static_cast<double>(note.start) : std::min(from, static_cast<double>(note.start));
+                out.to = std::max(out.to, static_cast<double>(note.start + note.length));
+            }
         }
     }
-    for (auto& v : mix->changes)
-        std::stable_sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
-    return mix;
+    sortMix(mix);
+    out.from = std::max(0.0, from);
+    return out;
 }
 
 void firstDifference(const VgmSong& a, const VgmSong& b, size_t& ym, size_t& pcm)

@@ -12,6 +12,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <set>
 
 namespace opm86
 {
@@ -52,7 +53,10 @@ public:
     bool playing() const { return playing_.load(); }
     double position() const { return position_.load(); } // song time, VGM samples
     bool takeEnded() { return ended_.exchange(false); } // whether playing stopped at the song's end since the last call
-    // The position now, between audio blocks, for a playhead that moves smoothly.
+    // The position for this frame of the display, which moves smoothly while
+    // playing. beginFrame works it out once per display refresh, timestamp in
+    // seconds.
+    void beginFrame(double timestamp);
     double displayPosition() const;
     void setPosition(double songTime);
     // Stopped, move to a song time and let a moment of it sound; a run of
@@ -72,6 +76,17 @@ public:
     bool hasSelection() const { return selectionEnd_.load() > selectionStart_.load(); }
     double selectionStart() const { return selectionStart_.load(); }
     double selectionEnd() const { return selectionEnd_.load(); }
+    // Play only some notes, each a track index and note id, from the first
+    // note's start to the last one's end, each cut at its own. Then playing stops,
+    // the mix goes back to what it was, and the playhead to the first note's start;
+    // with loop on, the notes play over and over.
+    void playNotes(const std::set<std::pair<int, int>>& notes);
+    const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays
+    // The notes selected in the tracker, each a track index and note id,
+    // which Space and the play button play alone; with none, the song plays.
+    void setSelectedNotes(const std::set<std::pair<int, int>>& notes) { selectedNotes_ = notes; }
+    const std::set<std::pair<int, int>>& selectedNotes() const { return selectedNotes_; }
+    void playSelected();
     // Loop: the selection over and over, or the whole song without one.
     void setLoop(bool on) { loop_.store(on); }
     bool loop() const { return loop_.load(); }
@@ -83,6 +98,7 @@ private:
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
     void sendMix(); // sends the tracks' mute, solo and volume to the player
+    void endNotes(); // after playNotes: the mix back, and the playhead to the notes' start
     void timerCallback() override;
 
     // AudioIODeviceCallback (audio thread)
@@ -118,11 +134,17 @@ private:
         bool play = false, stop = false;
         bool scrub = false; // the play is a scrub's moment
         double playAt = 0;
+        double notesEnd = -1; // the play is of notes alone, which stops here, or with loop goes back to playAt
     };
     juce::SpinLock commandLock_;
     Commands commands_;
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
+    double notesEnd_ = -1;             // audio thread: where notes played alone stop; -1 for the song
+    double notesStart_ = 0;            // audio thread: where they start, for loop
+    std::set<std::pair<int, int>> playingNotes_, selectedNotes_;
+    double notesFrom_ = 0;             // the first note's start, where the playhead goes after them
+    std::atomic<bool> notesDone_ { false }; // set where the notes' playing ends
 
     std::atomic<bool> playing_ { false };
     std::atomic<bool> ended_ { false }; // set where playing stops at the song's end
@@ -131,6 +153,7 @@ private:
     std::atomic<float> master_ { 1.0f }; // the master volume as a gain
     std::atomic<double> position_ { 0.0 };
     std::atomic<double> positionStamp_ { 0.0 }; // when position_ was set, in ms
+    double shown_ = 0.0, frameAt_ = -1.0; // message thread: the position shown, and its frame's timestamp, -1 while stopped
     double sampleRate_ = 48000.0;
 };
 

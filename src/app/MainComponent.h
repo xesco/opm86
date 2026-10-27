@@ -13,7 +13,7 @@ namespace opm86
 class IconButton : public juce::TextButton
 {
 public:
-    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
+    enum class Icon { Rewind, End, Play, Stop, Playhead, Follow, Loop, Order, Chips, Reset, Invert, Instruments, Drums, Bends, FitTracks, FitTime, FitBoth, ZoomHome, FewerKeys, MoreKeys, NoteNames };
     explicit IconButton(Icon icon) : icon_(icon) {}
     void paintButton(juce::Graphics&, bool over, bool down) override;
 
@@ -97,6 +97,8 @@ public:
     void resized() override;
 
     std::function<void(bool shown)> onChips; // the chips' view was turned on or off
+    void setShowBends(bool show);            // the pitch lines on or off, as chosen last time
+    std::function<void(bool shown)> onBends; // the pitch lines were turned on or off
 
 private:
     enum class Only { None, Instruments, Drums };
@@ -110,6 +112,7 @@ private:
     IconButton loop_ { IconButton::Icon::Loop };             // on, the selection or the song plays over and over
     IconButton order_ { IconButton::Icon::Order };           // on, the tracks go by patch, FM 1 first; off, by voice
     IconButton chips_ { IconButton::Icon::Chips };           // on, the chips' registers show in place of the tracks
+    IconButton bends_ { IconButton::Icon::Bends };           // on, a line across each note the game bends shows its pitch
     IconButton reset_ { IconButton::Icon::Reset }, invert_ { IconButton::Icon::Invert }, instruments_ { IconButton::Icon::Instruments }, drums_ { IconButton::Icon::Drums };
     IconButton fitTracks_ { IconButton::Icon::FitTracks }, fitTime_ { IconButton::Icon::FitTime }, fitBoth_ { IconButton::Icon::FitBoth };
     IconButton zoomHome_ { IconButton::Icon::ZoomHome }; // both zoom sliders back to their homes
@@ -244,6 +247,8 @@ public:
     void close();                                    // closes the song, back to the songs to start with
     void songOpenChanged();                          // the controls follow whether a song is open
     std::function<void()> onColoursChanged;            // a pitch colour was chosen or reset
+    std::function<void(bool shown)> onBendsChanged;    // the pitch lines were turned on or off
+    void setShowBends(bool show) { tools_.setShowBends(show); } // as chosen last time
     AppModel& model() { return model_; }
     TrackerView& view() { return view_; }
 

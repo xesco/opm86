@@ -174,8 +174,41 @@ void testTune()
           "an unedited tune builds the original log");
     const auto before = keyOns(original);
 
-    // Transpose the lead's first note up two semitones.
+    // The lead's fourth note bends half a semitone 4410 samples after its
+    // key on. Another 4410 samples later, it is two semitones above its start.
     TuneTrack& lead = tune->tracks[0];
+    const TuneNote& slide = lead.notes[3];
+    const auto bends = tune->bends(lead, slide);
+    check(bends.size() == 3 && std::lround(bends[0].second) == tune->pitch(lead, slide)
+              && bends[1].first == slide.start + 4410 && std::abs(bends[1].second - bends[0].second - 0.5) < 1e-9
+              && bends[2].first == slide.start + 8820 && std::abs(bends[2].second - bends[0].second - 2.0) < 1e-9,
+          "a note's bends follow each pitch change while held");
+    check(tune->bends(lead, lead.notes[0]).size() == 1, "a note held at one pitch has one bend");
+
+    // The lead's second note played alone: only its channel sounds, from its
+    // key on to its end, with no release.
+    {
+        BuildReport report;
+        tune->build(&report);
+        const TuneNote& chosen = lead.notes[1];
+        const NoteMix alone = noteMixOf(*tune, report, { { 0, chosen.id } });
+        const auto ch = static_cast<size_t>(report.channels[0][1]);
+        bool othersSilent = true, chosenHeard = false;
+        for (size_t c = 0; c < alone.mix->changes.size(); ++c)
+            for (const auto& change : alone.mix->changes[c])
+            {
+                const bool atChosen = c == ch && change.time == static_cast<double>(chosen.start) && change.gain > 0.0f;
+                chosenHeard |= atChosen && change.gain == 1.0f;
+                othersSilent &= atChosen || change.gain == 0.0f;
+            }
+        const double end = static_cast<double>(chosen.start + chosen.length);
+        const auto& v = alone.mix->changes[ch];
+        const bool cut = std::any_of(v.begin(), v.end(), [&](const ChannelMix::Change& c) { return c.time == end && c.gain == 0.0f; });
+        check(chosenHeard && othersSilent && cut && alone.from == static_cast<double>(chosen.start) && alone.to == end,
+              "a note played alone sounds on its channel only, and stops at its end");
+    }
+
+    // Transpose the lead's first note up two semitones.
     const int pitch = tune->pitch(lead, lead.notes[0]);
     lead.notes[0].transpose = 2;
     check(tune->pitch(lead, lead.notes[0]) == pitch + 2, "a transposed note reports its new pitch");

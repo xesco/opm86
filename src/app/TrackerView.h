@@ -8,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace opm86
 {
@@ -35,7 +36,7 @@ public:
     void centrePlayhead(); // following playback, the playhead to the middle of the view at once
     void reveal(double songTime); // the view follows a playhead there as it does while playing: up to the middle, then scrolling
     void fitTime();   // the whole song across, as far as the zoom goes
-    void fitTracks(); // every track's rows down, as far as the lane height goes
+    void fitTracks(); // the rows from the first track heard to the last, as far as the lane height goes
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
     // A chip channel's output now, 8 FM then 16 PCM: 0..1 along a meter
     // from kMeterFloor to full scale, falling back as the meters do.
@@ -52,6 +53,8 @@ public:
     // the patch first and the voice after; off, in voice order, voice first.
     void setOrderByPatch(bool byPatch);
     bool orderByPatch() const { return byPatch_; }
+    void setShowBends(bool show); // a line across each note the game bends while held, of its pitch
+    bool showBends() const { return showBends_; }
     int position(int track) const { return layout().position[static_cast<size_t>(track)]; } // its place top down
     bool follow() const { return follow_; }
 
@@ -150,7 +153,9 @@ private:
     std::vector<double> lanesKey_;
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
-    bool isSounding(const TuneNote& n) const; // under the playhead while playing
+    bool isSounding(int track, const TuneNote& n) const; // under the playhead while playing, and played when notes play alone
+    void clickNote(NoteRef note, bool add); // selects the note, or with add adds or removes it
+    void selectNotes(std::set<NoteRef> notes); // sets the selected notes here and in the model, which plays them
     // A note label's text and its dark outline, at the origin, kept per label and size.
     struct LabelShapes
     {
@@ -180,6 +185,7 @@ private:
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
     double panFrom_ = 0;                   // the view's start when the hand took it
+    int panFromY_ = 0;                     // and its vertical scroll
     double selectFrom_ = 0;                // song time where a selection drag began, or the edge held still, or the grab in a moved one
     bool overSelectionBar(juce::Point<float> p) const; // stopped, on the ruler inside the selection, where a drag moves it
     int selectionEdgeAt(juce::Point<float> p) const; // 0 start, 1 end, -1 neither: within a few pixels of one
@@ -195,6 +201,11 @@ private:
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
     NoteRef hover_;
+    bool showBends_ = true;
+    NoteRef pressedNote_;               // the note under a press, which a click selects
+    std::set<NoteRef> selectedNotes_;   // notes selected with a click, in the file below
+    juce::File selectedFile_;
+    int selectedRevision_ = 0;          // changes with the selected notes, for the drawn lanes
     // The empty view's links, where it drew each and what it opens, refilled each paint.
     std::vector<std::pair<juce::Rectangle<float>, juce::String>> links_;
     int linkAt(juce::Point<float> p) const; // the link under p, or -1

@@ -153,6 +153,15 @@ TrackerView::~TrackerView()
 
 void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
 {
+    // When a song closes, the tooltip of the note under the mouse goes with it.
+    if (!model_.hasTune() && hover_.valid())
+    {
+        hover_ = {};
+        setTooltip({});
+    }
+    // Selected notes belong to the song they were selected in.
+    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_))
+        selectedNotes_.clear(), ++selectedRevision_;
     repaint();
 }
 
@@ -386,10 +395,22 @@ void TrackerView::fitTracks()
 {
     if (!model_.hasTune() || layout().totalRows == 0)
         return;
+    // The rows from the first track that can be heard to the last, muted
+    // tracks between them included; with none to hear, every row.
+    int first = layout().totalRows, last = 0;
+    const auto& tracks = model_.tune().tracks;
+    for (size_t t = 0; t < tracks.size(); ++t)
+        if (model_.tune().audible(tracks[t]))
+        {
+            first = std::min(first, layout().firstRow[t]);
+            last = std::max(last, layout().firstRow[t] + layout().shown[t]);
+        }
+    if (first >= last)
+        first = 0, last = layout().totalRows;
     const double room = getHeight() - kRulerHeight;
-    laneHeightExact_ = std::clamp(std::floor(room / layout().totalRows), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
+    laneHeightExact_ = std::clamp(std::floor(room / (last - first)), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
     laneHeight_ = static_cast<int>(laneHeightExact_);
-    setScrollY(0);
+    setScrollY(first * laneHeight_);
 }
 
 double TrackerView::xToTime(float x) const
@@ -429,6 +450,12 @@ void TrackerView::setOrderByPatch(bool byPatch)
     layoutRevision_ = -1;
     setScrollY(scrollY_);
     sendChangeMessage(); // the overview follows the order
+}
+
+void TrackerView::setShowBends(bool show)
+{
+    showBends_ = show;
+    repaint();
 }
 
 void TrackerView::setCollapsed(int track, bool collapsed)
@@ -823,6 +850,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
         return;
     std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
                               static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
+                              static_cast<double>(selectedRevision_), showBends_ ? 1.0 : 0.0,
                               samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
@@ -875,7 +903,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
             auto it = std::lower_bound(notes.begin(), notes.end(), now - static_cast<double>(layout().longest[t]),
                                        [](const TuneNote& n, double time) { return static_cast<double>(n.start) < time; });
             for (; it != notes.end() && static_cast<double>(it->start) <= now; ++it)
-                if (isSounding(*it))
+                if (isSounding(static_cast<int>(t), *it))
                 {
                     const int i = static_cast<int>(it - notes.begin());
                     paintNote(g, static_cast<int>(t), i, noteBounds(static_cast<int>(t), i));
@@ -975,10 +1003,12 @@ void TrackerView::paintLaneLayer(juce::Graphics& g, float right)
     g.restoreState();
 }
 
-bool TrackerView::isSounding(const TuneNote& n) const
+bool TrackerView::isSounding(int track, const TuneNote& n) const
 {
     const double pos = playhead();
-    return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
+    const auto& alone = model_.playingNotes();
+    return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length)
+           && (alone.empty() || alone.count({ track, n.id }) > 0);
 }
 
 void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r, bool resting)
@@ -988,7 +1018,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
     const int pitch = model_.tune().pitch(tr, n);
     const bool audible = model_.tune().audible(tr, n);
-    const bool sounding = !resting && isSounding(n);
+    const bool sounding = !resting && isSounding(track, n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
                           && static_cast<size_t>(note) < channels[static_cast<size_t>(track)].size()
@@ -1030,6 +1060,41 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     {
         g.setColour(theme::danger);
         g.drawRoundedRectangle(r, 3.0f, 2.0f);
+    }
+    if (selectedNotes_.count({ track, n.id }) > 0)
+    {
+        g.setColour(theme::cyan);
+        g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 2.0f);
+    }
+
+    // A note the game bends or moves to new keys while held gets a line of
+    // its pitch over time, from its lowest pitch at the bottom of the note to
+    // its highest at the top, over at least 2 semitones. A pitch that moves
+    // less than a quarter of a semitone would draw nearly flat, so it gets none.
+    const auto bends = showBends_ ? model_.tune().bends(tr, n) : std::vector<std::pair<int64_t, double>> {};
+    const auto [low, high] = std::minmax_element(bends.begin(), bends.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+    if (bends.size() > 1 && high->second - low->second >= 0.25 && r.getHeight() >= 10.0f)
+    {
+        const double span = std::max(2.0, high->second - low->second);
+        const double middle = (low->second + high->second) * 0.5;
+        const auto area = r.reduced(1.0f, 3.0f);
+        auto y = [&](double p) { return area.getCentreY() - static_cast<float>((p - middle) / span) * area.getHeight(); };
+        juce::Path line;
+        line.startNewSubPath(area.getX(), y(bends.front().second));
+        // A slide, in steps under a semitone less than 100 ms apart, is a ramp
+        // from one change to the next. A jump of a semitone or more, or a
+        // change after a held pitch, is a step.
+        for (size_t i = 1; i < bends.size(); ++i)
+        {
+            const float x = juce::jlimit(area.getX(), area.getRight(), timeToX(static_cast<double>(bends[i].first)));
+            const bool slide = std::abs(bends[i].second - bends[i - 1].second) < 1.0 && static_cast<double>(bends[i].first - bends[i - 1].first) < kVgmRate / 10;
+            if (!slide)
+                line.lineTo(x, y(bends[i - 1].second));
+            line.lineTo(x, y(bends[i].second));
+        }
+        line.lineTo(area.getRight(), y(bends.back().second));
+        g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 0.6f : 0.35f) : 0.12f));
+        g.strokePath(line, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     // The label, centred and as large as the note allows: white with a dark
@@ -1397,6 +1462,9 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // A click on a note, not a drag, selects it (see mouseUp).
+    pressedNote_ = noteAt(p);
+
     // Stopped, a drag selects a section, and a click moves the playhead there.
     if (!model_.playing() && !e.mods.isShiftDown())
     {
@@ -1405,9 +1473,10 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
     // Playing, or with Shift: a click moves the playhead there; held and
-    // dragged, the hand moves the view.
+    // dragged, the hand moves the view across and up or down.
     drag_ = Drag::Lanes;
     panFrom_ = viewStart_;
+    panFromY_ = scrollY_;
     setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
@@ -1457,6 +1526,7 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     if (drag_ == Drag::Pan)
     {
         setViewStart(panFrom_ - (p.x - dragFrom_.x) * samplesPerPixel_);
+        setScrollY(panFromY_ - static_cast<int>(p.y - dragFrom_.y));
         movedByHand();
     }
 }
@@ -1469,6 +1539,21 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     // from it; stopped, it also drops the selection.
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
+    // A click on a note selects it, for Space or the play button to play
+    // alone; Shift adds or removes it.
+    const bool click = (finished == Drag::Lanes || finished == Drag::Select) && e.getDistanceFromDragStart() <= 3;
+    const NoteRef pressed = std::exchange(pressedNote_, {});
+    if (click && pressed.valid())
+    {
+        clickNote(pressed, e.mods.isShiftDown());
+        mouseMove(e); // restores the cursor, which a press while playing turns into a hand
+        return;
+    }
+    // A plain click off the notes, or a drag that selects a section, drops
+    // the selected notes.
+    const bool section = finished == Drag::Select && !click;
+    if ((section || (click && !e.mods.isShiftDown())) && !selectedNotes_.empty())
+        selectNotes({});
     if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
         if (finished == Drag::Select)
@@ -1477,6 +1562,28 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     }
     if (finished == Drag::Lanes || finished == Drag::Pan)
         mouseMove(e);
+    repaint();
+}
+
+void TrackerView::clickNote(NoteRef note, bool add)
+{
+    std::set<NoteRef> notes = add ? selectedNotes_ : std::set<NoteRef> {};
+    if (add && notes.count(note) > 0)
+        notes.erase(note);
+    else
+        notes.insert(note);
+    selectNotes(std::move(notes));
+}
+
+void TrackerView::selectNotes(std::set<NoteRef> notes)
+{
+    selectedNotes_ = std::move(notes);
+    selectedFile_ = model_.file();
+    ++selectedRevision_;
+    std::set<std::pair<int, int>> chosen;
+    for (const NoteRef& n : selectedNotes_)
+        chosen.insert({ n.track, n.id });
+    model_.setSelectedNotes(chosen);
     repaint();
 }
 
@@ -1578,6 +1685,8 @@ bool TrackerView::keyPressed(const juce::KeyPress& key)
         return model_.undo().undo(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
+    if (key == juce::KeyPress::escapeKey && !selectedNotes_.empty())
+        return selectNotes({}), true;
     if (key == juce::KeyPress::escapeKey && model_.hasSelection())
         return model_.clearSelection(), true;
     return false;

@@ -68,6 +68,7 @@ bool AppModel::open(const juce::File& file, juce::String& error)
         return false;
     }
     stop();
+    selectedNotes_.clear();
     tune_ = std::move(tune);
     ++revision_;
     file_ = file;
@@ -88,6 +89,7 @@ void AppModel::close()
     if (!tune_)
         return;
     stop();
+    selectedNotes_.clear();
     tune_.reset();
     ++revision_;
     file_ = juce::File();
@@ -166,10 +168,51 @@ void AppModel::rebuild()
     rebuilder_.request(*tune_, position_.load());
 }
 
+void AppModel::playNotes(const std::set<std::pair<int, int>>& notes)
+{
+    if (!built_ || notes.empty())
+        return;
+    const NoteMix played = noteMixOf(*tune_, report_, notes);
+    playingNotes_ = notes;
+    notesFrom_ = played.from;
+    position_.store(played.from);
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.mix = played.mix;
+        commands_.play = true;
+        commands_.stop = commands_.scrub = false;
+        commands_.playAt = played.from;
+        commands_.notesEnd = played.to;
+    }
+    mixes_.push_back(played.mix);
+    while (mixes_.size() > 8)
+        mixes_.pop_front();
+    sendChangeMessage();
+}
+
+void AppModel::playSelected()
+{
+    if (selectedNotes_.empty())
+        play();
+    else
+        playNotes(selectedNotes_);
+}
+
+void AppModel::endNotes()
+{
+    if (playingNotes_.empty())
+        return;
+    playingNotes_.clear();
+    sendMix();
+    position_.store(notesFrom_);
+    sendChangeMessage();
+}
+
 void AppModel::play()
 {
     if (!built_)
         return;
+    endNotes();
     const juce::SpinLock::ScopedLockType lock(commandLock_);
     commands_.play = true;
     commands_.stop = commands_.scrub = false;
@@ -180,19 +223,46 @@ void AppModel::stop()
 {
     // Stopped from now on for everyone here, while the audio thread fades out.
     playing_.store(false);
-    const juce::SpinLock::ScopedLockType lock(commandLock_);
-    commands_.stop = true;
-    commands_.play = false;
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.stop = true;
+        commands_.play = false;
+    }
+    endNotes();
+}
+
+void AppModel::beginFrame(double timestamp)
+{
+    const double p = position_.load();
+    if (!playing_.load())
+    {
+        frameAt_ = -1.0;
+        shown_ = p;
+        return;
+    }
+    // Where the audio is: its last block, carried on by the clock up to 50 ms.
+    const double rate = speed_.load() * kVgmRate;
+    const double audio = p + std::clamp(juce::Time::getMillisecondCounterHiRes() - positionStamp_.load(), 0.0, 50.0) * rate / 1000.0;
+    // Audio blocks come at uneven times, and so do the calls that read them,
+    // so following either makes the playhead stutter. The position shown
+    // moves on by the time between display refreshes instead, steered toward
+    // the audio's over about 200 ms and never back. A jump of more than
+    // 50 ms, a seek or a loop, is followed at once.
+    if (frameAt_ < 0.0 || std::abs(audio - shown_) > 0.05 * kVgmRate)
+        shown_ = audio;
+    else if (timestamp > frameAt_)
+    {
+        const double elapsed = std::min(timestamp - frameAt_, 0.1);
+        const double ahead = shown_ + elapsed * rate;
+        shown_ = std::max(shown_, ahead + (audio - ahead) * std::min(1.0, elapsed / 0.2));
+    }
+    frameAt_ = timestamp;
 }
 
 double AppModel::displayPosition() const
 {
-    const double p = position_.load();
-    if (!playing_.load())
-        return p;
-    // Up to 50 ms ahead of the last audio block.
-    const double elapsed = std::clamp(juce::Time::getMillisecondCounterHiRes() - positionStamp_.load(), 0.0, 50.0);
-    return p + elapsed * speed_.load() * kVgmRate / 1000.0;
+    // Stopped, or before the first frame of playing: the position itself.
+    return playing_.load() && frameAt_ >= 0.0 ? shown_ : position_.load();
 }
 
 void AppModel::setSelection(double start, double end, bool keepPlayhead)
@@ -215,6 +285,9 @@ void AppModel::clearSelection()
 
 void AppModel::setPosition(double songTime)
 {
+    // Moved by hand, the song plays on from there, not the notes alone.
+    if (!playingNotes_.empty())
+        playingNotes_.clear(), sendMix();
     position_.store(std::max(0.0, songTime));
     if (hasSelection() && (position_.load() < selectionStart_.load() || position_.load() > selectionEnd_.load()))
         selectionStart_.store(0.0), selectionEnd_.store(0.0);
@@ -240,6 +313,8 @@ void AppModel::scrub(double songTime)
 
 void AppModel::timerCallback()
 {
+    if (notesDone_.exchange(false))
+        endNotes();
     auto version = rebuilder_.take();
     if (!version || !tune_) // a build that finishes after the song was closed is dropped
         return;
@@ -309,6 +384,7 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             {
                 player_.stop();
                 playing_.store(false);
+                notesEnd_ = -1;
                 c.stop = false;
             }
             if (c.play && c.scrub)
@@ -325,7 +401,10 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
                 scrubLeft_ = 0;
                 if (player_.play(c.playAt))
                     playing_.store(true);
+                notesEnd_ = c.notesEnd;
+                notesStart_ = c.playAt;
                 c.play = false;
+                c.notesEnd = -1;
             }
         }
     }
@@ -366,7 +445,26 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         // start, playing on with loop and stopping there without.
         const VgmSong* song = player_.song();
         const bool selected = selectionEnd_.load() > selectionStart_.load();
-        if (song && playing_.load() && (selected || loop_.load()))
+        // Notes played alone stop at the last one's end, and the message
+        // thread moves the playhead to the first one's start. With loop on,
+        // they play again from there.
+        if (notesEnd_ >= 0 && playing_.load())
+        {
+            if (player_.position() >= notesEnd_ && loop_.load())
+            {
+                player_.play(notesStart_);
+                position_.store(notesStart_);
+                positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
+            }
+            else if (player_.position() >= notesEnd_)
+            {
+                player_.stop();
+                playing_.store(false);
+                notesEnd_ = -1;
+                notesDone_.store(true);
+            }
+        }
+        else if (song && playing_.load() && (selected || loop_.load()))
         {
             const double from = selected ? selectionStart_.load() : 0.0;
             const double to = selected ? selectionEnd_.load() : songEnd(*song);

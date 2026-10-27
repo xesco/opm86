@@ -29,6 +29,7 @@ private:
     std::vector<std::pair<juce::Rectangle<float>, juce::String>> tips_; // the labels drawn, refilled each paint
     void catchUp(); // the registers as written up to the playhead
     void write(bool fm, uint16_t reg, uint8_t value, double time);
+    void showHeard(); // the channels heard now show the chips' values
     float glow(bool fm, int reg) const; // 1 as a new value is written, a third for the same value again, down to 0 after kGlow
     void paintFm(juce::Graphics&, juce::Rectangle<float> area);
     void paintOperatorTable(juce::Graphics&, juce::Rectangle<float> area, int ch, juce::Colour accent); // the values, a row per operator
@@ -51,6 +52,11 @@ private:
     std::array<double, 28> holdSince_ {}; // and when each was set, in ms
     std::array<float, 4> chipLevel_ {};   // each chip's output, FM left, right, PCM left, right: linear, falling back
     double lastPaint_ = 0.0;              // ms, for the holds' fall
+    float frameSeconds_ = 0.0f;           // since the paint before
+    // Per FM operator slot, where its envelope's dot is drawn: the stretch
+    // and how far along it, 0 to 4, or -1 while off. It eases toward the
+    // envelope's place, so a quick attack shows as a sweep.
+    std::array<float, 32> along_ = [] { std::array<float, 32> a {}; a.fill(-1.0f); return a; }();
 
     AppModel& model_;
     const TrackerView& tracks_;
@@ -58,10 +64,15 @@ private:
     size_t ymNext_ = 0, pcmNext_ = 0; // the next writes to apply
     double at_ = 0.0;                 // the song time they are applied up to
     double setUpEnd_ = -1.0;          // the end of the song's opening burst of writes, which sets the chips up and does not glow
+    // The registers shown. A channel the mix silences keeps the values it had
+    // when last heard; the chips' real values go on in ymReal_ and pcmReal_,
+    // and a channel heard again shows them.
     std::array<uint8_t, 256> ym_ {}, pcm_ {};
+    std::array<uint8_t, 256> ymReal_ {}, pcmReal_ {};
     std::array<double, 256> ymWritten_ {}, pcmWritten_ {}; // song time of each register's last write
     std::array<bool, 256> ymChanged_ {}, pcmChanged_ {};   // and whether that write changed its value
     std::array<uint8_t, 8> keyOn_ {}; // per FM channel, its operators keyed on: bit 0 M1, 1 C1, 2 M2, 3 C2
+    std::array<uint8_t, 8> keyOnReal_ {};
     std::array<double, 8> keyWritten_ {};
     uint8_t pmd_ = 0, amd_ = 0;       // the LFO's depths, which share register 0x19
     ChipState live_;                  // the chips as they play, read each paint
@@ -84,7 +95,9 @@ private:
     std::vector<MapRow> mapRows(float width) const;
     static float tileLeast(float font) { return font * 2.6f + 6.0f; } // a tile's width that shows its address at that size: four hex digits and the margin
     static double tileLength(const Sample& s) { return std::max<double>(1, s.end > s.start ? s.end - s.start : 1); } // what a tile's width follows
-    float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played
+    float liveLevel(int slot) const;  // an FM operator's envelope level now, 0 when the chips have not played or its channel is not heard
+    bool heard(int channel) const;    // a chip channel, 8 FM then 16 PCM, that the mix lets through now: only these light up
+    uint8_t keyBits(int ch) const;    // an FM channel's keyed operators, none while it is not heard
     std::array<bool, 8> drawn_ { false, false, false, false, true, true, true, true }; // per FM channel: its operators drawn, not listed; the right column, 5 to 8, drawn at first
     std::array<juce::Rectangle<float>, 8> drawToggle_ {}; // the switch between the two in each channel's header
 };
