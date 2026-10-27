@@ -271,8 +271,9 @@ std::vector<std::pair<int64_t, double>> Tune::bends(const TuneTrack& track, cons
         return { { note.start, static_cast<double>(pitch(track, note)) } };
     // The importer lists the notes in the log's order, each with its pitch
     // changes while held. A driver can write the key code a few samples
-    // before the key fraction, so a change the next one replaces within
-    // 1ms is never heard, and is left out.
+    // before the key fraction, or the next note's pitch just before the key
+    // off. So a change that lasts less than 1ms, until the next change or the
+    // note's end, is never heard, and is left out.
     constexpr int64_t kSettle = 44;
     const auto& changes = data_->import.notes[source].pitch;
     const int64_t keyOn = data_->log.notes[source].start;
@@ -282,8 +283,8 @@ std::vector<std::pair<int64_t, double>> Tune::bends(const TuneTrack& track, cons
         const int64_t offset = std::max<int64_t>(0, static_cast<int64_t>(changes[i].first) - keyOn);
         if (offset >= note.length)
             break;
-        const bool replaced = i + 1 < changes.size() && static_cast<int64_t>(changes[i + 1].first) - keyOn - offset < kSettle;
-        if (i == 0 || !replaced)
+        const int64_t until = i + 1 < changes.size() ? std::min(note.length, static_cast<int64_t>(changes[i + 1].first) - keyOn) : note.length;
+        if (i == 0 || until - offset >= kSettle)
             bends.emplace_back(note.start + offset, changes[i].second + note.transpose);
     }
     return bends;
