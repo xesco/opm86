@@ -273,8 +273,8 @@ The keyboard controls the song like this:
 | Cmd+W | Closes the song |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
-the song plays to its end, the playhead goes back to the start 1s later. The mouse moves
-around the song like this:
+the song plays to its end, the playhead goes back to the start 1s later. The mouse and the
+trackpad move around the song like this:
 
 | Mouse | Effect |
 | --- | --- |
