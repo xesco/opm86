@@ -337,6 +337,19 @@ void IconButton::paintButton(juce::Graphics& g, bool over, bool down)
                 p.addRectangle(board.getX() + w * static_cast<float>(k) - w * 0.3f, board.getY(), w * 0.6f, board.getHeight() * 0.6f);
             break;
         }
+        case Icon::Bends: // a note with its pitch line across: low, a ramp, then high
+        {
+            const auto note = box.withSizeKeepingCentre(18.0f, 12.0f);
+            juce::Path outline, line;
+            outline.addRoundedRectangle(note, 2.5f);
+            juce::PathStrokeType(1.4f).createStrokedPath(p, outline);
+            line.startNewSubPath(note.getX() + 2.5f, note.getBottom() - 3.5f);
+            line.lineTo(note.getX() + 6.5f, note.getBottom() - 3.5f);
+            line.lineTo(note.getX() + 11.0f, note.getY() + 3.5f);
+            line.lineTo(note.getRight() - 2.5f, note.getY() + 3.5f);
+            juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(p, line);
+            break;
+        }
         case Icon::NoteNames: // a note with lines of text beside it: the note's name
         {
             const auto c = getLocalBounds().toFloat().getCentre().translated(-5.0f, 0.0f);
@@ -679,6 +692,15 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
         if (onChips)
             onChips(chips_.getToggleState());
     };
+    bends_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
+    bends_.setClickingTogglesState(true);
+    bends_.setToggleState(view_.showBends(), juce::dontSendNotification);
+    bends_.setTooltip("Show pitch lines");
+    bends_.onClick = [this] {
+        view_.setShowBends(bends_.getToggleState());
+        if (onBends)
+            onBends(bends_.getToggleState());
+    };
     order_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     order_.setClickingTogglesState(true);
     order_.setTooltip("Order by patch");
@@ -725,7 +747,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
             if (const juce::var& home = slider->getProperties()["home"]; !home.isVoid())
                 slider->setValue(home, juce::sendNotificationSync);
     };
-    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &chips_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
+    for (juce::Button* b : std::initializer_list<juce::Button*> { &keepPlayhead_, &follow_, &loop_, &order_, &chips_, &bends_, &reset_, &invert_, &instruments_, &drums_, &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ })
     {
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(b);
@@ -788,6 +810,12 @@ void ToolBar::setSongOpen(bool open)
     for (auto* child : getChildren())
         setSongControl(*child, open);
     repaint();
+}
+
+void ToolBar::setShowBends(bool show)
+{
+    bends_.setToggleState(show, juce::dontSendNotification);
+    view_.setShowBends(show);
 }
 
 void ToolBar::showTracks()
@@ -972,7 +1000,7 @@ void ToolBar::resized()
     divider(false);
     buttons(r.removeFromRight(width(4)), "ZOOM", { &fitTracks_, &fitTime_, &fitBoth_, &zoomHome_ });
     divider(false);
-    buttons(r.removeFromRight(width(2)), "VIEW", { &order_, &chips_ });
+    buttons(r.removeFromRight(width(3)), "VIEW", { &order_, &chips_, &bends_ });
     divider(false);
     syncZoom();
 }
@@ -1488,6 +1516,10 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addChildComponent(chipView_);
     // The chips take the strips' room too: KEYS and OVERVIEW slide down while
     // they show, and come back as they were.
+    tools_.onBends = [this](bool shown) {
+        if (onBendsChanged)
+            onBendsChanged(shown);
+    };
     tools_.onChips = [this](bool shown) {
         chipView_.setVisible(shown);
         view_.setVisible(!shown);

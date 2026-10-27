@@ -452,6 +452,12 @@ void TrackerView::setOrderByPatch(bool byPatch)
     sendChangeMessage(); // the overview follows the order
 }
 
+void TrackerView::setShowBends(bool show)
+{
+    showBends_ = show;
+    repaint();
+}
+
 void TrackerView::setCollapsed(int track, bool collapsed)
 {
     if (collapsed)
@@ -844,7 +850,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
         return;
     std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
                               static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
-                              static_cast<double>(selectedRevision_),
+                              static_cast<double>(selectedRevision_), showBends_ ? 1.0 : 0.0,
                               samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
@@ -1064,7 +1070,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     // A note the game bends or moves to new keys while held gets a line of
     // its pitch over time, from its lowest pitch at the bottom of the note to
     // its highest at the top, over at least 2 semitones.
-    const auto bends = model_.tune().bends(tr, n);
+    const auto bends = showBends_ ? model_.tune().bends(tr, n) : std::vector<std::pair<int64_t, double>> {};
     if (bends.size() > 1 && r.getHeight() >= 10.0f)
     {
         const auto [low, high] = std::minmax_element(bends.begin(), bends.end(), [](const auto& a, const auto& b) { return a.second < b.second; });

@@ -53,6 +53,8 @@ public:
     // the patch first and the voice after; off, in voice order, voice first.
     void setOrderByPatch(bool byPatch);
     bool orderByPatch() const { return byPatch_; }
+    void setShowBends(bool show); // a line across each note the game bends while held, of its pitch
+    bool showBends() const { return showBends_; }
     int position(int track) const { return layout().position[static_cast<size_t>(track)]; } // its place top down
     bool follow() const { return follow_; }
 
@@ -197,6 +199,7 @@ private:
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
     NoteRef hover_;
+    bool showBends_ = true;
     NoteRef pressedNote_;               // the note under a press, which a click selects
     std::set<NoteRef> selectedNotes_;   // notes selected with a click, in the file below
     juce::File selectedFile_;
