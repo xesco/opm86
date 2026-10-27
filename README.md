@@ -9,68 +9,36 @@ find songs and how to use the app, and, for developers, how to build it.
 
 ## Download
 
-The commands download the latest release. Older releases are on the
-[releases page](https://github.com/xesco/opm86/releases), and [Build](#build) shows how to
-build the app yourself.
+Download the app from the [latest release](https://github.com/xesco/opm86/releases/latest).
+Take the file for your system, unpack it, and open the app inside. Older releases are on
+the [releases page](https://github.com/xesco/opm86/releases), and [Build](#build) shows how
+to build the app yourself.
 
-### macOS
+| System | What it needs | File |
+| --- | --- | --- |
+| macOS | macOS 11 or later, on Apple Silicon or Intel | `OPM86-Player-macos.zip` |
+| Windows | Windows 10 or later | `OPM86-Player-windows.zip`, or `OPM86-Player-windows-arm64.zip` on a PC with an ARM processor |
+| Linux, x86-64 | A distribution from 2022 on (glibc 2.35 or later), such as Ubuntu 22.04, Debian 12 or Linux Mint 21, with the ALSA, FreeType, Fontconfig and X11 libraries, which most desktops install already | `OPM86-Player-linux.tar.gz` |
+| Raspberry Pi | The 64-bit Raspberry Pi OS | `OPM86-Player-linux-arm64.tar.gz` |
 
-macOS 11 or later, on Apple Silicon or Intel.
+A Raspberry Pi 5 or 500 plays songs, but the scrolling is not fully smooth, because the app
+redraws 30 times a second on a Pi. A Pi 4 or 3 has not been tried, and is probably too
+slow.
 
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip
-unzip OPM86-Player-macos.zip
-# Move it to Applications
-mv "OPM86 Player.app" /Applications/
-# Clear the download flag, so macOS opens the unsigned app without a warning
-xattr -dr com.apple.quarantine "/Applications/OPM86 Player.app"
-# Start it
-open "/Applications/OPM86 Player.app"
-```
+### Open the app the first time
 
-### Windows
+The app is not signed with a developer certificate, so macOS and Windows ask you before
+they open it the first time:
 
-Windows 10 or later. In PowerShell:
-
-```powershell
-# Download the app; on a PC with an ARM processor, use OPM86-Player-windows-arm64.zip
-Invoke-WebRequest https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip -OutFile OPM86-Player-windows.zip
-# Clear the download flag, so SmartScreen does not stop the unsigned app
-Unblock-File OPM86-Player-windows.zip
-# Unpack it into a folder
-Expand-Archive OPM86-Player-windows.zip -DestinationPath "OPM86 Player"
-# Start it
-& "OPM86 Player\OPM86 Player.exe"
-```
-
-### Linux, x86-64
-
-A distribution from 2022 on (glibc 2.35 or later), such as Ubuntu 22.04, Debian 12 or Linux
-Mint 21, with the ALSA, FreeType, Fontconfig and X11 libraries, which most desktops install
-already.
-
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz
-tar -xzf OPM86-Player-linux.tar.gz
-# Start it; opm86-player.png is its icon, for a launcher entry
-./opm86-player
-```
-
-### Raspberry Pi
-
-The 64-bit Raspberry Pi OS. A Pi 5 or 500 plays songs, though the scrolling is not fully
-smooth: the app redraws 30 times a second on a Pi. A Pi 4 or 3 has not been tried, and is
-probably too slow.
-
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz
-tar -xzf OPM86-Player-linux-arm64.tar.gz
-# Start it
-./opm86-player
-```
+- **macOS:** move OPM86 Player to Applications and open it. When macOS says that it cannot
+  check the app, open System Settings, then Privacy & Security, and click **Open Anyway**
+  beside the message about OPM86 Player. When macOS says instead that the app is damaged,
+  the download flag on the app is the cause, and the command
+  `xattr -dr com.apple.quarantine "/Applications/OPM86 Player.app"` in Terminal clears it.
+- **Windows:** when SmartScreen says that it protected your PC, click **More info**, then
+  **Run anyway**.
+- **Linux and Raspberry Pi:** the file `opm86-player` starts the app, and the file
+  `opm86-player.png` is its icon, for an entry in your launcher.
 
 ## The sound board
 
