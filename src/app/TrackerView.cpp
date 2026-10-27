@@ -159,8 +159,9 @@ void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
         hover_ = {};
         setTooltip({});
     }
-    // Selected notes belong to the song they were selected in.
-    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_))
+    // Selected notes belong to the song they were selected in, and a new
+    // section drops them in the model (AppModel::setSelection).
+    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_ || model_.selectedNotes().empty()))
         selectedNotes_.clear(), ++selectedRevision_;
     repaint();
 }
@@ -848,14 +849,20 @@ void TrackerView::paintLanes(juce::Graphics& g)
     const float height = static_cast<float>(getHeight() - kRulerHeight);
     if (static_cast<float>(getWidth()) <= lanesX() || height <= 0.0f)
         return;
-    std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
-                              static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
-                              static_cast<double>(selectedRevision_), showBends_ ? 1.0 : 0.0,
-                              samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
+    // Where things are, and the selection, which follows a drag: all redrawn now.
+    std::vector<double> key { model_.selectionStart(), model_.selectionEnd(), samplesPerPixel_, static_cast<double>(getHeight()),
+                              lanesX(), scale };
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
     if (key != lanesKey_)
         tiles_.clear(), lanesKey_ = std::move(key);
+    // How the notes look: edits (mute, solo, volume), the build's channels,
+    // the colours, the selected notes and the pitch lines. Redrawn over frames.
+    std::vector<double> looks { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
+                                static_cast<double>(theme::pitchColoursRevision()), static_cast<double>(selectedRevision_),
+                                showBends_ ? 1.0 : 0.0 };
+    if (looks != looksKey_)
+        ++looksVersion_, looksKey_ = std::move(looks);
 
     // The tiles in view, and the one about to come into it.
     const double span = kTileWidth * samplesPerPixel_; // song time a tile covers
@@ -871,22 +878,33 @@ void TrackerView::paintLanes(juce::Graphics& g)
     g.saveState();
     g.reduceClipRegion(juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight));
     g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+    // A tile not yet drawn is drawn now; one drawn before a change of looks is
+    // redrawn while this frame's budget lasts, and shown as it was until then.
+    const double started = juce::Time::getMillisecondCounterHiRes();
+    bool behind = false;
     for (long k = first; k <= last; ++k)
     {
         auto& tile = tiles_[k];
-        if (!tile.isValid())
+        const bool stale = tile.image.isValid() && tile.looks != looksVersion_;
+        if (stale && juce::Time::getMillisecondCounterHiRes() - started > kRedrawBudgetMs)
+            behind = true;
+        else if (!tile.image.isValid() || stale)
         {
-            tile = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
-            juce::Graphics layer(tile);
+            if (!tile.image.isValid())
+                tile.image = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
+            juce::Graphics layer(tile.image);
             layer.addTransform(juce::AffineTransform::translation(-lanesX(), -static_cast<float>(kRulerHeight)).scaled(scale));
             const double view = viewStart_;
             viewStart_ = static_cast<double>(k) * span; // the tile starts at the lanes' left edge
             paintLaneLayer(layer, lanesX() + static_cast<float>(kTileWidth));
             viewStart_ = view;
+            tile.looks = looksVersion_;
         }
         const float x = timeToX(static_cast<double>(k) * span) + shift;
-        g.drawImageTransformed(tile, juce::AffineTransform::scale(1.0f / scale).translated(x, static_cast<float>(kRulerHeight)));
+        g.drawImageTransformed(tile.image, juce::AffineTransform::scale(1.0f / scale).translated(x, static_cast<float>(kRulerHeight)));
     }
+    if (behind)
+        repaint(); // the next frame goes on with the rest
 
     // The notes sounding now, over the rest with their glow.
     if (model_.playing())
@@ -1540,7 +1558,7 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
     // A click on a note selects it, for Space or the play button to play
-    // alone; Shift adds or removes it.
+    // alone, or deselects it if it was; Shift adds or removes it.
     const bool click = (finished == Drag::Lanes || finished == Drag::Select) && e.getDistanceFromDragStart() <= 3;
     const NoteRef pressed = std::exchange(pressedNote_, {});
     if (click && pressed.valid())
@@ -1567,8 +1585,9 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 
 void TrackerView::clickNote(NoteRef note, bool add)
 {
-    std::set<NoteRef> notes = add ? selectedNotes_ : std::set<NoteRef> {};
-    if (add && notes.count(note) > 0)
+    // A click on a selected note deselects it, with or without Shift.
+    std::set<NoteRef> notes = add || selectedNotes_.count(note) > 0 ? selectedNotes_ : std::set<NoteRef> {};
+    if (notes.count(note) > 0)
         notes.erase(note);
     else
         notes.insert(note);
@@ -1577,6 +1596,9 @@ void TrackerView::clickNote(NoteRef note, bool add)
 
 void TrackerView::selectNotes(std::set<NoteRef> notes)
 {
+    // Selected notes replace a section, even one they are in.
+    if (!notes.empty() && model_.hasSelection())
+        model_.clearSelection();
     selectedNotes_ = std::move(notes);
     selectedFile_ = model_.file();
     ++selectedRevision_;

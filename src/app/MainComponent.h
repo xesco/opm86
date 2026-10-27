@@ -50,6 +50,22 @@ private:
     float from_ = 0.0f; // the knob's position when a drag began
 };
 
+// The credits, over the whole window: the app's version, author, licence and
+// page, and what it is built with. A click outside the card, or Esc, closes it.
+class CreditsPanel : public juce::Component
+{
+public:
+    CreditsPanel();
+    void paint(juce::Graphics&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    bool keyPressed(const juce::KeyPress&) override;
+
+private:
+    juce::Rectangle<float> card() const;
+    juce::Rectangle<float> link_; // the page's link, as last drawn
+};
+
 // The transport and song display along the top: title, rewind, play, stop
 // and to the end, LED counters, the file, the master volume and Open.
 class TopBar : public juce::Component
@@ -66,8 +82,12 @@ public:
 
     std::function<void()> onOpen;
     std::function<void()> onClose;
+    std::function<void()> onCredits; // the title was clicked
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
 private:
+    static juce::Rectangle<int> titleArea() { return { 16, 12, 190, 40 }; } // OPM86 and the line under it
     AppModel& model_;
     TrackerView& view_;
     IconButton rewind_ { IconButton::Icon::Rewind }, play_ { IconButton::Icon::Play }, stop_ { IconButton::Icon::Stop };
@@ -294,6 +314,7 @@ private:
     ChipView chipView_ { model_, view_ }; // in the tracks' place while the tool bar's Chips is on
     bool pianoWasOpen_ = true, overviewWasOpen_ = true; // the strips as they were before the chips showed
     TopBar top_ { model_, view_ };
+    CreditsPanel credits_; // over everything, while shown
     ToolBar tools_ { model_, view_ };
     OverviewStrip overview_ { model_, view_ };
     PianoStrip piano_ { model_ };

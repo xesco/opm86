@@ -617,6 +617,103 @@ void TopBar::songChanged()
             setSongControl(*child, model_.hasTune());
 }
 
+void TopBar::mouseMove(const juce::MouseEvent& e)
+{
+    // The title opens the credits.
+    setMouseCursor(titleArea().contains(e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void TopBar::mouseUp(const juce::MouseEvent& e)
+{
+    if (titleArea().contains(e.getPosition()) && titleArea().contains(e.getMouseDownPosition()) && onCredits)
+        onCredits();
+}
+
+CreditsPanel::CreditsPanel()
+{
+    setWantsKeyboardFocus(true);
+}
+
+juce::Rectangle<float> CreditsPanel::card() const
+{
+    return getLocalBounds().toFloat().withSizeKeepingCentre(480.0f, 360.0f);
+}
+
+void CreditsPanel::paint(juce::Graphics& g)
+{
+    // The window darkened under a card.
+    g.fillAll(theme::background.withAlpha(0.75f));
+    const auto c = card();
+    g.setColour(theme::panel);
+    g.fillRoundedRectangle(c, 8.0f);
+    g.setColour(theme::magenta.withAlpha(0.6f));
+    g.drawRoundedRectangle(c.reduced(0.5f), 8.0f, 1.0f);
+
+    auto r = c.reduced(28.0f, 24.0f);
+    auto line = [&](float height) { return r.removeFromTop(height); };
+    g.setFont(theme::pixel(22.0f));
+    g.setColour(theme::orange);
+    g.drawText("OPM86", line(30.0f), juce::Justification::topLeft);
+    g.setFont(theme::mono(14.0f, true));
+    g.setColour(theme::text);
+    g.drawText("PLAYER v" JUCE_APPLICATION_VERSION_STRING, line(22.0f), juce::Justification::centredLeft);
+    g.setFont(theme::mono(13.0f));
+    g.setColour(theme::dim);
+    g.drawText("By xesco. Free software under the AGPL-3.0 licence.", line(20.0f), juce::Justification::centredLeft);
+    const juce::String page = "github.com/xesco/opm86";
+    link_ = line(22.0f).withWidth(static_cast<float>(juce::GlyphArrangement::getStringWidthInt(theme::mono(13.0f, true), page)) + 2.0f);
+    g.setFont(theme::mono(13.0f, true));
+    g.setColour(theme::cyan);
+    g.drawText(page, link_, juce::Justification::centredLeft);
+    g.fillRect(link_.getX(), link_.getBottom() - 3.0f, link_.getWidth() - 2.0f, 1.0f);
+
+    r.removeFromTop(18.0f);
+    g.setFont(theme::mono(12.0f, true));
+    g.setColour(theme::magenta);
+    g.drawText("BUILT WITH", line(20.0f), juce::Justification::centredLeft);
+    // Each part and its licence, the licences in a column.
+    const std::pair<juce::String, juce::String> parts[] = {
+        { juce::SystemStats::getJUCEVersion().fromFirstOccurrenceOf("JUCE ", false, false).replace("v", "JUCE "), "AGPLv3 or commercial" },
+        { "ymfm, by Aaron Giles", "BSD 3-Clause" },
+        { "zlib", "zlib licence" },
+        { "Press Start 2P", "SIL Open Font Licence 1.1" },
+        { "JetBrains Mono", "SIL Open Font Licence 1.1" },
+    };
+    g.setFont(theme::mono(13.0f));
+    for (const auto& [name, licence] : parts)
+    {
+        auto row = line(22.0f);
+        g.setColour(theme::text);
+        g.drawText(name, row.removeFromLeft(r.getWidth() * 0.45f), juce::Justification::centredLeft);
+        g.setColour(theme::dim);
+        g.drawText(licence, row, juce::Justification::centredLeft);
+    }
+    g.setFont(theme::mono(11.0f));
+    g.setColour(theme::faint);
+    g.drawText("Esc or a click outside closes this", c.reduced(28.0f, 14.0f).removeFromBottom(14.0f), juce::Justification::centredLeft);
+}
+
+void CreditsPanel::mouseMove(const juce::MouseEvent& e)
+{
+    setMouseCursor(link_.contains(e.position) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void CreditsPanel::mouseUp(const juce::MouseEvent& e)
+{
+    if (link_.contains(e.position))
+        juce::URL("https://github.com/xesco/opm86").launchInDefaultBrowser();
+    else if (!card().contains(e.position))
+        setVisible(false);
+}
+
+bool CreditsPanel::keyPressed(const juce::KeyPress& key)
+{
+    if (key != juce::KeyPress::escapeKey)
+        return false;
+    setVisible(false);
+    return true;
+}
+
 void TopBar::paint(juce::Graphics& g)
 {
     g.setGradientFill(juce::ColourGradient(theme::panelLight, 0, 0, theme::panel, 0, static_cast<float>(getHeight()), false));
@@ -631,7 +728,7 @@ void TopBar::paint(juce::Graphics& g)
     g.drawText("OPM86", juce::Rectangle<int>(16, 12, 190, 20), juce::Justification::topLeft);
     g.setFont(theme::mono(12.0f, true));
     g.setColour(theme::dim);
-    g.drawText("PLAYER  YM2151+SEGAPCM", juce::Rectangle<int>(16, 38, 200, 12), juce::Justification::topLeft);
+    g.drawText("PLAYER v" JUCE_APPLICATION_VERSION_STRING "  YM2151+SEGAPCM", juce::Rectangle<int>(16, 38, 240, 12), juce::Justification::topLeft);
 
     play_.setToggleState(model_.playing(), juce::dontSendNotification);
 
@@ -1535,6 +1632,11 @@ MainComponent::MainComponent() : look_(std::make_unique<TrackerLook>())
     addAndMakeVisible(piano_);
     top_.onOpen = [this] { openDialog(); };
     top_.onClose = [this] { close(); };
+    top_.onCredits = [this] {
+        credits_.setVisible(true);
+        credits_.toFront(true);
+    };
+    addChildComponent(credits_);
     overview_.onHeight = [this](int height) {
         overviewHeight_ = std::clamp(height, kOverviewHeight, kStripMaxHeight);
         overview_.openHeight = overviewHeight_;
@@ -1653,6 +1755,7 @@ void MainComponent::resized()
     piano_.setBounds(r.removeFromBottom(static_cast<int>(std::lround(pianoShown_))));
     view_.setBounds(r);
     chipView_.setBounds(r);
+    credits_.setBounds(getLocalBounds());
     // The strips line up with the header column from the first paint, not a frame later.
     piano_.setHeaderWidth(view_.headerWidth());
     overview_.setHeaderWidth(view_.headerWidth());
