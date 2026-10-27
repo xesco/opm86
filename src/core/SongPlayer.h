@@ -146,6 +146,7 @@ struct ChipState
     std::array<float, 32> level {};         // and its envelope's level, 1 loudest, 0 silent
     std::array<uint32_t, 16> pcmAddress {}; // per PCM channel: the ROM address it plays from now
     uint16_t pcmPlaying = 0;                // bit n: PCM channel n is playing
+    std::array<float, ChannelMix::kChannels> gain {}; // per chip channel, 8 FM then 16 PCM: the gain the mix gives it now, 0 when silenced
     bool valid = false;                     // false until the chips have played
 };
 
