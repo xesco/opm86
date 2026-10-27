@@ -45,26 +45,38 @@ they open it the first time:
 
 ## The sound board
 
-The Out Run sound board has two sound chips, and the app emulates both at their original
-clock rates. Each chip produces its output at its own sample rate, and the app converts
-both outputs to the sample rate of your audio interface. The project takes its name from
-this board: OPM is Yamaha's name for the YM2151, short for FM Operator Type-M, and 86
-stands for 1986, the year Sega released Out Run.
+Sega's arcade boards of the late 1980s, such as the Out Run board, the X Board and the Y
+Board, play their music on two sound chips. The app emulates both chips, each at the clock
+rate that the VGM file records for its board. Each chip produces its output at its own
+sample rate, a fixed fraction of its clock, and the app converts both outputs to the sample
+rate of your audio interface.
 
-| Chip | Role | Clock | Sample rate | Voices |
+| Chip | Role | Voices | Sample rate |
+| --- | --- | --- | --- |
+| YM2151 (OPM) | FM synthesis for melody, chords and bass | 8 | Its clock ÷ 64 |
+| Sega PCM (315-5218) | 8-bit sample playback, mostly for drums | 16 | Its clock ÷ 128 |
+
+The boards run both chips at one clock, which sets their sample rates:
+
+| Board | Games, for example | Clock | YM2151 sample rate | Sega PCM sample rate |
 | --- | --- | --- | --- | --- |
-| YM2151 (OPM) | FM synthesis for melody, chords and bass | 4MHz | 62.5kHz | 8 |
-| Sega PCM (315-5218) | 8-bit sample playback for drums | 4MHz | 31.25kHz | 16 |
+| Out Run, X Board | Out Run, Turbo Out Run, After Burner II | 4MHz | 62.5kHz | 31.25kHz |
+| Y Board | Power Drift, Galaxy Force II | 4.027MHz | 62.9kHz | 31.5kHz |
+
+The project takes its name from the YM2151 and from Out Run. OPM is Yamaha's name for the
+YM2151, short for FM Operator Type-M. 86 stands for 1986, the year Sega released Out Run,
+as a tribute to a game that plays its music on these chips.
 
 The YM2151 makes each voice from four sine oscillators called operators, named M1, C1, M2
 and C2. An operator is either heard directly, as a carrier, or changes the sound of another
 operator, as a modulator. The algorithm is a number from 0 to 7 that sets which operators
 modulate which. A patch is the complete set of these settings for one sound. The YM2151 is
-tuned for a 3.58MHz clock, so at Out Run's 4MHz it plays sharp, as it did in the arcade.
-The app names each note by the pitch it plays at the game's clock.
+tuned for a 3.58MHz clock, so on these boards, which run it faster, it plays sharp, as it
+did in the arcade. The app names each note by the pitch it plays at its board's clock.
 
-The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Each of its
-16 channels plays one sample at a time.
+The Sega PCM chip plays recorded sounds, called samples, from a memory whose size depends
+on the board: 512KB on the Out Run board. Each of its 16 channels plays one sample at a
+time.
 
 ## Build
 
