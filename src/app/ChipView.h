@@ -29,6 +29,7 @@ private:
     std::vector<std::pair<juce::Rectangle<float>, juce::String>> tips_; // the labels drawn, refilled each paint
     void catchUp(); // the registers as written up to the playhead
     void write(bool fm, uint16_t reg, uint8_t value, double time);
+    void showHeard(); // the channels heard now show the chips' values
     float glow(bool fm, int reg) const; // 1 as a new value is written, a third for the same value again, down to 0 after kGlow
     void paintFm(juce::Graphics&, juce::Rectangle<float> area);
     void paintOperatorTable(juce::Graphics&, juce::Rectangle<float> area, int ch, juce::Colour accent); // the values, a row per operator
@@ -58,10 +59,15 @@ private:
     size_t ymNext_ = 0, pcmNext_ = 0; // the next writes to apply
     double at_ = 0.0;                 // the song time they are applied up to
     double setUpEnd_ = -1.0;          // the end of the song's opening burst of writes, which sets the chips up and does not glow
+    // The registers shown. A channel the mix silences keeps the values it had
+    // when last heard; the chips' real values go on in ymReal_ and pcmReal_,
+    // and a channel heard again shows them.
     std::array<uint8_t, 256> ym_ {}, pcm_ {};
+    std::array<uint8_t, 256> ymReal_ {}, pcmReal_ {};
     std::array<double, 256> ymWritten_ {}, pcmWritten_ {}; // song time of each register's last write
     std::array<bool, 256> ymChanged_ {}, pcmChanged_ {};   // and whether that write changed its value
     std::array<uint8_t, 8> keyOn_ {}; // per FM channel, its operators keyed on: bit 0 M1, 1 C1, 2 M2, 3 C2
+    std::array<uint8_t, 8> keyOnReal_ {};
     std::array<double, 8> keyWritten_ {};
     uint8_t pmd_ = 0, amd_ = 0;       // the LFO's depths, which share register 0x19
     ChipState live_;                  // the chips as they play, read each paint

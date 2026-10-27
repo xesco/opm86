@@ -158,31 +158,56 @@ juce::String ChipView::getTooltip()
     return {};
 }
 
+namespace
+{
+// The chip channel a register belongs to, 8 FM then 16 PCM, or -1 for the
+// FM chip's own registers below 0x20. From 0x20 on, FM registers belong to
+// channel reg & 7, and PCM registers to channel (reg >> 3) & 15.
+int channelOf(bool fm, size_t r)
+{
+    return fm ? (r >= 0x20 ? static_cast<int>(r & 7) : -1) : 8 + static_cast<int>((r >> 3) & 15);
+}
+} // namespace
+
 void ChipView::write(bool fm, uint16_t reg, uint8_t value, double written)
 {
     const auto r = static_cast<size_t>(reg & 0xFF);
     const double time = written <= setUpEnd_ ? kNever : written; // the set-up writes do not glow
-    if (fm)
+    if (fm && r == 0x08)
     {
-        if (r == 0x08)
+        // Key on and off: the channel, and its operators in bits 3 to 6.
+        keyOnReal_[value & 7] = static_cast<uint8_t>((value >> 3) & 15);
+        if (heard(value & 7))
         {
-            // Key on and off: the channel, and its operators in bits 3 to 6.
-            keyOn_[value & 7] = static_cast<uint8_t>((value >> 3) & 15);
+            keyOn_[value & 7] = keyOnReal_[value & 7];
             keyWritten_[value & 7] = time;
-            return;
         }
-        if (r == 0x19)
-            ((value & 0x80) ? pmd_ : amd_) = value & 0x7F;
-        ymChanged_[r] = ym_[r] != value;
-        ym_[r] = value;
-        ymWritten_[r] = time;
+        return;
     }
-    else
+    if (fm && r == 0x19)
+        ((value & 0x80) ? pmd_ : amd_) = value & 0x7F;
+    (fm ? ymReal_ : pcmReal_)[r] = value;
+    // A channel the mix silences keeps showing what it had.
+    if (const int ch = channelOf(fm, r); ch >= 0 && !heard(ch))
+        return;
+    auto& shown = fm ? ym_ : pcm_;
+    (fm ? ymChanged_ : pcmChanged_)[r] = shown[r] != value;
+    shown[r] = value;
+    (fm ? ymWritten_ : pcmWritten_)[r] = time;
+}
+
+void ChipView::showHeard()
+{
+    for (size_t r = 0; r < 256; ++r)
     {
-        pcmChanged_[r] = pcm_[r] != value;
-        pcm_[r] = value;
-        pcmWritten_[r] = time;
+        if (const int ch = channelOf(true, r); ch >= 0 && heard(ch))
+            ym_[r] = ymReal_[r];
+        if (heard(channelOf(false, r)))
+            pcm_[r] = pcmReal_[r];
     }
+    for (int ch = 0; ch < 8; ++ch)
+        if (heard(ch))
+            keyOn_[static_cast<size_t>(ch)] = keyOnReal_[static_cast<size_t>(ch)];
 }
 
 void ChipView::catchUp()
@@ -225,6 +250,7 @@ void ChipView::catchUp()
         song_ = &song;
         ymNext_ = pcmNext_ = 0;
         ym_.fill(0), pcm_.fill(0), keyOn_.fill(0);
+        ymReal_.fill(0), pcmReal_.fill(0), keyOnReal_.fill(0);
         ymWritten_.fill(kNever), pcmWritten_.fill(kNever), keyWritten_.fill(kNever);
         ymChanged_.fill(false), pcmChanged_.fill(false);
         pmd_ = amd_ = 0;
@@ -233,6 +259,7 @@ void ChipView::catchUp()
         write(true, song.ym[ymNext_].address, song.ym[ymNext_].value, song.ym[ymNext_].time);
     for (; pcmNext_ < song.pcm.size() && song.pcm[pcmNext_].time <= now; ++pcmNext_)
         write(false, song.pcm[pcmNext_].address, song.pcm[pcmNext_].value, song.pcm[pcmNext_].time);
+    showHeard(); // a channel heard again shows the chips' values
     at_ = now;
 }
 
@@ -253,10 +280,8 @@ float ChipView::liveLevel(int slot) const
 
 float ChipView::glow(bool fm, int reg) const
 {
-    // A channel's own register glows only while the channel is heard: from
-    // 0x20 on, FM registers belong to channel reg & 7, and PCM registers to
-    // channel (reg >> 3) & 15.
-    if (fm ? reg >= 0x20 && !heard(reg & 7) : !heard(8 + ((reg >> 3) & 15)))
+    // A channel's own register glows only while the channel is heard.
+    if (const int ch = channelOf(fm, static_cast<size_t>(reg & 0xFF)); ch >= 0 && !heard(ch))
         return 0.0f;
     // A new value glows full; the same value written again, faintly.
     const auto r = static_cast<size_t>(reg & 0xFF);
@@ -274,8 +299,8 @@ void ChipView::paint(juce::Graphics& g)
         song_ = nullptr; // so a song opened next is read from its start, wherever it lands
         return;
     }
+    live_ = model_.chipState(); // first: which channels are heard decides what catchUp shows
     catchUp();
-    live_ = model_.chipState();
     const double started = juce::Time::getMillisecondCounterHiRes();
     // The chips' outputs fall back over about a third of a second, as the track meters do.
     {
@@ -768,7 +793,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
 
         // Where the envelope is now: on its stage's stretch, at its level.
         const float times[5] = { 0.0f, attack * 0.25f, attack * 0.25f + decay * 0.25f, attack * 0.25f + decay * 0.25f + 0.3f, t };
-        const auto stage = live_.valid ? live_.stage[static_cast<size_t>(slot)] : ChipState::Stage::Off;
+        const auto stage = live_.valid && heard(slot & 7) ? live_.stage[static_cast<size_t>(slot)] : ChipState::Stage::Off;
         const float now = liveLevel(slot);
         auto along = [](float value, float from, float to) { return std::abs(to - from) < 1e-4f ? 0.0f : std::clamp((value - from) / (to - from), 0.0f, 1.0f); };
         int segment = -1;
