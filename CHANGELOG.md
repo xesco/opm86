@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.6 (2026-10-27)
+
+- The version and credits, cleaner selections, and smooth redraws (#18)
+
 ## v0.1.5 (2026-10-27)
 
 - Builds that run on the systems they target, checked by starting the app (#17)
