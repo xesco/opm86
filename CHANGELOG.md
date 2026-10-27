@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.4 (2026-10-27)
+
+- Pitch lines, notes played alone, a smooth playhead, and a chip view of what is heard (#16)
+- Windows on ARM build, and the README's download and build as commands (#15)
+- README: Raspberry Pi requirements by model (#14)
+
 ## v0.1.3 (2026-10-08)
 
 - make per system, a Raspberry Pi build, faster drawing, and the README by system (#13)
