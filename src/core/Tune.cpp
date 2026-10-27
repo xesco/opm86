@@ -272,7 +272,7 @@ std::vector<std::pair<int64_t, double>> Tune::bends(const TuneTrack& track, cons
     // The importer lists the notes in the log's order, each with its pitch
     // changes while held. A driver can write the key code a few samples
     // before the key fraction, or the next note's pitch just before the key
-    // off. So a change that lasts less than 1ms, until the next change or the
+    // off. So a change that lasts less than 1 ms, until the next change or the
     // note's end, is never heard, and is left out.
     constexpr int64_t kSettle = 44;
     const auto& changes = data_->import.notes[source].pitch;

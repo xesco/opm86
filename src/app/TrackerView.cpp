@@ -1081,7 +1081,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
         auto y = [&](double p) { return area.getCentreY() - static_cast<float>((p - middle) / span) * area.getHeight(); };
         juce::Path line;
         line.startNewSubPath(area.getX(), y(bends.front().second));
-        // A slide, in steps under a semitone less than 100ms apart, is a ramp
+        // A slide, in steps under a semitone less than 100 ms apart, is a ramp
         // from one change to the next. A jump of a semitone or more, or a
         // change after a held pitch, is a step.
         for (size_t i = 1; i < bends.size(); ++i)

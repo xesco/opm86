@@ -809,7 +809,7 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         }
         // An instant attack would jump the dot from the release to the peak
         // between two frames. So the dot travels the line instead: it eases
-        // toward the envelope's place over about 60ms, and a new key on sends
+        // toward the envelope's place over about 60 ms, and a new key on sends
         // it back to the start. Its place is the stretch and how far along,
         // 0 to 4.
         float& shown = along_[static_cast<size_t>(slot)];
