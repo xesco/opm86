@@ -1355,9 +1355,12 @@ void PianoStrip::paint(juce::Graphics& g)
     std::array<bool, 128> on {};
     std::array<double, 128> struck {}; // when the latest note on each key began
     const double now = model_.displayPosition();
+    // Notes played alone light their keys, and no others.
+    const auto& alone = model_.playingNotes();
     for (const TuneTrack& t : model_.tune().tracks)
         {
-            if (t.kind != TuneTrack::Kind::Fm || !model_.tune().audible(t))
+            const int track = static_cast<int>(&t - model_.tune().tracks.data());
+            if (t.kind != TuneTrack::Kind::Fm || (alone.empty() && !model_.tune().audible(t)))
                 continue;
             auto it = std::upper_bound(t.notes.begin(), t.notes.end(), now,
                                        [](double time, const TuneNote& n) { return time < static_cast<double>(n.start); });
@@ -1365,7 +1368,8 @@ void PianoStrip::paint(juce::Graphics& g)
             for (int back = 0; back < 4 && it != t.notes.begin(); ++back)
             {
                 --it;
-                if (now < static_cast<double>(it->start + it->length) && model_.tune().audible(t, *it))
+                const bool heard = alone.empty() ? model_.tune().audible(t, *it) : alone.count({ track, it->id }) > 0;
+                if (now < static_cast<double>(it->start + it->length) && heard)
                 {
                     // The key nearest the pitch now, which the game can bend or move while the note is held.
                     const auto bends = model_.tune().bends(t, *it);

@@ -185,6 +185,28 @@ void testTune()
           "a note's bends follow each pitch change while held");
     check(tune->bends(lead, lead.notes[0]).size() == 1, "a note held at one pitch has one bend");
 
+    // The lead's second note played alone: only its channel sounds, from its
+    // key on to the release's end, at the next lead note or 1s after.
+    {
+        BuildReport report;
+        tune->build(&report);
+        const TuneNote& chosen = lead.notes[1];
+        const NoteMix alone = noteMixOf(*tune, report, { { 0, chosen.id } });
+        const auto ch = static_cast<size_t>(report.channels[0][1]);
+        bool othersSilent = true, chosenHeard = false;
+        for (size_t c = 0; c < alone.mix->changes.size(); ++c)
+            for (const auto& change : alone.mix->changes[c])
+            {
+                const bool atChosen = c == ch && change.time == static_cast<double>(chosen.start);
+                chosenHeard |= atChosen && change.gain == 1.0f;
+                othersSilent &= atChosen || change.gain == 0.0f;
+            }
+        const double release = std::min(static_cast<double>(chosen.start + chosen.length) + kVgmRate,
+                                        static_cast<double>(lead.notes[2].start));
+        check(chosenHeard && othersSilent && alone.from == static_cast<double>(chosen.start) && alone.to == release,
+              "a note played alone sounds on its channel only, to the end of its release");
+    }
+
     // Transpose the lead's first note up two semitones.
     const int pitch = tune->pitch(lead, lead.notes[0]);
     lead.notes[0].transpose = 2;

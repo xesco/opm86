@@ -159,6 +159,9 @@ void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
         hover_ = {};
         setTooltip({});
     }
+    // Selected notes belong to the song they were selected in.
+    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_))
+        selectedNotes_.clear(), ++selectedRevision_;
     repaint();
 }
 
@@ -841,6 +844,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
         return;
     std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
                               static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
+                              static_cast<double>(selectedRevision_),
                               samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
@@ -893,7 +897,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
             auto it = std::lower_bound(notes.begin(), notes.end(), now - static_cast<double>(layout().longest[t]),
                                        [](const TuneNote& n, double time) { return static_cast<double>(n.start) < time; });
             for (; it != notes.end() && static_cast<double>(it->start) <= now; ++it)
-                if (isSounding(*it))
+                if (isSounding(static_cast<int>(t), *it))
                 {
                     const int i = static_cast<int>(it - notes.begin());
                     paintNote(g, static_cast<int>(t), i, noteBounds(static_cast<int>(t), i));
@@ -993,10 +997,12 @@ void TrackerView::paintLaneLayer(juce::Graphics& g, float right)
     g.restoreState();
 }
 
-bool TrackerView::isSounding(const TuneNote& n) const
+bool TrackerView::isSounding(int track, const TuneNote& n) const
 {
     const double pos = playhead();
-    return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length);
+    const auto& alone = model_.playingNotes();
+    return model_.playing() && pos >= static_cast<double>(n.start) && pos < static_cast<double>(n.start + n.length)
+           && (alone.empty() || alone.count({ track, n.id }) > 0);
 }
 
 void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectangle<float> r, bool resting)
@@ -1006,7 +1012,7 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const bool drum = tr.kind == TuneTrack::Kind::Drum;
     const int pitch = model_.tune().pitch(tr, n);
     const bool audible = model_.tune().audible(tr, n);
-    const bool sounding = !resting && isSounding(n);
+    const bool sounding = !resting && isSounding(track, n);
     const auto& channels = model_.report().channels;
     const bool conflict = static_cast<size_t>(track) < channels.size()
                           && static_cast<size_t>(note) < channels[static_cast<size_t>(track)].size()
@@ -1048,6 +1054,11 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     {
         g.setColour(theme::danger);
         g.drawRoundedRectangle(r, 3.0f, 2.0f);
+    }
+    if (selectedNotes_.count({ track, n.id }) > 0)
+    {
+        g.setColour(theme::cyan);
+        g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 2.0f);
     }
 
     // A note the game bends or moves to new keys while held gets a line of
@@ -1444,6 +1455,9 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // A click on a note, not a drag, selects it and plays it (see mouseUp).
+    pressedNote_ = noteAt(p);
+
     // Stopped, a drag selects a section, and a click moves the playhead there.
     if (!model_.playing() && !e.mods.isShiftDown())
     {
@@ -1516,6 +1530,18 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     // from it; stopped, it also drops the selection.
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
+    // A click on a note selects and plays it; Command adds or removes it. A
+    // plain click off the notes drops the selected notes.
+    const bool click = (finished == Drag::Lanes || finished == Drag::Select) && e.getDistanceFromDragStart() <= 3;
+    const NoteRef pressed = std::exchange(pressedNote_, {});
+    if (click && pressed.valid())
+    {
+        clickNote(pressed, e.mods.isCommandDown());
+        mouseMove(e); // the cursor back from the hand a press while playing shows
+        return;
+    }
+    if (click && !e.mods.isCommandDown() && !selectedNotes_.empty())
+        selectedNotes_.clear(), ++selectedRevision_;
     if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
         if (finished == Drag::Select)
@@ -1524,6 +1550,26 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     }
     if (finished == Drag::Lanes || finished == Drag::Pan)
         mouseMove(e);
+    repaint();
+}
+
+void TrackerView::clickNote(NoteRef note, bool add)
+{
+    if (!add)
+        selectedNotes_.clear();
+    if (add && selectedNotes_.count(note) > 0)
+        selectedNotes_.erase(note);
+    else
+        selectedNotes_.insert(note);
+    selectedFile_ = model_.file();
+    ++selectedRevision_;
+    std::set<std::pair<int, int>> notes;
+    for (const NoteRef& n : selectedNotes_)
+        notes.insert({ n.track, n.id });
+    if (!notes.empty())
+        model_.playNotes(notes);
+    else if (!model_.playingNotes().empty())
+        model_.stop();
     repaint();
 }
 
@@ -1625,6 +1671,8 @@ bool TrackerView::keyPressed(const juce::KeyPress& key)
         return model_.undo().undo(), true;
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
+    if (key == juce::KeyPress::escapeKey && !selectedNotes_.empty())
+        return selectedNotes_.clear(), ++selectedRevision_, repaint(), true;
     if (key == juce::KeyPress::escapeKey && model_.hasSelection())
         return model_.clearSelection(), true;
     return false;

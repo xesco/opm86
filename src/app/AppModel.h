@@ -12,6 +12,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <set>
 
 namespace opm86
 {
@@ -72,6 +73,11 @@ public:
     bool hasSelection() const { return selectionEnd_.load() > selectionStart_.load(); }
     double selectionStart() const { return selectionStart_.load(); }
     double selectionEnd() const { return selectionEnd_.load(); }
+    // Play only some notes, each a track index and note id, from the first
+    // note's start to the end of the last one's release. Then playing stops,
+    // and the mix and the playhead go back to what they were.
+    void playNotes(const std::set<std::pair<int, int>>& notes);
+    const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays
     // Loop: the selection over and over, or the whole song without one.
     void setLoop(bool on) { loop_.store(on); }
     bool loop() const { return loop_.load(); }
@@ -83,6 +89,7 @@ private:
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
     void sendMix(); // sends the tracks' mute, solo and volume to the player
+    void endNotes(); // after playNotes, the mix and the playhead go back
     void timerCallback() override;
 
     // AudioIODeviceCallback (audio thread)
@@ -118,11 +125,16 @@ private:
         bool play = false, stop = false;
         bool scrub = false; // the play is a scrub's moment
         double playAt = 0;
+        double notesEnd = -1; // the play is of notes alone, which stops here
     };
     juce::SpinLock commandLock_;
     Commands commands_;
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
+    double notesEnd_ = -1;             // audio thread: where notes played alone stop; -1 for the song
+    std::set<std::pair<int, int>> playingNotes_;
+    double notesReturn_ = 0;           // where the playhead goes back to after them
+    std::atomic<bool> notesDone_ { false }; // set where the notes' playing ends
 
     std::atomic<bool> playing_ { false };
     std::atomic<bool> ended_ { false }; // set where playing stops at the song's end

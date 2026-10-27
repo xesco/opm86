@@ -166,10 +166,44 @@ void AppModel::rebuild()
     rebuilder_.request(*tune_, position_.load());
 }
 
+void AppModel::playNotes(const std::set<std::pair<int, int>>& notes)
+{
+    if (!built_ || notes.empty())
+        return;
+    const NoteMix played = noteMixOf(*tune_, report_, notes);
+    if (playingNotes_.empty())
+        notesReturn_ = position_.load();
+    playingNotes_ = notes;
+    position_.store(played.from);
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.mix = played.mix;
+        commands_.play = true;
+        commands_.stop = commands_.scrub = false;
+        commands_.playAt = played.from;
+        commands_.notesEnd = played.to;
+    }
+    mixes_.push_back(played.mix);
+    while (mixes_.size() > 8)
+        mixes_.pop_front();
+    sendChangeMessage();
+}
+
+void AppModel::endNotes()
+{
+    if (playingNotes_.empty())
+        return;
+    playingNotes_.clear();
+    sendMix();
+    position_.store(notesReturn_);
+    sendChangeMessage();
+}
+
 void AppModel::play()
 {
     if (!built_)
         return;
+    endNotes();
     const juce::SpinLock::ScopedLockType lock(commandLock_);
     commands_.play = true;
     commands_.stop = commands_.scrub = false;
@@ -180,9 +214,12 @@ void AppModel::stop()
 {
     // Stopped from now on for everyone here, while the audio thread fades out.
     playing_.store(false);
-    const juce::SpinLock::ScopedLockType lock(commandLock_);
-    commands_.stop = true;
-    commands_.play = false;
+    {
+        const juce::SpinLock::ScopedLockType lock(commandLock_);
+        commands_.stop = true;
+        commands_.play = false;
+    }
+    endNotes();
 }
 
 double AppModel::displayPosition() const
@@ -215,6 +252,9 @@ void AppModel::clearSelection()
 
 void AppModel::setPosition(double songTime)
 {
+    // Moved by hand, the song plays on from there, not the notes alone.
+    if (!playingNotes_.empty())
+        playingNotes_.clear(), sendMix();
     position_.store(std::max(0.0, songTime));
     if (hasSelection() && (position_.load() < selectionStart_.load() || position_.load() > selectionEnd_.load()))
         selectionStart_.store(0.0), selectionEnd_.store(0.0);
@@ -240,6 +280,8 @@ void AppModel::scrub(double songTime)
 
 void AppModel::timerCallback()
 {
+    if (notesDone_.exchange(false))
+        endNotes();
     auto version = rebuilder_.take();
     if (!version || !tune_) // a build that finishes after the song was closed is dropped
         return;
@@ -309,6 +351,7 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
             {
                 player_.stop();
                 playing_.store(false);
+                notesEnd_ = -1;
                 c.stop = false;
             }
             if (c.play && c.scrub)
@@ -325,7 +368,9 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
                 scrubLeft_ = 0;
                 if (player_.play(c.playAt))
                     playing_.store(true);
+                notesEnd_ = c.notesEnd;
                 c.play = false;
+                c.notesEnd = -1;
             }
         }
     }
@@ -366,7 +411,19 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         // start, playing on with loop and stopping there without.
         const VgmSong* song = player_.song();
         const bool selected = selectionEnd_.load() > selectionStart_.load();
-        if (song && playing_.load() && (selected || loop_.load()))
+        // Notes played alone stop after their release, and the message
+        // thread puts the playhead back.
+        if (notesEnd_ >= 0 && playing_.load())
+        {
+            if (player_.position() >= notesEnd_)
+            {
+                player_.stop();
+                playing_.store(false);
+                notesEnd_ = -1;
+                notesDone_.store(true);
+            }
+        }
+        else if (song && playing_.load() && (selected || loop_.load()))
         {
             const double from = selected ? selectionStart_.load() : 0.0;
             const double to = selected ? selectionEnd_.load() : songEnd(*song);

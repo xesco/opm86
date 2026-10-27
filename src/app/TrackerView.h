@@ -8,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace opm86
 {
@@ -150,7 +151,8 @@ private:
     std::vector<double> lanesKey_;
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
-    bool isSounding(const TuneNote& n) const; // under the playhead while playing
+    bool isSounding(int track, const TuneNote& n) const; // under the playhead while playing, and played when notes play alone
+    void clickNote(NoteRef note, bool add); // selects the note, or with add adds or removes it, and plays the selection alone
     // A note label's text and its dark outline, at the origin, kept per label and size.
     struct LabelShapes
     {
@@ -195,6 +197,10 @@ private:
     float dragKnob_ = 0;                   // the knob's position when the turn began
     bool dragStarted_ = false;            // the knob turn has made its undo step
     NoteRef hover_;
+    NoteRef pressedNote_;               // the note under a press, which a click selects
+    std::set<NoteRef> selectedNotes_;   // notes selected with a click, in the file below
+    juce::File selectedFile_;
+    int selectedRevision_ = 0;          // changes with the selected notes, for the drawn lanes
     // The empty view's links, where it drew each and what it opens, refilled each paint.
     std::vector<std::pair<juce::Rectangle<float>, juce::String>> links_;
     int linkAt(juce::Point<float> p) const; // the link under p, or -1
