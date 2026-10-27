@@ -13,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <optional>
+#include <string>
 #include <thread>
 #include <cmath>
 #include <cstdio>
@@ -473,8 +474,19 @@ void testPlayerMix()
     }
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    // core_test --write-song song.vgm writes the test song, for the build's
+    // check that the app opens a song and draws its window.
+    if (argc == 3 && std::string(argv[1]) == "--write-song")
+    {
+        const auto song = test::makeSong();
+        std::FILE* out = std::fopen(argv[2], "wb");
+        const bool written = out && std::fwrite(song.data(), 1, song.size(), out) == song.size();
+        if (out)
+            std::fclose(out);
+        return written ? 0 : 1;
+    }
     testPlayerMix();
     testSpeed();
     testTrackVolume();

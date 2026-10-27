@@ -48,7 +48,7 @@ class TrackerApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "OPM86 Player"; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; } // CMakeLists.txt's version
     // One window, except for snapshots, which must not hand over to a running app.
     bool moreThanOneInstanceAllowed() override { return getCommandLineParameters().startsWith("--snapshot"); }
 

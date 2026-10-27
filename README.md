@@ -46,8 +46,9 @@ Expand-Archive OPM86-Player-windows.zip -DestinationPath "OPM86 Player"
 
 ### Linux, x86-64
 
-A distribution from 2024 on (glibc 2.39 or later), with the ALSA, FreeType, Fontconfig and
-X11 libraries, which most desktops install already.
+A distribution from 2022 on (glibc 2.35 or later), such as Ubuntu 22.04, Debian 12 or Linux
+Mint 21, with the ALSA, FreeType, Fontconfig and X11 libraries, which most desktops install
+already.
 
 ```sh
 # Download the app and unpack it
@@ -158,7 +159,7 @@ make linux
 GitHub builds the app for macOS, Windows, Linux and the Raspberry Pi, and runs the tests
 (see [Tests](#tests)), in two cases:
 
-| Case | What GitHub does with the four builds |
+| Case | What GitHub does with the five builds |
 | --- | --- |
 | A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
 | A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
@@ -349,6 +350,10 @@ ctest --test-dir build -C Release
 
 The `core_test` program checks the VGM reader on a generated file, the Sega PCM addressing,
 the split of a song into notes and tracks, and the player's mix, speed and volume.
+
+GitHub also checks that each build of the app starts. The `core_test --write-song song.vgm`
+command writes the tests' song, and the app opens it, draws its window to a PNG and quits.
+On Linux, a virtual display stands in for a screen.
 
 ## Limits
 
