@@ -133,22 +133,6 @@ make
 make linux
 ```
 
-## Release
-
-GitHub builds the app for macOS, Windows, Linux and the Raspberry Pi, and runs the tests
-(see [Tests](#tests)), in two cases:
-
-| Case | What GitHub does with the five builds |
-| --- | --- |
-| A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
-| A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
-
-A push to a branch builds nothing. To release, run `make release VERSION=0.2.0` on an
-up-to-date `main` with no uncommitted changes. The command sets the version in
-`CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each pull
-request merged since the last release. It then commits both, tags the commit `v0.2.0`, and
-pushes the commit and the tag. The release on GitHub shows the same list as its notes.
-
 ## Get songs
 
 A VGM file is a recording of the commands a game sends to its sound chips while a song
