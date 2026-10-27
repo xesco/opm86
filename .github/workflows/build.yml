@@ -19,8 +19,11 @@ jobs:
           - name: macos
             os: macos-14
             configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          # Built on Ubuntu 22.04, so it runs on systems with its glibc, 2.35, or
+          # later: Ubuntu 22.04, Debian 12, Linux Mint 21 and newer.
           - name: linux
             os: ubuntu-24.04
+            container: ubuntu:22.04
           # For the Raspberry Pi 3, 4 and 5 on 64-bit Raspberry Pi OS: built on
           # Debian 12, whose glibc that system shares.
           - name: linux-arm64
@@ -33,14 +36,16 @@ jobs:
             os: windows-11-arm
             msvc: arm64
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }} # none but for linux-arm64
+    container: ${{ matrix.container }} # the Linux builds only
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install the Linux packages
         if: runner.os == 'Linux'
-        run: if command -v sudo >/dev/null; then sudo ./scripts/linux-deps.sh; else ./scripts/linux-deps.sh; fi # a container runs as root, without sudo
+        run: |
+          if command -v sudo >/dev/null; then sudo ./scripts/linux-deps.sh; else ./scripts/linux-deps.sh; fi # a container runs as root, without sudo
+          apt-get install -y --no-install-recommends xvfb xauth # a display for the check that the app starts
 
       - name: Install Ninja
         if: runner.os != 'Linux'
@@ -70,6 +75,25 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      # The app itself, as the release ships it: it opens the tests' song and
+      # draws its window to a PNG (the hidden --snapshot mode), then quits.
+      # Linux has no display here, so a virtual one stands in.
+      - name: Check the app starts, opens a song and draws its window
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          build/core_test --write-song song.vgm
+          out="build/opm86_player_artefacts/Release"
+          case "${{ runner.os }}" in
+            macOS) app=("$out/OPM86 Player.app/Contents/MacOS/OPM86 Player") ;;
+            Linux) app=(xvfb-run -a "$out/opm86-player") ;;
+            Windows) app=("$out/OPM86 Player.exe") ;;
+          esac
+          "${app[@]}" --snapshot song.vgm window.png
+          size=$(wc -c < window.png)
+          echo "window.png: $size bytes"
+          [ "$size" -gt 10000 ] || { echo "the app drew no window" >&2; exit 1; }
 
       # The runtime is linked in (CMakeLists.txt), so a PC without Microsoft's
       # Visual C++ runtime runs the app too.
