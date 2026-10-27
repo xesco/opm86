@@ -1538,19 +1538,19 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
     // A click on a note selects it, for Space or the play button to play
-    // alone; Command adds or removes it.
+    // alone; Shift adds or removes it.
     const bool click = (finished == Drag::Lanes || finished == Drag::Select) && e.getDistanceFromDragStart() <= 3;
     const NoteRef pressed = std::exchange(pressedNote_, {});
     if (click && pressed.valid())
     {
-        clickNote(pressed, e.mods.isCommandDown());
+        clickNote(pressed, e.mods.isShiftDown());
         mouseMove(e); // restores the cursor, which a press while playing turns into a hand
         return;
     }
     // A plain click off the notes, or a drag that selects a section, drops
     // the selected notes.
     const bool section = finished == Drag::Select && !click;
-    if ((section || (click && !e.mods.isCommandDown())) && !selectedNotes_.empty())
+    if ((section || (click && !e.mods.isShiftDown())) && !selectedNotes_.empty())
         selectNotes({});
     if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
