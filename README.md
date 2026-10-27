@@ -267,8 +267,8 @@ The keyboard controls the song like this:
 | Space | Plays, or pauses while playing; with notes selected, plays them alone (see [Play notes alone](#play-notes-alone)) |
 | Return or Home | Goes to the start of the selection, or of the song |
 | End | Goes to the end of the selection, or of the song |
-| Cmd+= and Cmd+- | Zooms in and out in time |
-| Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
+| Cmd+= and Cmd+- | Zooms in and out in time, as a pinch on the trackpad does |
+| Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter, as a pinch with Shift held does |
 | Escape | Drops the selected notes, or else the selection |
 | Cmd+W | Closes the song |
 
