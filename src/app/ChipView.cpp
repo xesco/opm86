@@ -817,14 +817,26 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
         fill.closeSubPath();
         g.setColour(accent.withAlpha(on ? 0.3f : 0.08f));
         g.fillPath(fill);
-        g.setColour(on ? accent : accent.withAlpha(0.35f));
-        g.strokePath(shape, juce::PathStrokeType(on ? 1.8f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(accent.withAlpha(0.35f));
+        g.strokePath(shape, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // An attack or decay can pass in a few milliseconds, too fast for a
+        // dot to show. So the stretch the envelope has run lights up and
+        // stays lit: while the key is held, from the start to where it is
+        // now, and in the release, from the release's start.
         if (segment >= 0)
         {
-            g.setColour(juce::Colours::white.withAlpha(0.25f));
-            g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre(dot));
+            juce::Path trail;
+            const int from = segment == 3 ? 3 : 0;
+            trail.startNewSubPath(x(times[from]), y(levels[from]));
+            for (int k = from + 1; k <= segment; ++k)
+                trail.lineTo(x(times[k]), y(levels[k]));
+            trail.lineTo(dot);
+            g.setColour(accent.withAlpha(0.3f));
+            g.strokePath(trail, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(accent.brighter(0.4f));
+            g.strokePath(trail, juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.setColour(juce::Colours::white);
-            g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(dot));
+            g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(dot));
         }
         g.setFont(theme::mono(nameFont, true));
         g.setColour(on ? theme::text : theme::dim);
