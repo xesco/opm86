@@ -264,6 +264,31 @@ int Tune::pitch(const TuneTrack& track, const TuneNote& note) const
     return static_cast<int>(std::lround(69.0 + keyCodePitch(kc, kf) - 56.0 + data_->clockShift)) + note.transpose;
 }
 
+std::vector<std::pair<int64_t, double>> Tune::bends(const TuneTrack& track, const TuneNote& note) const
+{
+    const auto source = static_cast<size_t>(note.source);
+    if (track.kind == TuneTrack::Kind::Drum || source >= data_->import.notes.size())
+        return { { note.start, static_cast<double>(pitch(track, note)) } };
+    // The importer lists the notes in the log's order, each with its pitch
+    // changes while held. A driver can write the key code a few samples
+    // before the key fraction, so a change the next one replaces within
+    // 1ms is never heard, and is left out.
+    constexpr int64_t kSettle = 44;
+    const auto& changes = data_->import.notes[source].pitch;
+    const int64_t keyOn = data_->log.notes[source].start;
+    std::vector<std::pair<int64_t, double>> bends;
+    for (size_t i = 0; i < changes.size(); ++i)
+    {
+        const int64_t offset = std::max<int64_t>(0, static_cast<int64_t>(changes[i].first) - keyOn);
+        if (offset >= note.length)
+            break;
+        const bool replaced = i + 1 < changes.size() && static_cast<int64_t>(changes[i + 1].first) - keyOn - offset < kSettle;
+        if (i == 0 || !replaced)
+            bends.emplace_back(note.start + offset, changes[i].second + note.transpose);
+    }
+    return bends;
+}
+
 int Tune::newNoteId() const
 {
     int id = 0;

@@ -82,6 +82,11 @@ public:
     // The MIDI key a note sounds at its key on, transposition included; for a
     // drum, 60 plus its transposition.
     int pitch(const TuneTrack& track, const TuneNote& note) const;
+    // The pitch of a note while it is held, as a MIDI key with a fraction and
+    // the transposition included. The first entry is the pitch at the key on,
+    // and each later entry is a change the game makes without a new key on.
+    // A drum has one pitch.
+    std::vector<std::pair<int64_t, double>> bends(const TuneTrack& track, const TuneNote& note) const;
 
     bool audible(const TuneTrack& track) const;
     bool audible(const TuneTrack& track, const TuneNote& note) const; // with the voice mutes, and never a silent hit

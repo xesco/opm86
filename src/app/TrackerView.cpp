@@ -1050,6 +1050,30 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
         g.drawRoundedRectangle(r, 3.0f, 2.0f);
     }
 
+    // A note the game bends or moves to new keys while held gets a line of
+    // its pitch over time, from its lowest pitch at the bottom of the note to
+    // its highest at the top, over at least 2 semitones.
+    const auto bends = model_.tune().bends(tr, n);
+    if (bends.size() > 1 && r.getHeight() >= 10.0f)
+    {
+        const auto [low, high] = std::minmax_element(bends.begin(), bends.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+        const double span = std::max(2.0, high->second - low->second);
+        const double middle = (low->second + high->second) * 0.5;
+        const auto area = r.reduced(1.0f, 3.0f);
+        auto y = [&](double p) { return area.getCentreY() - static_cast<float>((p - middle) / span) * area.getHeight(); };
+        juce::Path line;
+        line.startNewSubPath(area.getX(), y(bends.front().second));
+        for (size_t i = 1; i < bends.size(); ++i)
+        {
+            const float x = juce::jlimit(area.getX(), area.getRight(), timeToX(static_cast<double>(bends[i].first)));
+            line.lineTo(x, y(bends[i - 1].second));
+            line.lineTo(x, y(bends[i].second));
+        }
+        line.lineTo(area.getRight(), y(bends.back().second));
+        g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 0.6f : 0.35f) : 0.12f));
+        g.strokePath(line, juce::PathStrokeType(1.5f));
+    }
+
     // The label, centred and as large as the note allows: white with a dark
     // outline, so it reads on every colour. Notes too small for it go without.
     const juce::String label = drum ? (n.transpose == 0 ? juce::String() : (n.transpose > 0 ? "+" : "") + juce::String(n.transpose))

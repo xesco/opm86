@@ -1367,7 +1367,11 @@ void PianoStrip::paint(juce::Graphics& g)
                 --it;
                 if (now < static_cast<double>(it->start + it->length) && model_.tune().audible(t, *it))
                 {
-                    const int p = model_.tune().pitch(t, *it);
+                    // The key nearest the pitch now, which the game can bend or move while the note is held.
+                    const auto bends = model_.tune().bends(t, *it);
+                    const auto bend = std::find_if(bends.rbegin(), bends.rend() - 1,
+                                                   [now](const auto& b) { return now >= static_cast<double>(b.first); });
+                    const int p = static_cast<int>(std::lround(bend->second));
                     if (p >= 0 && p < 128)
                     {
                         const auto key = static_cast<size_t>(p);

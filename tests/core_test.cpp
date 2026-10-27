@@ -174,8 +174,18 @@ void testTune()
           "an unedited tune builds the original log");
     const auto before = keyOns(original);
 
-    // Transpose the lead's first note up two semitones.
+    // The lead's fourth note bends half a semitone 4410 samples after its
+    // key on, then moves two semitones up from its start 4410 samples later.
     TuneTrack& lead = tune->tracks[0];
+    const TuneNote& slide = lead.notes[3];
+    const auto bends = tune->bends(lead, slide);
+    check(bends.size() == 3 && std::lround(bends[0].second) == tune->pitch(lead, slide)
+              && bends[1].first == slide.start + 4410 && std::abs(bends[1].second - bends[0].second - 0.5) < 1e-9
+              && bends[2].first == slide.start + 8820 && std::abs(bends[2].second - bends[0].second - 2.0) < 1e-9,
+          "a note's bends follow each pitch change while held");
+    check(tune->bends(lead, lead.notes[0]).size() == 1, "a note held at one pitch has one bend");
+
+    // Transpose the lead's first note up two semitones.
     const int pitch = tune->pitch(lead, lead.notes[0]);
     lead.notes[0].transpose = 2;
     check(tune->pitch(lead, lead.notes[0]) == pitch + 2, "a transposed note reports its new pitch");
