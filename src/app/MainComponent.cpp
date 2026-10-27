@@ -683,7 +683,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     follow_.onClick = [this] { view_.setFollow(follow_.getToggleState()); };
     loop_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     loop_.setClickingTogglesState(true);
-    loop_.setTooltip("Loop the selection, or the song");
+    loop_.setTooltip("Loop the selected notes, the selection, or the song");
     loop_.onClick = [this] { model_.setLoop(loop_.getToggleState()); };
     chips_.setColour(juce::TextButton::buttonOnColourId, theme::cyan);
     chips_.setClickingTogglesState(true);

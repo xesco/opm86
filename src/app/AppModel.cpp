@@ -378,6 +378,7 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
                 if (player_.play(c.playAt))
                     playing_.store(true);
                 notesEnd_ = c.notesEnd;
+                notesStart_ = c.playAt;
                 c.play = false;
                 c.notesEnd = -1;
             }
@@ -421,10 +422,17 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         const VgmSong* song = player_.song();
         const bool selected = selectionEnd_.load() > selectionStart_.load();
         // Notes played alone stop at the last one's end, and the message
-        // thread moves the playhead to the first one's start.
+        // thread moves the playhead to the first one's start. With loop on,
+        // they play again from there.
         if (notesEnd_ >= 0 && playing_.load())
         {
-            if (player_.position() >= notesEnd_)
+            if (player_.position() >= notesEnd_ && loop_.load())
+            {
+                player_.play(notesStart_);
+                position_.store(notesStart_);
+                positionStamp_.store(juce::Time::getMillisecondCounterHiRes());
+            }
+            else if (player_.position() >= notesEnd_)
             {
                 player_.stop();
                 playing_.store(false);

@@ -75,7 +75,8 @@ public:
     double selectionEnd() const { return selectionEnd_.load(); }
     // Play only some notes, each a track index and note id, from the first
     // note's start to the last one's end, each cut at its own. Then playing stops,
-    // the mix goes back to what it was, and the playhead to the first note's start.
+    // the mix goes back to what it was, and the playhead to the first note's start;
+    // with loop on, the notes play over and over.
     void playNotes(const std::set<std::pair<int, int>>& notes);
     const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays
     // The notes selected in the tracker, each a track index and note id,
@@ -130,13 +131,14 @@ private:
         bool play = false, stop = false;
         bool scrub = false; // the play is a scrub's moment
         double playAt = 0;
-        double notesEnd = -1; // the play is of notes alone, which stops here
+        double notesEnd = -1; // the play is of notes alone, which stops here, or with loop goes back to playAt
     };
     juce::SpinLock commandLock_;
     Commands commands_;
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
     double notesEnd_ = -1;             // audio thread: where notes played alone stop; -1 for the song
+    double notesStart_ = 0;            // audio thread: where they start, for loop
     std::set<std::pair<int, int>> playingNotes_, selectedNotes_;
     double notesFrom_ = 0;             // the first note's start, where the playhead goes after them
     std::atomic<bool> notesDone_ { false }; // set where the notes' playing ends
