@@ -94,7 +94,7 @@ private:
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
     void sendMix(); // sends the tracks' mute, solo and volume to the player
-    void endNotes(); // after playNotes, the mix and the playhead go back
+    void endNotes(); // after playNotes: the mix back, and the playhead to the notes' start
     void timerCallback() override;
 
     // AudioIODeviceCallback (audio thread)

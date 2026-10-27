@@ -1544,7 +1544,7 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     if (click && pressed.valid())
     {
         clickNote(pressed, e.mods.isCommandDown());
-        mouseMove(e); // the cursor back from the hand a press while playing shows
+        mouseMove(e); // restores the cursor, which a press while playing turns into a hand
         return;
     }
     if (click && !e.mods.isCommandDown() && !selectedNotes_.empty())

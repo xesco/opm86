@@ -175,7 +175,7 @@ void testTune()
     const auto before = keyOns(original);
 
     // The lead's fourth note bends half a semitone 4410 samples after its
-    // key on, then moves two semitones up from its start 4410 samples later.
+    // key on. Another 4410 samples later, it is two semitones above its start.
     TuneTrack& lead = tune->tracks[0];
     const TuneNote& slide = lead.notes[3];
     const auto bends = tune->bends(lead, slide);

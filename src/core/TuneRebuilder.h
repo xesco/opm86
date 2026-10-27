@@ -21,9 +21,9 @@ namespace opm86
 // silent when the note is not heard.
 std::shared_ptr<ChannelMix> mixOf(const Tune& tune, const BuildReport& report);
 
-// Some notes played alone: a mix that silences every other note, whatever the
-// mute and solo, and each chosen note at its end, with no release; and the
-// song time from the first note's start to the last one's end.
+// Some notes played alone, whatever the mute and solo. The mix silences every
+// other note, and each chosen note from its end, with no release. The song
+// time runs from the first note's start to the last one's end.
 struct NoteMix
 {
     std::shared_ptr<ChannelMix> mix;
