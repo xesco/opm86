@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.5 (2026-10-27)
+
+- Builds that run on the systems they target, checked by starting the app (#17)
+
 ## v0.1.4 (2026-10-27)
 
 - Pitch lines, notes played alone, a smooth playhead, and a chip view of what is heard (#16)
