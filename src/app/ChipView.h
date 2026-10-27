@@ -52,6 +52,11 @@ private:
     std::array<double, 28> holdSince_ {}; // and when each was set, in ms
     std::array<float, 4> chipLevel_ {};   // each chip's output, FM left, right, PCM left, right: linear, falling back
     double lastPaint_ = 0.0;              // ms, for the holds' fall
+    float frameSeconds_ = 0.0f;           // since the paint before
+    // Per FM operator slot, where its envelope's dot is drawn: the stretch
+    // and how far along it, 0 to 4, or -1 while off. It eases toward the
+    // envelope's place, so a quick attack shows as a sweep.
+    std::array<float, 32> along_ = [] { std::array<float, 32> a {}; a.fill(-1.0f); return a; }();
 
     AppModel& model_;
     const TrackerView& tracks_;

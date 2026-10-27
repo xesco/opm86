@@ -302,6 +302,7 @@ void ChipView::paint(juce::Graphics& g)
     live_ = model_.chipState(); // first: which channels are heard decides what catchUp shows
     catchUp();
     const double started = juce::Time::getMillisecondCounterHiRes();
+    frameSeconds_ = static_cast<float>(std::clamp((started - lastPaint_) / 1000.0, 0.0, 0.1));
     // The chips' outputs fall back over about a third of a second, as the track meters do.
     {
         const auto peaks = model_.takeChipPeaks();
@@ -805,6 +806,24 @@ void ChipView::paintOperatorGraph(juce::Graphics& g, juce::Rectangle<float> area
             case ChipState::Stage::Sustain: segment = 2, fraction = along(now, sustain, held); break;
             case ChipState::Stage::Release: segment = 3, fraction = along(now, held, 0.0f); break;
             case ChipState::Stage::Off: break;
+        }
+        // An instant attack would jump the dot from the release to the peak
+        // between two frames. So the dot travels the line instead: it eases
+        // toward the envelope's place over about 60ms, and a new key on sends
+        // it back to the start. Its place is the stretch and how far along,
+        // 0 to 4.
+        float& shown = along_[static_cast<size_t>(slot)];
+        const float target = segment >= 0 ? static_cast<float>(segment) + fraction : -1.0f;
+        if (target < 0.0f)
+            shown = -1.0f;
+        else if (shown < 0.0f || std::floor(target) < std::floor(shown))
+            shown = std::floor(target) < 3.0f ? 0.0f : target;
+        else
+            shown += (target - shown) * std::min(1.0f, frameSeconds_ / 0.06f);
+        if (shown >= 0.0f)
+        {
+            segment = std::min(3, static_cast<int>(shown));
+            fraction = shown - static_cast<float>(segment);
         }
         // On the drawn line: across its stretch by how far the stage has
         // gone, at the line's height there.
