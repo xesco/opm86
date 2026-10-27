@@ -516,7 +516,7 @@ TopBar::TopBar(AppModel& model, TrackerView& view) : model_(model), view_(view)
         if (model_.playing())
             model_.stop();
         else
-            model_.play();
+            model_.playSelected();
     };
     stop_.onClick = [this] {
         // A second stop returns to the start.
@@ -1825,7 +1825,7 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
         if (model_.playing())
             model_.stop();
         else
-            model_.play();
+            model_.playSelected();
         return true;
     }
     if (key == juce::KeyPress('w', juce::ModifierKeys::commandModifier, 0))

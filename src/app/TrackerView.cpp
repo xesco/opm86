@@ -1461,7 +1461,7 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // A click on a note, not a drag, selects it and plays it (see mouseUp).
+    // A click on a note, not a drag, selects it (see mouseUp).
     pressedNote_ = noteAt(p);
 
     // Stopped, a drag selects a section, and a click moves the playhead there.
@@ -1536,8 +1536,9 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
     // from it; stopped, it also drops the selection.
     if (finished == Drag::SelectMove && e.getDistanceFromDragStart() <= 3)
         model_.setPosition(std::max(0.0, xToTime(e.position.x)));
-    // A click on a note selects and plays it; Command adds or removes it. A
-    // plain click off the notes drops the selected notes.
+    // A click on a note selects it, for Space or the play button to play
+    // alone; Command adds or removes it. A plain click off the notes drops
+    // the selected notes.
     const bool click = (finished == Drag::Lanes || finished == Drag::Select) && e.getDistanceFromDragStart() <= 3;
     const NoteRef pressed = std::exchange(pressedNote_, {});
     if (click && pressed.valid())
@@ -1547,7 +1548,7 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
         return;
     }
     if (click && !e.mods.isCommandDown() && !selectedNotes_.empty())
-        selectedNotes_.clear(), ++selectedRevision_;
+        selectNotes({});
     if (finished == Drag::Lanes || (finished == Drag::Select && e.getDistanceFromDragStart() <= 3))
     {
         if (finished == Drag::Select)
@@ -1561,21 +1562,23 @@ void TrackerView::mouseUp(const juce::MouseEvent& e)
 
 void TrackerView::clickNote(NoteRef note, bool add)
 {
-    if (!add)
-        selectedNotes_.clear();
-    if (add && selectedNotes_.count(note) > 0)
-        selectedNotes_.erase(note);
+    std::set<NoteRef> notes = add ? selectedNotes_ : std::set<NoteRef> {};
+    if (add && notes.count(note) > 0)
+        notes.erase(note);
     else
-        selectedNotes_.insert(note);
+        notes.insert(note);
+    selectNotes(std::move(notes));
+}
+
+void TrackerView::selectNotes(std::set<NoteRef> notes)
+{
+    selectedNotes_ = std::move(notes);
     selectedFile_ = model_.file();
     ++selectedRevision_;
-    std::set<std::pair<int, int>> notes;
+    std::set<std::pair<int, int>> chosen;
     for (const NoteRef& n : selectedNotes_)
-        notes.insert({ n.track, n.id });
-    if (!notes.empty())
-        model_.playNotes(notes);
-    else if (!model_.playingNotes().empty())
-        model_.stop();
+        chosen.insert({ n.track, n.id });
+    model_.setSelectedNotes(chosen);
     repaint();
 }
 
@@ -1678,7 +1681,7 @@ bool TrackerView::keyPressed(const juce::KeyPress& key)
     if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
         return model_.undo().redo(), true;
     if (key == juce::KeyPress::escapeKey && !selectedNotes_.empty())
-        return selectedNotes_.clear(), ++selectedRevision_, repaint(), true;
+        return selectNotes({}), true;
     if (key == juce::KeyPress::escapeKey && model_.hasSelection())
         return model_.clearSelection(), true;
     return false;

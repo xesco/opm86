@@ -68,6 +68,7 @@ bool AppModel::open(const juce::File& file, juce::String& error)
         return false;
     }
     stop();
+    selectedNotes_.clear();
     tune_ = std::move(tune);
     ++revision_;
     file_ = file;
@@ -88,6 +89,7 @@ void AppModel::close()
     if (!tune_)
         return;
     stop();
+    selectedNotes_.clear();
     tune_.reset();
     ++revision_;
     file_ = juce::File();
@@ -186,6 +188,14 @@ void AppModel::playNotes(const std::set<std::pair<int, int>>& notes)
     while (mixes_.size() > 8)
         mixes_.pop_front();
     sendChangeMessage();
+}
+
+void AppModel::playSelected()
+{
+    if (selectedNotes_.empty())
+        play();
+    else
+        playNotes(selectedNotes_);
 }
 
 void AppModel::endNotes()

@@ -78,6 +78,11 @@ public:
     // the mix goes back to what it was, and the playhead to the first note's start.
     void playNotes(const std::set<std::pair<int, int>>& notes);
     const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays
+    // The notes selected in the tracker, each a track index and note id,
+    // which Space and the play button play alone; with none, the song plays.
+    void setSelectedNotes(const std::set<std::pair<int, int>>& notes) { selectedNotes_ = notes; }
+    const std::set<std::pair<int, int>>& selectedNotes() const { return selectedNotes_; }
+    void playSelected();
     // Loop: the selection over and over, or the whole song without one.
     void setLoop(bool on) { loop_.store(on); }
     bool loop() const { return loop_.load(); }
@@ -132,7 +137,7 @@ private:
     bool waitingForSnapshots_ = false; // audio thread: a switch that must still jump
     int scrubLeft_ = 0;                // audio thread: output samples a scrub still sounds
     double notesEnd_ = -1;             // audio thread: where notes played alone stop; -1 for the song
-    std::set<std::pair<int, int>> playingNotes_;
+    std::set<std::pair<int, int>> playingNotes_, selectedNotes_;
     double notesFrom_ = 0;             // the first note's start, where the playhead goes after them
     std::atomic<bool> notesDone_ { false }; // set where the notes' playing ends
 
