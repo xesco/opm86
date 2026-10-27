@@ -141,8 +141,8 @@ the commands for any other chip. So a VGM file is useful only when it comes from
 whose sound board has both chips, as the Out Run board does. The file can be `.vgm` or the
 compressed `.vgz`.
 
-The VGM archive at [vgmrips.net](https://vgmrips.net) holds these games, among others that use the YM2151 and the
-Sega PCM chip:
+The VGM archive at [vgmrips.net](https://vgmrips.net) holds these games, among others that
+use the YM2151 and the Sega PCM chip:
 
 | Game | Sega board | Pack |
 | --- | --- | --- |
