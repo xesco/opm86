@@ -74,7 +74,7 @@ public:
     double selectionStart() const { return selectionStart_.load(); }
     double selectionEnd() const { return selectionEnd_.load(); }
     // Play only some notes, each a track index and note id, from the first
-    // note's start to the end of the last one's release. Then playing stops,
+    // note's start to the last one's end, each cut at its own. Then playing stops,
     // the mix goes back to what it was, and the playhead to the first note's start.
     void playNotes(const std::set<std::pair<int, int>>& notes);
     const std::set<std::pair<int, int>>& playingNotes() const { return playingNotes_; } // empty while the song plays

@@ -420,7 +420,7 @@ void AppModel::audioDeviceIOCallbackWithContext(const float* const*, int, float*
         // start, playing on with loop and stopping there without.
         const VgmSong* song = player_.song();
         const bool selected = selectionEnd_.load() > selectionStart_.load();
-        // Notes played alone stop after their release, and the message
+        // Notes played alone stop at the last one's end, and the message
         // thread puts the playhead back.
         if (notesEnd_ >= 0 && playing_.load())
         {

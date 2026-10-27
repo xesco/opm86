@@ -72,10 +72,19 @@ NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<st
     NoteMix out;
     out.mix = std::make_shared<ChannelMix>();
     ChannelMix& mix = *out.mix;
-    // Every channel silent from the start, then each note's own gain.
+    // Every channel silent from the start, and each chosen note silent from
+    // its end; then each note's own gain from its start, which comes after a
+    // chosen note's end at the same time.
     for (auto& v : mix.changes)
         v.push_back({ 0.0, 0.0f });
-    std::vector<std::pair<double, size_t>> chosen; // each chosen note's end and channel
+    for (size_t t = 0; t < tune.tracks.size(); ++t)
+        for (size_t n = 0; n < tune.tracks[t].notes.size(); ++n)
+        {
+            const TuneNote& note = tune.tracks[t].notes[n];
+            const size_t slot = mixSlot(tune, report, t, n);
+            if (slot < mix.changes.size() && notes.count({ static_cast<int>(t), note.id }) > 0)
+                mix.changes[slot].push_back({ static_cast<double>(note.start + note.length), 0.0f });
+        }
     double from = -1;
     for (size_t t = 0; t < tune.tracks.size(); ++t)
     {
@@ -92,19 +101,12 @@ NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<st
             if (heard)
             {
                 from = from < 0 ? static_cast<double>(note.start) : std::min(from, static_cast<double>(note.start));
-                chosen.emplace_back(static_cast<double>(note.start + note.length), slot);
+                out.to = std::max(out.to, static_cast<double>(note.start + note.length));
             }
         }
     }
     sortMix(mix);
     out.from = std::max(0.0, from);
-    for (const auto& [end, slot] : chosen)
-    {
-        const auto& v = mix.changes[slot];
-        const auto next = std::upper_bound(v.begin(), v.end(), end - 1, [](double time, const ChannelMix::Change& c) { return time < c.time; });
-        const double release = std::min(end + kVgmRate, next != v.end() ? std::max(end, next->time) : end + kVgmRate);
-        out.to = std::max(out.to, release);
-    }
     return out;
 }
 

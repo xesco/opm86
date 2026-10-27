@@ -186,7 +186,7 @@ void testTune()
     check(tune->bends(lead, lead.notes[0]).size() == 1, "a note held at one pitch has one bend");
 
     // The lead's second note played alone: only its channel sounds, from its
-    // key on to the release's end, at the next lead note or 1s after.
+    // key on to its end, with no release.
     {
         BuildReport report;
         tune->build(&report);
@@ -197,14 +197,15 @@ void testTune()
         for (size_t c = 0; c < alone.mix->changes.size(); ++c)
             for (const auto& change : alone.mix->changes[c])
             {
-                const bool atChosen = c == ch && change.time == static_cast<double>(chosen.start);
+                const bool atChosen = c == ch && change.time == static_cast<double>(chosen.start) && change.gain > 0.0f;
                 chosenHeard |= atChosen && change.gain == 1.0f;
                 othersSilent &= atChosen || change.gain == 0.0f;
             }
-        const double release = std::min(static_cast<double>(chosen.start + chosen.length) + kVgmRate,
-                                        static_cast<double>(lead.notes[2].start));
-        check(chosenHeard && othersSilent && alone.from == static_cast<double>(chosen.start) && alone.to == release,
-              "a note played alone sounds on its channel only, to the end of its release");
+        const double end = static_cast<double>(chosen.start + chosen.length);
+        const auto& v = alone.mix->changes[ch];
+        const bool cut = std::any_of(v.begin(), v.end(), [&](const ChannelMix::Change& c) { return c.time == end && c.gain == 0.0f; });
+        check(chosenHeard && othersSilent && cut && alone.from == static_cast<double>(chosen.start) && alone.to == end,
+              "a note played alone sounds on its channel only, and stops at its end");
     }
 
     // Transpose the lead's first note up two semitones.
