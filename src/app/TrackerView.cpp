@@ -159,8 +159,9 @@ void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
         hover_ = {};
         setTooltip({});
     }
-    // Selected notes belong to the song they were selected in.
-    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_))
+    // Selected notes belong to the song they were selected in, and a new
+    // section drops them in the model (AppModel::setSelection).
+    if (!selectedNotes_.empty() && (!model_.hasTune() || model_.file() != selectedFile_ || model_.selectedNotes().empty()))
         selectedNotes_.clear(), ++selectedRevision_;
     repaint();
 }
@@ -1577,6 +1578,9 @@ void TrackerView::clickNote(NoteRef note, bool add)
 
 void TrackerView::selectNotes(std::set<NoteRef> notes)
 {
+    // Selected notes replace a section, even one they are in.
+    if (!notes.empty() && model_.hasSelection())
+        model_.clearSelection();
     selectedNotes_ = std::move(notes);
     selectedFile_ = model_.file();
     ++selectedRevision_;

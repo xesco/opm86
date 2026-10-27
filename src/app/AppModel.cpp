@@ -267,6 +267,8 @@ double AppModel::displayPosition() const
 
 void AppModel::setSelection(double start, double end, bool keepPlayhead)
 {
+    // A section and selected notes are two selections: one replaces the other.
+    selectedNotes_.clear();
     selectionStart_.store(std::max(0.0, std::min(start, end)));
     selectionEnd_.store(std::max(start, end));
     const double p = position_.load();
