@@ -1473,9 +1473,10 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
         return;
     }
     // Playing, or with Shift: a click moves the playhead there; held and
-    // dragged, the hand moves the view.
+    // dragged, the hand moves the view across and up or down.
     drag_ = Drag::Lanes;
     panFrom_ = viewStart_;
+    panFromY_ = scrollY_;
     setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
@@ -1525,6 +1526,7 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
     if (drag_ == Drag::Pan)
     {
         setViewStart(panFrom_ - (p.x - dragFrom_.x) * samplesPerPixel_);
+        setScrollY(panFromY_ - static_cast<int>(p.y - dragFrom_.y));
         movedByHand();
     }
 }

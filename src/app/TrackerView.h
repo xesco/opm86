@@ -185,6 +185,7 @@ private:
     Drag drag_ = Drag::None;
     juce::Point<float> dragFrom_;
     double panFrom_ = 0;                   // the view's start when the hand took it
+    int panFromY_ = 0;                     // and its vertical scroll
     double selectFrom_ = 0;                // song time where a selection drag began, or the edge held still, or the grab in a moved one
     bool overSelectionBar(juce::Point<float> p) const; // stopped, on the ruler inside the selection, where a drag moves it
     int selectionEdgeAt(juce::Point<float> p) const; // 0 start, 1 end, -1 neither: within a few pixels of one
