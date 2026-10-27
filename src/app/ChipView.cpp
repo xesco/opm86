@@ -866,15 +866,27 @@ void ChipView::mouseMove(const juce::MouseEvent& e)
 juce::Rectangle<float> ChipView::paintBus(juce::Graphics& g, juce::Rectangle<float> area, bool fm, juce::Colour accent)
 {
     // A box at the header's right end: how many writes reached the chip in
-    // the last second, and the last one, register and value.
+    // the last second, and the last one, register and value. Only writes to
+    // channels that are heard count: a key on counts for its channel, and
+    // the chip's own registers while any of its channels is heard.
     if (song_ == nullptr)
         return area;
     const auto& writes = fm ? song_->ym : song_->pcm;
     const size_t end = fm ? ymNext_ : pcmNext_;
+    bool anyHeard = false;
+    for (int c = fm ? 0 : 8; c < (fm ? 8 : 24); ++c)
+        anyHeard = anyHeard || heard(c);
     int count = 0;
+    juce::String last = "-";
     for (size_t i = end; i-- > 0 && static_cast<double>(writes[i].time) >= at_ - kVgmRate;)
-        ++count;
-    const juce::String last = end > 0 ? hex(writes[end - 1].address & 0xFF, 2) + "=" + hex(writes[end - 1].value, 2) : juce::String("-");
+    {
+        const auto r = static_cast<size_t>(writes[i].address & 0xFF);
+        const int ch = fm && r == 0x08 ? writes[i].value & 7 : channelOf(fm, r);
+        if (ch >= 0 ? !heard(ch) : !anyHeard)
+            continue;
+        if (count++ == 0)
+            last = hex(static_cast<int>(r), 2) + "=" + hex(writes[i].value, 2);
+    }
 
     // At the header's right end, after a divider, each readout a label and
     // then its value in a box as wide as its widest value, so nothing moves
