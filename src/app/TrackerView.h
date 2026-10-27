@@ -35,7 +35,7 @@ public:
     void centrePlayhead(); // following playback, the playhead to the middle of the view at once
     void reveal(double songTime); // the view follows a playhead there as it does while playing: up to the middle, then scrolling
     void fitTime();   // the whole song across, as far as the zoom goes
-    void fitTracks(); // every track's rows down, as far as the lane height goes
+    void fitTracks(); // the rows from the first track heard to the last, as far as the lane height goes
     void updateMeters(double seconds); // reads the chips' levels; call each frame with the time since the last
     // A chip channel's output now, 8 FM then 16 PCM: 0..1 along a meter
     // from kMeterFloor to full scale, falling back as the meters do.

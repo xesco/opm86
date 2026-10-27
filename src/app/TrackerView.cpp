@@ -392,10 +392,22 @@ void TrackerView::fitTracks()
 {
     if (!model_.hasTune() || layout().totalRows == 0)
         return;
+    // The rows from the first track that can be heard to the last, muted
+    // tracks between them included; with none to hear, every row.
+    int first = layout().totalRows, last = 0;
+    const auto& tracks = model_.tune().tracks;
+    for (size_t t = 0; t < tracks.size(); ++t)
+        if (model_.tune().audible(tracks[t]))
+        {
+            first = std::min(first, layout().firstRow[t]);
+            last = std::max(last, layout().firstRow[t] + layout().shown[t]);
+        }
+    if (first >= last)
+        first = 0, last = layout().totalRows;
     const double room = getHeight() - kRulerHeight;
-    laneHeightExact_ = std::clamp(std::floor(room / layout().totalRows), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
+    laneHeightExact_ = std::clamp(std::floor(room / (last - first)), static_cast<double>(kMinLaneHeight), static_cast<double>(kMaxLaneHeight));
     laneHeight_ = static_cast<int>(laneHeightExact_);
-    setScrollY(0);
+    setScrollY(first * laneHeight_);
 }
 
 double TrackerView::xToTime(float x) const
