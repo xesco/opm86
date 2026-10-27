@@ -1069,11 +1069,12 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
 
     // A note the game bends or moves to new keys while held gets a line of
     // its pitch over time, from its lowest pitch at the bottom of the note to
-    // its highest at the top, over at least 2 semitones.
+    // its highest at the top, over at least 2 semitones. A pitch that moves
+    // less than a quarter of a semitone would draw nearly flat, so it gets none.
     const auto bends = showBends_ ? model_.tune().bends(tr, n) : std::vector<std::pair<int64_t, double>> {};
-    if (bends.size() > 1 && r.getHeight() >= 10.0f)
+    const auto [low, high] = std::minmax_element(bends.begin(), bends.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+    if (bends.size() > 1 && high->second - low->second >= 0.25 && r.getHeight() >= 10.0f)
     {
-        const auto [low, high] = std::minmax_element(bends.begin(), bends.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
         const double span = std::max(2.0, high->second - low->second);
         const double middle = (low->second + high->second) * 0.5;
         const auto area = r.reduced(1.0f, 3.0f);
