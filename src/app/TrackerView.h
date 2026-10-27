@@ -164,7 +164,7 @@ private:
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
     bool isSounding(int track, const TuneNote& n) const; // under the playhead while playing, and played when notes play alone
-    void clickNote(NoteRef note, bool add); // selects the note, or with add adds or removes it
+    void clickNote(NoteRef note, bool add); // selects the note, or deselects it if it was; with add, adds or removes it
     void selectNotes(std::set<NoteRef> notes); // sets the selected notes here and in the model, which plays them
     // A note label's text and its dark outline, at the origin, kept per label and size.
     struct LabelShapes
