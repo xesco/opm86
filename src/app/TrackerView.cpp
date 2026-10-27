@@ -153,6 +153,12 @@ TrackerView::~TrackerView()
 
 void TrackerView::changeListenerCallback(juce::ChangeBroadcaster*)
 {
+    // When a song closes, the tooltip of the note under the mouse goes with it.
+    if (!model_.hasTune() && hover_.valid())
+    {
+        hover_ = {};
+        setTooltip({});
+    }
     repaint();
 }
 
