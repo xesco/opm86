@@ -7,6 +7,9 @@ shows the two sound chips at work. This page is for anyone who wants to listen t
 songs closely. It explains how to download the app, the sound board it emulates, where to
 find songs and how to use the app, and, for developers, how to build it.
 
+![OPM86 Player playing Like the Wind from Power Drift: the tracks with their notes, the keys
+strip and the overview](docs/screenshot.png)
+
 ## Download
 
 Download the app from the [latest release](https://github.com/xesco/opm86/releases/latest).
@@ -190,8 +193,10 @@ except **Open** is greyed out and does nothing.
 
 The window has six areas, from top to bottom:
 
-1. The top bar holds the transport buttons, the song's name, **Open** and the master
-   volume. The transport buttons are rewind, to the end, play or pause, and stop.
+1. The top bar holds the app's version under its name, the transport buttons, the song's
+   name, the master volume, **Close** and **Open**. The transport buttons are rewind, play
+   or pause, stop, and to the end. A click on the app's name opens the credits: the
+   version, the licence, the project's page, and the parts the app is built with.
 2. The tool bar holds the controls in named groups (see [The tool bar](#the-tool-bar)).
 3. The tracks area shows a ruler with the song's bars and beats, and a lane for each
    track. Each note shows as a rectangle in the colour of its pitch.
@@ -229,6 +234,24 @@ or volume, and Shift+Cmd+Z redoes it. The notes themselves cannot be edited.
 The ruler's bars and beats come from the times the notes start, because a VGM file
 records no tempo. Bar 1 starts at the song's first note.
 
+### Pitch lines
+
+A game can change the pitch of a note while the note sounds, without starting a new one.
+It plays a run of keys this way, or slides from one pitch to another. Such a note shows a
+line across it that follows its pitch over time. Each line has its own scale: the note's
+lowest pitch is at its bottom and its highest at its top, over at least 2 semitones. So the
+heights of two notes' lines do not compare.
+
+| Change of pitch | How the line shows it |
+| --- | --- |
+| A jump of a semitone or more | A step |
+| A slide, in small steps close together | A ramp |
+| Less than a quarter of a semitone in all | No line |
+
+The note's name is its pitch at its start. The keys strip lights the key nearest the pitch
+that the note plays at the playhead. **Show pitch lines** in the tool bar shows or hides
+the lines, and the app remembers the choice.
+
 ### The tool bar
 
 The tool bar groups its controls by what they act on:
@@ -237,10 +260,10 @@ The tool bar groups its controls by what they act on:
 | --- | --- |
 | PLAYHEAD | **Keep playhead** keeps the playhead's line on screen, which otherwise fades a second after you last move the mouse or press a key. **Follow playhead** scrolls the tracks with the song, and it is on when the app starts. |
 | SPEED | Plays the song from 25% to 200% of its speed, with the notes at their own pitch. Double-click the slider to go back to 100%. |
-| LOOP | **Loop** plays the selection again and again, or the whole song when nothing is selected. The START and END fields show the selection's times and set them (see [Select and loop](#select-and-loop)). |
+| LOOP | **Loop** plays the selected notes or the selection again and again, or the whole song when nothing is selected. The START and END fields show the selection's times and set them (see [Select and loop](#select-and-loop)). |
 | MIX | **Reset mix** unmutes, unsolos and sets every track to 0dB. **Invert** flips the solos when any track is soloed, and otherwise flips the mutes. **Only instruments** and **Only drums** solo one kind of track, and a second click turns the solo off. |
-| VIEW | **Order by patch** puts the FM tracks in patch order, FM 1 first, with the patch's number before the voice in each name. **Show the chips** shows the chips view in place of the tracks (see [The chips view](#the-chips-view)). |
-| ZOOM | **Fit tracks**, **Fit time** and **Fit both** fit the tracks, the song, or both to the window. **1:1** puts both zooms back to where they start. |
+| VIEW | **Order by patch** puts the FM tracks in patch order, FM 1 first, with the patch's number before the voice in each name. **Show the chips** shows the chips view in place of the tracks (see [The chips view](#the-chips-view)). **Show pitch lines** shows or hides the lines across the notes (see [Pitch lines](#pitch-lines)). |
+| ZOOM | **Fit tracks**, **Fit time** and **Fit both** fit the tracks, the song, or both to the window. **Fit tracks** fits the tracks you can hear, from the first to the last, with any muted track between them. **1:1** puts both zooms back to where they start. |
 | HEIGHT and TIME | The two sliders set the height of the tracks and the zoom in time. |
 
 ### Play and move
@@ -249,12 +272,12 @@ The keyboard controls the song like this:
 
 | Key | Effect |
 | --- | --- |
-| Space | Plays, or pauses while playing |
+| Space | Plays, or pauses while playing; with notes selected, plays them alone (see [Play notes alone](#play-notes-alone)) |
 | Return or Home | Goes to the start of the selection, or of the song |
 | End | Goes to the end of the selection, or of the song |
 | Cmd+= and Cmd+- | Zooms in and out in time |
 | Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
-| Escape | Drops the selection |
+| Escape | Drops the selected notes, or else the selection |
 | Cmd+W | Closes the song |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
@@ -263,8 +286,8 @@ around the song like this:
 
 | Mouse | Effect |
 | --- | --- |
-| Click a lane or the ruler | Moves the playhead there |
-| Drag the lanes while playing, or with Shift | Moves the view with a hand |
+| Click a lane off the notes, or the ruler | Moves the playhead there |
+| Drag the lanes while playing, or with Shift | Moves the view with a hand, across and up or down |
 | Scroll | Scrolls through time and through the tracks |
 | Cmd+scroll, or pinch | Zooms in time |
 | Option+scroll, or Shift+pinch | Changes the height of the tracks |
@@ -284,25 +307,47 @@ stopped, drag across the lanes to select a section. The selection works like thi
 | Drag an edge of the selection | Moves that edge |
 | Drag the selection's bar on the ruler | Moves the whole selection |
 | Type a time in START or END, as m:ss.mmm | Sets that edge |
-| Click the lanes while stopped, or press Escape | Drops the selection |
+| Click the lanes off the notes while stopped, or press Escape | Drops the selection |
 
 When **Loop** is on, the song plays the selection again and again.
+
+### Play notes alone
+
+You can select notes and play them without the rest of the song, whatever the mutes and
+solos. Space or the play button plays the selected notes, each at its own time, and cuts
+each one at its end. Then the playhead rests at the start of the first one. When **Loop**
+is on, the notes play again and again. The notes are selected like this:
+
+| Action | Effect |
+| --- | --- |
+| Click a note | Selects it, in place of any other, and outlines it |
+| Click a selected note | Deselects it |
+| Shift-click a note | Adds it to the selected notes, or removes it |
+| Click a lane off the notes, or press Escape | Drops the selected notes |
+
+Selected notes and a selection replace each other. Selecting a note drops the selection,
+even a selection around the note, and selecting a section drops the selected notes.
 
 ### The chips view
 
 The chips view shows the registers of the two chips at the playhead, in place of the
-tracks. The values are the game's commands up to the playhead, before your mutes and
-volumes, and each value glows when the game writes it. A value written again unchanged
-glows dimmer. The view only shows the chips, so nothing in it can be changed. While the
-view shows, the keys strip and the overview strip slide down, and they come back as they
-were when you turn the view off. The app always starts with the tracks.
+tracks. The values are the game's commands up to the playhead, and each value glows when
+the game writes it. A value written again unchanged glows dimmer. The view only shows the
+chips, so nothing in it can be changed. While the view shows, the keys strip and the
+overview strip slide down, and they come back as they were when you turn the view off. The
+app always starts with the tracks.
+
+Only the channels you can hear light up. A channel that your mutes or solos silence keeps
+the values it had when you last heard it, and shows no glow, key or envelope until you
+hear it again.
 
 Each chip has its own section. A section's header shows the chip's left and right output
-levels, how many commands it receives a second (WRITES), and its last command (LAST):
+levels, how many commands it receives a second (WRITES), and its last command (LAST). WRITES
+and LAST count only the commands to channels you can hear:
 
 | Chip | What its section shows |
 | --- | --- |
-| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
+| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope, lit along the stretch it has run, with a dot that travels it. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
 | Sega PCM | A map of the samples the song plays, in rows by 64KB bank, where a playing sample lights up and, when its tile has room, shows the address being read. Below it, a row for each of the 16 channels with its start, loop and end addresses, its playback rate, its flags, its bank, its two volumes and its output level. |
 
 Rest the pointer on any label in the view to see what it means.
@@ -317,7 +362,8 @@ ctest --test-dir build -C Release
 ```
 
 The `core_test` program checks the VGM reader on a generated file, the Sega PCM addressing,
-the split of a song into notes and tracks, and the player's mix, speed and volume.
+the split of a song into notes and tracks, the pitch of a note that the game bends, and the
+player's mix, speed and volume, including notes played alone.
 
 GitHub also checks that each build of the app starts. The `core_test --write-song song.vgm`
 command writes the tests' song, and the app opens it, draws its window to a PNG and quits.
