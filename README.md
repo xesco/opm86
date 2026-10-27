@@ -99,10 +99,6 @@ make
 open "OPM86 Player.app"
 ```
 
-When your keychain has a code-signing certificate named `OPM86 Dev`, `make` signs the app
-with it, so macOS keeps the folders you allowed it to read across builds. Use
-`make SIGN_ID="its name"` for a certificate with another name.
-
 ### Windows
 
 Visual Studio 2022 with its C++ tools, whose CMake runs presets (3.25 or later).
