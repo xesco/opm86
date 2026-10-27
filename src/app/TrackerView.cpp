@@ -1063,15 +1063,20 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
         auto y = [&](double p) { return area.getCentreY() - static_cast<float>((p - middle) / span) * area.getHeight(); };
         juce::Path line;
         line.startNewSubPath(area.getX(), y(bends.front().second));
+        // A slide, in steps under a semitone less than 100ms apart, is a ramp
+        // from one change to the next. A jump of a semitone or more, or a
+        // change after a held pitch, is a step.
         for (size_t i = 1; i < bends.size(); ++i)
         {
             const float x = juce::jlimit(area.getX(), area.getRight(), timeToX(static_cast<double>(bends[i].first)));
-            line.lineTo(x, y(bends[i - 1].second));
+            const bool slide = std::abs(bends[i].second - bends[i - 1].second) < 1.0 && static_cast<double>(bends[i].first - bends[i - 1].first) < kVgmRate / 10;
+            if (!slide)
+                line.lineTo(x, y(bends[i - 1].second));
             line.lineTo(x, y(bends[i].second));
         }
         line.lineTo(area.getRight(), y(bends.back().second));
         g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 0.6f : 0.35f) : 0.12f));
-        g.strokePath(line, juce::PathStrokeType(1.5f));
+        g.strokePath(line, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     // The label, centred and as large as the note allows: white with a dark
