@@ -849,14 +849,20 @@ void TrackerView::paintLanes(juce::Graphics& g)
     const float height = static_cast<float>(getHeight() - kRulerHeight);
     if (static_cast<float>(getWidth()) <= lanesX() || height <= 0.0f)
         return;
-    std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
-                              static_cast<double>(theme::pitchColoursRevision()), model_.selectionStart(), model_.selectionEnd(),
-                              static_cast<double>(selectedRevision_), showBends_ ? 1.0 : 0.0,
-                              samplesPerPixel_, static_cast<double>(getHeight()), lanesX(), scale };
+    // Where things are, and the selection, which follows a drag: all redrawn now.
+    std::vector<double> key { model_.selectionStart(), model_.selectionEnd(), samplesPerPixel_, static_cast<double>(getHeight()),
+                              lanesX(), scale };
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
     if (key != lanesKey_)
         tiles_.clear(), lanesKey_ = std::move(key);
+    // How the notes look: edits (mute, solo, volume), the build's channels,
+    // the colours, the selected notes and the pitch lines. Redrawn over frames.
+    std::vector<double> looks { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
+                                static_cast<double>(theme::pitchColoursRevision()), static_cast<double>(selectedRevision_),
+                                showBends_ ? 1.0 : 0.0 };
+    if (looks != looksKey_)
+        ++looksVersion_, looksKey_ = std::move(looks);
 
     // The tiles in view, and the one about to come into it.
     const double span = kTileWidth * samplesPerPixel_; // song time a tile covers
@@ -872,22 +878,33 @@ void TrackerView::paintLanes(juce::Graphics& g)
     g.saveState();
     g.reduceClipRegion(juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight));
     g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+    // A tile not yet drawn is drawn now; one drawn before a change of looks is
+    // redrawn while this frame's budget lasts, and shown as it was until then.
+    const double started = juce::Time::getMillisecondCounterHiRes();
+    bool behind = false;
     for (long k = first; k <= last; ++k)
     {
         auto& tile = tiles_[k];
-        if (!tile.isValid())
+        const bool stale = tile.image.isValid() && tile.looks != looksVersion_;
+        if (stale && juce::Time::getMillisecondCounterHiRes() - started > kRedrawBudgetMs)
+            behind = true;
+        else if (!tile.image.isValid() || stale)
         {
-            tile = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
-            juce::Graphics layer(tile);
+            if (!tile.image.isValid())
+                tile.image = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
+            juce::Graphics layer(tile.image);
             layer.addTransform(juce::AffineTransform::translation(-lanesX(), -static_cast<float>(kRulerHeight)).scaled(scale));
             const double view = viewStart_;
             viewStart_ = static_cast<double>(k) * span; // the tile starts at the lanes' left edge
             paintLaneLayer(layer, lanesX() + static_cast<float>(kTileWidth));
             viewStart_ = view;
+            tile.looks = looksVersion_;
         }
         const float x = timeToX(static_cast<double>(k) * span) + shift;
-        g.drawImageTransformed(tile, juce::AffineTransform::scale(1.0f / scale).translated(x, static_cast<float>(kRulerHeight)));
+        g.drawImageTransformed(tile.image, juce::AffineTransform::scale(1.0f / scale).translated(x, static_cast<float>(kRulerHeight)));
     }
+    if (behind)
+        repaint(); // the next frame goes on with the rest
 
     // The notes sounding now, over the rest with their glow.
     if (model_.playing())

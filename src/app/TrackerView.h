@@ -146,11 +146,21 @@ private:
     void paintLaneLayer(juce::Graphics&, float right); // the lanes, grid, selection and every note at rest, out to x = right
     // The lanes at rest, drawn in tiles kTileWidth wide, tile k from song time
     // k x kTileWidth x samplesPerPixel_ on: a tile is drawn as it comes into
-    // view and dropped once it is well out, and all of them are redrawn when
-    // anything they show changes (lanesKey_).
+    // view and dropped once it is well out. When where things are changes
+    // (lanesKey_), all of them are redrawn at once. When only how the notes
+    // look changes (looksKey_), the tiles in view are redrawn over the next
+    // frames: a frame starts no new one after kRedrawBudgetMs, so it redraws
+    // about one, and none stalls.
     static constexpr int kTileWidth = 256;
-    std::map<long, juce::Image> tiles_;
-    std::vector<double> lanesKey_;
+    static constexpr double kRedrawBudgetMs = 1.0;
+    struct Tile
+    {
+        juce::Image image;
+        int looks = 0; // the looksVersion_ it was drawn at
+    };
+    std::map<long, Tile> tiles_;
+    std::vector<double> lanesKey_, looksKey_;
+    int looksVersion_ = 0;
     void paintHeaders(juce::Graphics&);
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
     bool isSounding(int track, const TuneNote& n) const; // under the playhead while playing, and played when notes play alone
