@@ -1885,6 +1885,7 @@ void MainComponent::frame(double timestamp)
         return;
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
     lastFrame_ = timestamp;
+    model_.beginFrame(timestamp);
     // Strips sliding open or closed ease to their height.
     bool sliding = false;
     using Slide = std::pair<SlidingStrip*, double*>;

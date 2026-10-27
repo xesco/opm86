@@ -231,14 +231,38 @@ void AppModel::stop()
     endNotes();
 }
 
-double AppModel::displayPosition() const
+void AppModel::beginFrame(double timestamp)
 {
     const double p = position_.load();
     if (!playing_.load())
-        return p;
-    // Up to 50 ms ahead of the last audio block.
-    const double elapsed = std::clamp(juce::Time::getMillisecondCounterHiRes() - positionStamp_.load(), 0.0, 50.0);
-    return p + elapsed * speed_.load() * kVgmRate / 1000.0;
+    {
+        frameAt_ = -1.0;
+        shown_ = p;
+        return;
+    }
+    // Where the audio is: its last block, carried on by the clock up to 50 ms.
+    const double rate = speed_.load() * kVgmRate;
+    const double audio = p + std::clamp(juce::Time::getMillisecondCounterHiRes() - positionStamp_.load(), 0.0, 50.0) * rate / 1000.0;
+    // Audio blocks come at uneven times, and so do the calls that read them,
+    // so following either makes the playhead stutter. The position shown
+    // moves on by the time between display refreshes instead, steered toward
+    // the audio's over about 200 ms and never back. A jump of more than
+    // 50 ms, a seek or a loop, is followed at once.
+    if (frameAt_ < 0.0 || std::abs(audio - shown_) > 0.05 * kVgmRate)
+        shown_ = audio;
+    else if (timestamp > frameAt_)
+    {
+        const double elapsed = std::min(timestamp - frameAt_, 0.1);
+        const double ahead = shown_ + elapsed * rate;
+        shown_ = std::max(shown_, ahead + (audio - ahead) * std::min(1.0, elapsed / 0.2));
+    }
+    frameAt_ = timestamp;
+}
+
+double AppModel::displayPosition() const
+{
+    // Stopped, or before the first frame of playing: the position itself.
+    return playing_.load() && frameAt_ >= 0.0 ? shown_ : position_.load();
 }
 
 void AppModel::setSelection(double start, double end, bool keepPlayhead)

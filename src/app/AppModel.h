@@ -53,7 +53,10 @@ public:
     bool playing() const { return playing_.load(); }
     double position() const { return position_.load(); } // song time, VGM samples
     bool takeEnded() { return ended_.exchange(false); } // whether playing stopped at the song's end since the last call
-    // The position now, between audio blocks, for a playhead that moves smoothly.
+    // The position for this frame of the display, which moves smoothly while
+    // playing. beginFrame works it out once per display refresh, timestamp in
+    // seconds.
+    void beginFrame(double timestamp);
     double displayPosition() const;
     void setPosition(double songTime);
     // Stopped, move to a song time and let a moment of it sound; a run of
@@ -150,6 +153,7 @@ private:
     std::atomic<float> master_ { 1.0f }; // the master volume as a gain
     std::atomic<double> position_ { 0.0 };
     std::atomic<double> positionStamp_ { 0.0 }; // when position_ was set, in ms
+    double shown_ = 0.0, frameAt_ = -1.0; // message thread: the position shown, and its frame's timestamp, -1 while stopped
     double sampleRate_ = 48000.0;
 };
 
