@@ -7,93 +7,76 @@ shows the two sound chips at work. This page is for anyone who wants to listen t
 songs closely. It explains how to download the app, the sound board it emulates, where to
 find songs and how to use the app, and, for developers, how to build it.
 
+![OPM86 Player playing Like the Wind from Power Drift: the tracks with their notes, the keys
+strip and the overview](docs/screenshot.png)
+
 ## Download
 
-The commands download the latest release. Older releases are on the
-[releases page](https://github.com/xesco/opm86/releases), and [Build](#build) shows how to
-build the app yourself.
+Download the app from the [latest release](https://github.com/xesco/opm86/releases/latest).
+Take the file for your system, unpack it, and open the app inside. Older releases are on
+the [releases page](https://github.com/xesco/opm86/releases), and [Build](#build) shows how
+to build the app yourself.
 
-### macOS
+| System | What it needs | File |
+| --- | --- | --- |
+| macOS | macOS 11 or later, on Apple Silicon or Intel | `OPM86-Player-macos.zip` |
+| Windows | Windows 10 or later | `OPM86-Player-windows.zip`, or `OPM86-Player-windows-arm64.zip` on a PC with an ARM processor |
+| Linux, x86-64 | A distribution from 2022 on (glibc 2.35 or later), such as Ubuntu 22.04, Debian 12 or Linux Mint 21, with the ALSA, FreeType, Fontconfig and X11 libraries, which most desktops install already | `OPM86-Player-linux.tar.gz` |
+| Raspberry Pi | The 64-bit Raspberry Pi OS | `OPM86-Player-linux-arm64.tar.gz` |
 
-macOS 11 or later, on Apple Silicon or Intel.
+A Raspberry Pi 5 or 500 plays songs, but the scrolling is not fully smooth, because the app
+redraws 30 times a second on a Pi. A Pi 4 or 3 has not been tried, and is probably too
+slow.
 
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-macos.zip
-unzip OPM86-Player-macos.zip
-# Move it to Applications
-mv "OPM86 Player.app" /Applications/
-# Clear the download flag, so macOS opens the unsigned app without a warning
-xattr -dr com.apple.quarantine "/Applications/OPM86 Player.app"
-# Start it
-open "/Applications/OPM86 Player.app"
-```
+### Open the app the first time
 
-### Windows
+The app is not signed with a developer certificate, so macOS and Windows ask you before
+they open it the first time:
 
-Windows 10 or later. In PowerShell:
-
-```powershell
-# Download the app; on a PC with an ARM processor, use OPM86-Player-windows-arm64.zip
-Invoke-WebRequest https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-windows.zip -OutFile OPM86-Player-windows.zip
-# Clear the download flag, so SmartScreen does not stop the unsigned app
-Unblock-File OPM86-Player-windows.zip
-# Unpack it into a folder
-Expand-Archive OPM86-Player-windows.zip -DestinationPath "OPM86 Player"
-# Start it
-& "OPM86 Player\OPM86 Player.exe"
-```
-
-### Linux, x86-64
-
-A distribution from 2022 on (glibc 2.35 or later), such as Ubuntu 22.04, Debian 12 or Linux
-Mint 21, with the ALSA, FreeType, Fontconfig and X11 libraries, which most desktops install
-already.
-
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux.tar.gz
-tar -xzf OPM86-Player-linux.tar.gz
-# Start it; opm86-player.png is its icon, for a launcher entry
-./opm86-player
-```
-
-### Raspberry Pi
-
-The 64-bit Raspberry Pi OS. A Pi 5 or 500 plays songs, though the scrolling is not fully
-smooth: the app redraws 30 times a second on a Pi. A Pi 4 or 3 has not been tried, and is
-probably too slow.
-
-```sh
-# Download the app and unpack it
-curl -LO https://github.com/xesco/opm86/releases/latest/download/OPM86-Player-linux-arm64.tar.gz
-tar -xzf OPM86-Player-linux-arm64.tar.gz
-# Start it
-./opm86-player
-```
+- **macOS:** move OPM86 Player to Applications and open it. When macOS says that it cannot
+  check the app, open System Settings, then Privacy & Security, and click **Open Anyway**
+  beside the message about OPM86 Player. When macOS says instead that the app is damaged,
+  the download flag on the app is the cause, and the command
+  `xattr -dr com.apple.quarantine "/Applications/OPM86 Player.app"` in Terminal clears it.
+- **Windows:** when SmartScreen says that it protected your PC, click **More info**, then
+  **Run anyway**.
+- **Linux and Raspberry Pi:** the file `opm86-player` starts the app, and the file
+  `opm86-player.png` is its icon, for an entry in your launcher.
 
 ## The sound board
 
-The Out Run sound board has two sound chips, and the app emulates both at their original
-clock rates. Each chip produces its output at its own sample rate, and the app converts
-both outputs to the sample rate of your audio interface. The project takes its name from
-this board: OPM is Yamaha's name for the YM2151, short for FM Operator Type-M, and 86
-stands for 1986, the year Sega released Out Run.
+Sega's arcade boards of the late 1980s, such as the Out Run board, the X Board and the Y
+Board, play their music on two sound chips. The app emulates both chips, each at the clock
+rate that the VGM file records for its board. Each chip produces its output at its own
+sample rate, a fixed fraction of its clock, and the app converts both outputs to the sample
+rate of your audio interface.
 
-| Chip | Role | Clock | Sample rate | Voices |
+| Chip | Role | Voices | Sample rate |
+| --- | --- | --- | --- |
+| YM2151 (OPM) | FM synthesis for melody, chords and bass | 8 | Its clock ÷ 64 |
+| Sega PCM (315-5218) | 8-bit sample playback, mostly for drums | 16 | Its clock ÷ 128 |
+
+The boards run both chips at one clock, which sets their sample rates:
+
+| Board | Games, for example | Clock | YM2151 sample rate | Sega PCM sample rate |
 | --- | --- | --- | --- | --- |
-| YM2151 (OPM) | FM synthesis for melody, chords and bass | 4MHz | 62.5kHz | 8 |
-| Sega PCM (315-5218) | 8-bit sample playback for drums | 4MHz | 31.25kHz | 16 |
+| Out Run, X Board | Out Run, Turbo Out Run, After Burner II | 4MHz | 62.5kHz | 31.25kHz |
+| Y Board | Power Drift, Galaxy Force II | 4.027MHz | 62.9kHz | 31.5kHz |
+
+The project takes its name from the YM2151 and from Out Run. OPM is Yamaha's name for the
+YM2151, short for FM Operator Type-M. 86 stands for 1986, the year Sega released Out Run,
+as a tribute to a game that plays its music on these chips.
 
 The YM2151 makes each voice from four sine oscillators called operators, named M1, C1, M2
 and C2. An operator is either heard directly, as a carrier, or changes the sound of another
 operator, as a modulator. The algorithm is a number from 0 to 7 that sets which operators
 modulate which. A patch is the complete set of these settings for one sound. The YM2151 is
-tuned for a 3.58MHz clock, so at Out Run's 4MHz it plays sharp, as it did in the arcade.
-The app names each note by the pitch it plays at the game's clock.
+tuned for a 3.58MHz clock, so on these boards, which run it faster, it plays sharp, as it
+did in the arcade. The app names each note by the pitch it plays at its board's clock.
 
-The Sega PCM chip plays recorded sounds, called samples, from a 512KB memory. Each of its
-16 channels plays one sample at a time.
+The Sega PCM chip plays recorded sounds, called samples, from a memory whose size depends
+on the board: 512KB on the Out Run board. Each of its 16 channels plays one sample at a
+time.
 
 ## Build
 
@@ -115,10 +98,6 @@ make
 # Start it
 open "OPM86 Player.app"
 ```
-
-When your keychain has a code-signing certificate named `OPM86 Dev`, `make` signs the app
-with it, so macOS keeps the folders you allowed it to read across builds. Use
-`make SIGN_ID="its name"` for a certificate with another name.
 
 ### Windows
 
@@ -154,22 +133,6 @@ make
 make linux
 ```
 
-## Release
-
-GitHub builds the app for macOS, Windows, Linux and the Raspberry Pi, and runs the tests
-(see [Tests](#tests)), in two cases:
-
-| Case | What GitHub does with the five builds |
-| --- | --- |
-| A pull request, or a run of the **Build** workflow started by hand under **Actions** | Keeps them as downloads on the run's page |
-| A pushed tag that starts with `v`, such as `v0.2.0` | Publishes them as a release |
-
-A push to a branch builds nothing. To release, run `make release VERSION=0.2.0` on an
-up-to-date `main` with no uncommitted changes. The command sets the version in
-`CMakeLists.txt` and adds the release to `CHANGELOG.md`, with the title of each pull
-request merged since the last release. It then commits both, tags the commit `v0.2.0`, and
-pushes the commit and the tag. The release on GitHub shows the same list as its notes.
-
 ## Get songs
 
 A VGM file is a recording of the commands a game sends to its sound chips while a song
@@ -178,8 +141,8 @@ the commands for any other chip. So a VGM file is useful only when it comes from
 whose sound board has both chips, as the Out Run board does. The file can be `.vgm` or the
 compressed `.vgz`.
 
-The VGM archive at vgmrips.net holds these games, among others that use the YM2151 and the
-Sega PCM chip:
+The VGM archive at [vgmrips.net](https://vgmrips.net) holds these games, among others that
+use the YM2151 and the Sega PCM chip:
 
 | Game | Sega board | Pack |
 | --- | --- | --- |
@@ -191,10 +154,10 @@ Sega PCM chip:
 | Power Drift | Y Board | [power-drift-sega-y](https://vgmrips.net/packs/pack/power-drift-sega-y) |
 | Galaxy Force II | Y Board | [galaxy-force-ii-sega-y](https://vgmrips.net/packs/pack/galaxy-force-ii-sega-y) |
 
-The archive lists every pack that uses the Sega PCM chip at
-[Packs using SegaPCM](https://vgmrips.net/packs/chip/segapcm). Hang-On, Space Harrier and
-the YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM chip with
-a YM2203 instead of a YM2151, so the player plays only their drums.
+vgmrips.net also lists every pack that uses the
+[Sega PCM chip](https://vgmrips.net/packs/chip/segapcm). Hang-On, Space Harrier and the
+YM2203 version of Enduro Racer are in that list, but they pair the Sega PCM chip with a
+YM2203 instead of a YM2151, so the player plays only their drums.
 
 The app does not include or download any of this music, so you open a file you have. While
 no song is open, the window shows links to songs to start with, such as Magical Sound
@@ -222,8 +185,10 @@ except **Open** is greyed out and does nothing.
 
 The window has six areas, from top to bottom:
 
-1. The top bar holds the transport buttons, the song's name, **Open** and the master
-   volume. The transport buttons are rewind, to the end, play or pause, and stop.
+1. The top bar holds the app's version under its name, the transport buttons, the song's
+   name, the master volume, **Close** and **Open**. The transport buttons are rewind, play
+   or pause, stop, and to the end. A click on the app's name opens the credits: the
+   version, the licence, the project's page, and the parts the app is built with.
 2. The tool bar holds the controls in named groups (see [The tool bar](#the-tool-bar)).
 3. The tracks area shows a ruler with the song's bars and beats, and a lane for each
    track. Each note shows as a rectangle in the colour of its pitch.
@@ -261,6 +226,24 @@ or volume, and Shift+Cmd+Z redoes it. The notes themselves cannot be edited.
 The ruler's bars and beats come from the times the notes start, because a VGM file
 records no tempo. Bar 1 starts at the song's first note.
 
+### Pitch lines
+
+A game can change the pitch of a note while the note sounds, without starting a new one.
+It plays a run of keys this way, or slides from one pitch to another. Such a note shows a
+line across it that follows its pitch over time. Each line has its own scale: the note's
+lowest pitch is at its bottom and its highest at its top, over at least 2 semitones. So the
+heights of two notes' lines do not compare.
+
+| Change of pitch | How the line shows it |
+| --- | --- |
+| A jump of a semitone or more | A step |
+| A slide, in small steps close together | A ramp |
+| Less than a quarter of a semitone in all | No line |
+
+The note's name is its pitch at its start. The keys strip lights the key nearest the pitch
+that the note plays at the playhead. **Show pitch lines** in the tool bar shows or hides
+the lines, and the app remembers the choice.
+
 ### The tool bar
 
 The tool bar groups its controls by what they act on:
@@ -269,10 +252,10 @@ The tool bar groups its controls by what they act on:
 | --- | --- |
 | PLAYHEAD | **Keep playhead** keeps the playhead's line on screen, which otherwise fades a second after you last move the mouse or press a key. **Follow playhead** scrolls the tracks with the song, and it is on when the app starts. |
 | SPEED | Plays the song from 25% to 200% of its speed, with the notes at their own pitch. Double-click the slider to go back to 100%. |
-| LOOP | **Loop** plays the selection again and again, or the whole song when nothing is selected. The START and END fields show the selection's times and set them (see [Select and loop](#select-and-loop)). |
+| LOOP | **Loop** plays the selected notes or the selection again and again, or the whole song when nothing is selected. The START and END fields show the selection's times and set them (see [Select and loop](#select-and-loop)). |
 | MIX | **Reset mix** unmutes, unsolos and sets every track to 0dB. **Invert** flips the solos when any track is soloed, and otherwise flips the mutes. **Only instruments** and **Only drums** solo one kind of track, and a second click turns the solo off. |
-| VIEW | **Order by patch** puts the FM tracks in patch order, FM 1 first, with the patch's number before the voice in each name. **Show the chips** shows the chips view in place of the tracks (see [The chips view](#the-chips-view)). |
-| ZOOM | **Fit tracks**, **Fit time** and **Fit both** fit the tracks, the song, or both to the window. **1:1** puts both zooms back to where they start. |
+| VIEW | **Order by patch** puts the FM tracks in patch order, FM 1 first, with the patch's number before the voice in each name. **Show the chips** shows the chips view in place of the tracks (see [The chips view](#the-chips-view)). **Show pitch lines** shows or hides the lines across the notes (see [Pitch lines](#pitch-lines)). |
+| ZOOM | **Fit tracks**, **Fit time** and **Fit both** fit the tracks, the song, or both to the window. **Fit tracks** fits the tracks you can hear, from the first to the last, with any muted track between them. **1:1** puts both zooms back to where they start. |
 | HEIGHT and TIME | The two sliders set the height of the tracks and the zoom in time. |
 
 ### Play and move
@@ -281,22 +264,22 @@ The keyboard controls the song like this:
 
 | Key | Effect |
 | --- | --- |
-| Space | Plays, or pauses while playing |
+| Space | Plays, or pauses while playing; with notes selected, plays them alone (see [Play notes alone](#play-notes-alone)) |
 | Return or Home | Goes to the start of the selection, or of the song |
 | End | Goes to the end of the selection, or of the song |
-| Cmd+= and Cmd+- | Zooms in and out in time |
-| Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter |
-| Escape | Drops the selection |
+| Cmd+= and Cmd+- | Zooms in and out in time, as a pinch on the trackpad does |
+| Option+Cmd+= and Option+Cmd+- | Makes the tracks taller and shorter, as a pinch with Shift held does |
+| Escape | Drops the selected notes, or else the selection |
 | Cmd+W | Closes the song |
 
 The **stop** button stops the song, and a second click goes back to the song's start. When
-the song plays to its end, the playhead goes back to the start 1s later. The mouse moves
-around the song like this:
+the song plays to its end, the playhead goes back to the start 1s later. The mouse and the
+trackpad move around the song like this:
 
 | Mouse | Effect |
 | --- | --- |
-| Click a lane or the ruler | Moves the playhead there |
-| Drag the lanes while playing, or with Shift | Moves the view with a hand |
+| Click a lane off the notes, or the ruler | Moves the playhead there |
+| Drag the lanes while playing, or with Shift | Moves the view with a hand, across and up or down |
 | Scroll | Scrolls through time and through the tracks |
 | Cmd+scroll, or pinch | Zooms in time |
 | Option+scroll, or Shift+pinch | Changes the height of the tracks |
@@ -316,25 +299,47 @@ stopped, drag across the lanes to select a section. The selection works like thi
 | Drag an edge of the selection | Moves that edge |
 | Drag the selection's bar on the ruler | Moves the whole selection |
 | Type a time in START or END, as m:ss.mmm | Sets that edge |
-| Click the lanes while stopped, or press Escape | Drops the selection |
+| Click the lanes off the notes while stopped, or press Escape | Drops the selection |
 
 When **Loop** is on, the song plays the selection again and again.
+
+### Play notes alone
+
+You can select notes and play them without the rest of the song, whatever the mutes and
+solos. Space or the play button plays the selected notes, each at its own time, and cuts
+each one at its end. Then the playhead rests at the start of the first one. When **Loop**
+is on, the notes play again and again. The notes are selected like this:
+
+| Action | Effect |
+| --- | --- |
+| Click a note | Selects it, in place of any other, and outlines it |
+| Click a selected note | Deselects it |
+| Shift-click a note | Adds it to the selected notes, or removes it |
+| Click a lane off the notes, or press Escape | Drops the selected notes |
+
+Selected notes and a selection replace each other. Selecting a note drops the selection,
+even a selection around the note, and selecting a section drops the selected notes.
 
 ### The chips view
 
 The chips view shows the registers of the two chips at the playhead, in place of the
-tracks. The values are the game's commands up to the playhead, before your mutes and
-volumes, and each value glows when the game writes it. A value written again unchanged
-glows dimmer. The view only shows the chips, so nothing in it can be changed. While the
-view shows, the keys strip and the overview strip slide down, and they come back as they
-were when you turn the view off. The app always starts with the tracks.
+tracks. The values are the game's commands up to the playhead, and each value glows when
+the game writes it. A value written again unchanged glows dimmer. The view only shows the
+chips, so nothing in it can be changed. While the view shows, the keys strip and the
+overview strip slide down, and they come back as they were when you turn the view off. The
+app always starts with the tracks.
+
+Only the channels you can hear light up. A channel that your mutes or solos silence keeps
+the values it had when you last heard it, and shows no glow, key or envelope until you
+hear it again.
 
 Each chip has its own section. A section's header shows the chip's left and right output
-levels, how many commands it receives a second (WRITES), and its last command (LAST):
+levels, how many commands it receives a second (WRITES), and its last command (LAST). WRITES
+and LAST count only the commands to channels you can hear:
 
 | Chip | What its section shows |
 | --- | --- |
-| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
+| YM2151 | A CHIP card with the settings that all channels share: the LFO, the noise, the two timers, the control register, the two output pins and the test register. Below it, a card for each of the 8 channels with its note, its channel settings, a level meter, and a table with a row of settings for each of its four operators. The graph toggle, at the right end of a card's header, switches the card between its table and a graph of the channel: its algorithm as wired boxes, with each operator's frequency in Hz, and each operator's envelope, lit along the stretch it has run, with a dot that travels it. Channels 1 to 4 start as tables and 5 to 8 as graphs. |
 | Sega PCM | A map of the samples the song plays, in rows by 64KB bank, where a playing sample lights up and, when its tile has room, shows the address being read. Below it, a row for each of the 16 channels with its start, loop and end addresses, its playback rate, its flags, its bank, its two volumes and its output level. |
 
 Rest the pointer on any label in the view to see what it means.
@@ -349,7 +354,8 @@ ctest --test-dir build -C Release
 ```
 
 The `core_test` program checks the VGM reader on a generated file, the Sega PCM addressing,
-the split of a song into notes and tracks, and the player's mix, speed and volume.
+the split of a song into notes and tracks, the pitch of a note that the game bends, and the
+player's mix, speed and volume, including notes played alone.
 
 GitHub also checks that each build of the app starts. The `core_test --write-song song.vgm`
 command writes the tests' song, and the app opens it, draws its window to a PNG and quits.
@@ -379,8 +385,8 @@ OPM86 Player is built on these parts, each under its own licence:
 | [zlib](https://zlib.net) | Reads `.vgz` files; built from source on Windows only | zlib licence |
 | [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | The app's fonts | SIL Open Font License 1.1, texts in `resources/fonts` |
 
-The Sega PCM emulation is the project's own code, written to behave as `segapcm.cpp` in
-[MAME](https://github.com/mamedev/mame) does. The
+The Sega PCM emulation is the project's own code, written to behave like
+[MAME](https://github.com/mamedev/mame)'s `segapcm.cpp`. The
 [VGM specification](https://github.com/vgmrips/vgmplay/blob/master/VGMPlay/vgmspec171.txt)
 defines the format of the files the app reads. The app includes no music, and the songs in
 VGM files belong to their rights holders.
