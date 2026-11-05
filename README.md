@@ -13,6 +13,7 @@ strip and the overview](docs/screenshot.png)
 
 ## Features
 
+- Play VGM songs written for the YM2151 and Sega PCM chips.
 - See every note, track by track, with a keyboard and an overview of the whole song.
 - Mute, solo or change the volume of any track.
 - Loop a section, or play just the notes you select.
