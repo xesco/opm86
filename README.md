@@ -2,8 +2,8 @@
 
 Listen to the music of Sega's late-1980s arcade games, such as Out Run, on macOS, Windows or
 Linux. OPM86 Player opens VGM files, which record the commands a game sent to its sound
-chips, and plays them back on emulated chips, so you hear each song exactly as the game
-played it.
+chips, and plays them back on emulated YM2151 and Sega PCM chips, so you hear each song
+exactly as the game played it.
 
 The name comes from OPM, Yamaha's name for the YM2151 sound chip, and 1986, the year Out Run
 came out.
