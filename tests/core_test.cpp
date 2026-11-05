@@ -446,6 +446,51 @@ void testSpeed()
     check(std::abs(player.position() - 3.0 * kVgmRate) < 2.0, "at double speed, one second plays two");
 }
 
+// A key off and a key on in one VGM sample still restart the note, at any
+// speed: the chip reads a channel's key state once per chip sample.
+void testKeyRestart()
+{
+    test::VgmBuilder vgm;
+    vgm.ym(0x20, 0xC0 | 7); // channel 0, every operator a carrier
+    for (uint8_t op = 0; op < 4; ++op)
+    {
+        vgm.ym(0x60 + 8 * op, 0);    // full level
+        vgm.ym(0x80 + 8 * op, 31);   // the fastest attack
+        vgm.ym(0xA0 + 8 * op, 31);   // the fastest decay
+        vgm.ym(0xC0 + 8 * op, 31);   // and on to silence
+        vgm.ym(0xE0 + 8 * op, 0xFF); // the lowest sustain level, the fastest release
+    }
+    vgm.ym(0x28, 0x4A);
+    vgm.ym(0x08, 0x78);
+    vgm.wait(44100); // the note fades to silence
+    vgm.ym(0x08, 0x00);
+    vgm.ym(0x08, 0x78);
+    vgm.wait(44100);
+
+    std::string error;
+    const auto song = loadVgmSong(vgm.finish(), "Restart", error);
+    for (const double speed : { 1.0, 2.0 })
+    {
+        SongPlayer player;
+        player.prepare(48000.0);
+        player.setSong(song, makeStartSnapshot(*song));
+        player.setSpeed(speed);
+        player.play(0.0);
+        const auto before = renderSong(player, static_cast<size_t>(0.9 * 48000.0 / speed));
+        const auto silence = renderSong(player, static_cast<size_t>(0.09 * 48000.0 / speed));
+        const auto restart = renderSong(player, static_cast<size_t>(0.05 * 48000.0 / speed));
+        const auto peak = [](const std::vector<float>& v) {
+            float top = 0.0f;
+            for (const float x : v)
+                top = std::max(top, std::abs(x));
+            return top;
+        };
+        check(peak(silence) < 1e-3f, speed == 1.0 ? "a note fades to silence at speed 1" : "a note fades to silence at speed 2");
+        check(peak(restart) > 0.01f, speed == 1.0 ? "a key off and on in one sample restart the note at speed 1"
+                                                  : "a key off and on in one sample restart the note at speed 2");
+    }
+}
+
 // Mute, solo and volume left to the player sound as they do built into the song.
 void testPlayerMix()
 {
@@ -487,6 +532,7 @@ int main(int argc, char** argv)
             std::fclose(out);
         return written ? 0 : 1;
     }
+    testKeyRestart();
     testPlayerMix();
     testSpeed();
     testTrackVolume();
