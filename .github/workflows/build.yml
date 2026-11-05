@@ -21,7 +21,7 @@ jobs:
       matrix:
         include:
           - name: macos
-            os: macos-14
+            os: macos-15
             configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           # Built on Ubuntu 22.04, so it runs on systems with its glibc, 2.35, or
           # later: Ubuntu 22.04, Debian 12, Linux Mint 21 and newer.
