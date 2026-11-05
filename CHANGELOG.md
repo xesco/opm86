@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.7 (2026-11-05)
+
+- Player: a key off and on in one sample restart the note (#22)
+- CI: build the macOS app on macos-15 (#23)
+- Claude/readme download (#20)
+- CI: skip the builds for pull requests that only change docs (#21)
+- README: download from the release page, a screenshot, and the app as it is now (#19)
+
 ## v0.1.6 (2026-10-27)
 
 - The version and credits, cleaner selections, and smooth redraws (#18)
