@@ -48,6 +48,32 @@ uint64_t chipSampleBefore(double songTime, double chipRate, double& fraction)
 
 struct NullInterface : ymfm::ymfm_interface {};
 
+// Gives the chip the writes due by a song time, and returns the next write.
+// The chip reads each channel's key state once per chip sample, so a key off
+// and a key on in one sample would never restart the note. A key write that
+// changes what this sample already set for its channel waits for the next
+// sample, along with the writes after it.
+size_t writeFm(MaskedYm2151& fm, const VgmSong& song, size_t write, double now)
+{
+    std::array<int, 8> keys;
+    keys.fill(-1);
+    for (; write < song.ym.size() && song.ym[write].time <= now; ++write)
+    {
+        const VgmWrite& w = song.ym[write];
+        if (w.address == 0x08)
+        {
+            int& key = keys[w.value & 7];
+            const int operators = w.value & 0x78;
+            if (key >= 0 && key != operators)
+                break;
+            key = operators;
+        }
+        fm.write(0, static_cast<uint8_t>(w.address));
+        fm.write(1, w.value);
+    }
+    return write;
+}
+
 } // namespace
 
 void extendSnapshots(const VgmSong& song, SongSnapshots& snapshots, double until)
@@ -81,12 +107,7 @@ void extendSnapshots(const VgmSong& song, SongSnapshots& snapshots, double until
             fm.save_restore(saved);
             snapshots.fm.push_back({ k, write, state });
         }
-        while (write < song.ym.size() && song.ym[write].time <= now)
-        {
-            fm.write(0, static_cast<uint8_t>(song.ym[write].address));
-            fm.write(1, song.ym[write].value);
-            ++write;
-        }
+        write = writeFm(fm, song, write, now);
         ymfm::ym2151::output_data data;
         fm.generate(&data, 0);
     }
@@ -292,11 +313,7 @@ bool SongPlayer::seek(Deck& deck, double songTime)
     for (; deck.fmSample < fmTarget; ++deck.fmSample)
     {
         const double now = static_cast<double>(deck.fmSample) * kVgmRate / song.fmRate;
-        for (; deck.ymWrite < song.ym.size() && song.ym[deck.ymWrite].time <= now; ++deck.ymWrite)
-        {
-            deck.fm.write(0, static_cast<uint8_t>(song.ym[deck.ymWrite].address));
-            deck.fm.write(1, song.ym[deck.ymWrite].value);
-        }
+        deck.ymWrite = writeFm(deck.fm, song, deck.ymWrite, now);
         deck.fm.generate(&data, 0);
     }
     for (; deck.pcmSample < pcmTarget; ++deck.pcmSample)
@@ -424,11 +441,7 @@ void SongPlayer::renderDeck(Deck& deck, float* left, float* right, int count)
         deck.fmResampler.process(fmL, fmR, n, [&](float& l, float& r) {
             const double now = fmNow(deck);
             ++deck.fmSample;
-            for (; deck.ymWrite < song.ym.size() && song.ym[deck.ymWrite].time <= now; ++deck.ymWrite)
-            {
-                deck.fm.write(0, static_cast<uint8_t>(song.ym[deck.ymWrite].address));
-                deck.fm.write(1, song.ym[deck.ymWrite].value);
-            }
+            deck.ymWrite = writeFm(deck.fm, song, deck.ymWrite, now);
             ymfm::ym2151::output_data data;
             float gains[8];
             bool plain = true;
