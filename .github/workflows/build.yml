@@ -1,13 +1,17 @@
 # Builds OPM86 Player for macOS, Linux and Windows, runs the tests, and
 # publishes the three apps as a GitHub release, when make release pushes a tag
 # such as v0.2.0. For a pull request, or run by hand from the Actions tab, it
-# builds and tests only, and keeps the apps as downloads on the run's page.
+# builds and tests only, and keeps the apps as downloads on the run's page. A
+# pull request that changes only Markdown files or docs/ builds nothing.
 name: Build
 
 on:
   push:
     tags: ['v*']
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 jobs:
