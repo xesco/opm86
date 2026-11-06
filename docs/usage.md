@@ -50,10 +50,10 @@ You can't edit the notes.
 | Double-click or Option-click | Resets the volume to the level the game played |
 
 Each knob shows the track's loudest level in the song, in dB under the loudest track, which sits
-at 0dB. The app measures this when a song opens, so for a few seconds the knobs show no level and
-can't be turned. The tick on the ring marks that level, so the pointer shows
-how far you have moved the track from what the game played. The top of every ring is 6dB above
-the loudest track's level, so a quiet track has more to gain than a loud one.
+at 0dB. The app measures this when a song opens, so for a moment the knobs show no level and can't
+be turned. The tick on the ring marks that level, so the pointer shows how far you have moved the
+track from what the game played. The top of every ring is 6dB above the loudest track's level, so
+a quiet track has more to gain than a loud one.
 
 VGM files don't record a tempo, so the app works out bars and beats from when the notes start.
 Bar 1 starts at the first note. The ruler uses one tempo for the whole song, so if a song's

@@ -49,6 +49,17 @@ public:
         }
     }
 
+    // Run one channel and return its output's size this sample, for a chip
+    // that only ever runs that channel. A channel depends on no other, so
+    // each can run apart, on its own chip, and sound the same.
+    int32_t generateChannel(uint32_t channel)
+    {
+        m_fm.clock(1u << channel);
+        output_data one;
+        m_fm.output(one.clear(), 0, 32767, 1u << channel);
+        return std::max(std::abs(one.data[0]), std::abs(one.data[1]));
+    }
+
     // An operator's envelope as it runs: its stage (ymfm's envelope_state)
     // and its attenuation, 0 loudest to 1023 silent. slot is the register
     // slot, channel + 8 x (M1, M2, C1, C2).
@@ -135,9 +146,10 @@ struct ChannelOwners
     std::array<std::vector<Change>, 24> changes;
 };
 
-// Run the song once and return each owner's loudest channel output, with both
-// chips on the one scale they are mixed at. It takes a moment for a long song,
-// so it belongs on a background thread. Returns nothing once stop is set.
+// Run the song and return each owner's loudest channel output, with both chips
+// on the one scale they are mixed at. It runs the channels on several threads
+// and takes a moment for a long song, so call it from a background thread.
+// Returns nothing once stop is set.
 std::vector<float> ownerPeaks(const VgmSong& song, const ChannelOwners& owners, int count, const std::atomic<bool>* stop = nullptr);
 
 // Per chip channel (8 FM, then 16 PCM), in order of song time: the gain its
