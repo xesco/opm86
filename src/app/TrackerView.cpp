@@ -1652,7 +1652,7 @@ void TrackerView::mouseMove(const juce::MouseEvent& e)
 void TrackerView::setVolume(int track, float volume)
 {
     // In tenths of a dB: a drag edits only when the level changes, as one undo step.
-    volume = volume <= TuneTrack::kSilent ? TuneTrack::kSilent : std::round(juce::jlimit(TuneTrack::kSilent, TuneTrack::kMaxVolume, volume) * 10.0f) / 10.0f;
+    volume = volume <= TuneTrack::kSilent ? TuneTrack::kSilent : std::round(juce::jlimit(TuneTrack::kSilent, TuneTrack::kMaxVolume - model_.gameLevel(track), volume) * 10.0f) / 10.0f;
     if (std::abs(model_.tune().tracks[static_cast<size_t>(track)].volume - volume) < 0.01f)
     {
         repaint();

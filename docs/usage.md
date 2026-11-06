@@ -51,8 +51,8 @@ You can't edit the notes.
 
 A moment after a song opens, each knob moves to the track's loudest level in the song, in dB under
 the loudest track, which sits at 0dB. The tick on the ring marks that level, so the pointer shows
-how far you have moved the track from what the game played. A track can go up to 6dB above its
-tick, so a quiet track can't reach the top of the ring.
+how far you have moved the track from what the game played. The top of every ring is 6dB above
+the loudest track's level, so a quiet track has more to gain than a loud one.
 
 VGM files don't record a tempo, so the app works out bars and beats from when the notes start.
 Bar 1 starts at the first note. The ruler uses one tempo for the whole song, so if a song's

@@ -400,7 +400,7 @@ std::shared_ptr<VgmSong> Tune::build(BuildReport* report, bool mix) const
             busyUntil[static_cast<size_t>(ch)] = std::max(busyUntil[static_cast<size_t>(ch)], note.start + note.length);
 
             const bool muted = mix && (!audible(track, note) || track.volume <= TuneTrack::kSilent);
-            const float volume = mix ? std::min(track.volume, TuneTrack::kMaxVolume) : 0.0f;
+            const float volume = mix ? std::min(track.volume, TuneTrack::kMaxBoost) : 0.0f;
             const int steps = static_cast<int>(std::lround(-volume / 0.75f));
             const float gain = std::pow(10.0f, volume / 20.0f);
             const bool moved = note.start != originalStart(track, note) || ch != original;

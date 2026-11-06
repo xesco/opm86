@@ -41,10 +41,11 @@ struct TuneTrack
     // Level in dB, 0 as the game played it. The chips set it: FM carriers'
     // total level, in 0.75 dB steps, or the PCM channel volumes. A boost goes
     // as far as the chip allows: a carrier at full level or a PCM volume at
-    // 127 stays there.
+    // 127 stays there. The player's mix scales the output, with no such limit.
     float volume = 0.0f;
     static constexpr float kSilent = -60.0f; // at or below, the track is silent
-    static constexpr float kMaxVolume = 6.0f;
+    static constexpr float kMaxVolume = 6.0f; // the top of a knob, over the loudest track's level
+    static constexpr float kMaxBoost = kMaxVolume - kSilent; // what takes even the quietest track to the top
     std::vector<TuneNote> notes; // in order of start
 };
 

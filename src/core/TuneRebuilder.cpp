@@ -35,10 +35,10 @@ size_t mixSlot(const Tune& tune, const BuildReport& report, size_t t, size_t n)
     return static_cast<size_t>(ch + (track.kind == TuneTrack::Kind::Drum ? 8 : 0));
 }
 
-// A track's volume as a gain, as the build would set it, up to the boost's limit.
+// A track's volume as a gain, up to the boost's limit.
 float volumeGain(const TuneTrack& track)
 {
-    return track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxVolume) / 20.0f);
+    return track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxBoost) / 20.0f);
 }
 
 void sortMix(ChannelMix& mix)
