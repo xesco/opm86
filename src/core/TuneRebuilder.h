@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <thread>
+#include <vector>
 
 namespace opm86
 {
@@ -30,6 +31,12 @@ struct NoteMix
     double from = 0, to = 0;
 };
 NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<std::pair<int, int>>& notes); // each a track and note id
+
+// How loud each track is as the game played it, whatever the mute, solo and
+// volume: its peak over the song in dB under the loudest track's, as the chips
+// are mixed, and TuneTrack::kSilent for a track that never sounds. It runs the
+// song, so it belongs on a background thread. Returns nothing once stop is set.
+std::vector<float> trackLevels(const Tune& tune, const std::atomic<bool>* stop = nullptr);
 
 // A built version of a tune, ready for the player.
 struct TuneVersion

@@ -123,6 +123,23 @@ double songEnd(const VgmSong& song);
 // Only the state at the start: enough to play the song from its beginning.
 std::shared_ptr<SongSnapshots> makeStartSnapshot(const VgmSong& song);
 
+// Per chip channel (8 FM, then 16 PCM), in order of song time: whose output
+// it carries from then on, -1 for no one's.
+struct ChannelOwners
+{
+    struct Change
+    {
+        double time;
+        int owner;
+    };
+    std::array<std::vector<Change>, 24> changes;
+};
+
+// Run the song once and return each owner's loudest channel output, with both
+// chips on the one scale they are mixed at. It takes a moment for a long song,
+// so it belongs on a background thread. Returns nothing once stop is set.
+std::vector<float> ownerPeaks(const VgmSong& song, const ChannelOwners& owners, int count, const std::atomic<bool>* stop = nullptr);
+
 // Per chip channel (8 FM, then 16 PCM), in order of song time: the gain its
 // output has from then on, 0 for silent. A channel before its first change
 // has gain 1.

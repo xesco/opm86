@@ -661,8 +661,7 @@ juce::Rectangle<int> TrackerView::meterBounds(int track) const
     return { kChipColumn + 14, top + 25, knobBounds(track).getCentreX() - kKnobColumn / 2 - 4 - kChipColumn - 14, 16 };
 }
 
-// The knob law: 0 dB, as the game played it, sits at the middle, so the
-// right half boosts, evenly in dB up to +6 at full right. In the left half
+// The knob law: 0 dB sits at the middle, so the right half boosts, evenly in dB up to +6 at full right. In the left half
 // amplitude goes with the cube of the position: -18 dB at a quarter, and the
 // first twentieth is silence.
 float TrackerView::knobPosition(float volume)
@@ -672,6 +671,19 @@ float TrackerView::knobPosition(float volume)
     if (volume <= 0.0f)
         return 0.5f * std::pow(10.0f, volume / 60.0f);
     return 0.5f + 0.5f * std::min(volume, TuneTrack::kMaxVolume) / TuneTrack::kMaxVolume;
+}
+
+float TrackerView::knobLevel(int track) const
+{
+    const float volume = model_.tune().tracks[static_cast<size_t>(track)].volume, game = model_.gameLevel(track);
+    if (volume <= TuneTrack::kSilent || game <= TuneTrack::kSilent)
+        return TuneTrack::kSilent;
+    return std::max(TuneTrack::kSilent + 0.1f, game + volume);
+}
+
+float TrackerView::volumeForLevel(int track, float level) const
+{
+    return level <= TuneTrack::kSilent ? TuneTrack::kSilent : level - model_.gameLevel(track);
 }
 
 float TrackerView::knobVolume(float position)
@@ -1253,11 +1265,12 @@ void TrackerView::paintHeaders(juce::Graphics& g)
 
         // The level in dB, under the knob; compact lanes go without both and the meter.
         const bool dragging = drag_ == Drag::Knob && dragTrack_ == ti;
-        const bool silent = !audible || tr.volume <= TuneTrack::kSilent;
+        const float knobDb = knobLevel(ti);
+        const bool silent = !audible || knobDb <= TuneTrack::kSilent;
         if (!compact())
         {
-            const juce::String db = tr.volume <= TuneTrack::kSilent ? juce::String("-inf dB")
-                                    : (tr.volume > 0.05f ? "+" : "") + juce::String(tr.volume, 1) + " dB";
+            const juce::String db = knobDb <= TuneTrack::kSilent ? juce::String("-inf dB")
+                                    : (knobDb > 0.05f ? "+" : "") + juce::String(knobDb, 1) + " dB";
             g.setColour(dragging ? theme::cyan : silent ? theme::faint
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
             g.setFont(theme::mono(10.0f, true));
@@ -1295,28 +1308,28 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         }
 
         // The volume knob: a ring from silence to +6 dB lit up to the level,
-        // a tick at 0 dB, and a raised cap with a pointer.
+        // a tick at the level the game played, and a raised cap with a pointer.
         if (!compact())
         {
             const auto bounds = knobBounds(ti).toFloat();
             const auto centre = bounds.getCentre();
             const float radius = bounds.getWidth() * 0.5f - 2.0f;
-            const float angle = -kKnobArc + 2.0f * kKnobArc * knobPosition(tr.volume);
+            const float angle = -kKnobArc + 2.0f * kKnobArc * knobPosition(knobDb);
             const juce::Colour accent = dragging ? theme::cyan.brighter(0.3f) : silent ? juce::Colour(0xff6a6c80) : theme::cyan;
 
             juce::Path ring;
             ring.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -kKnobArc, kKnobArc, true);
             g.setColour(silent ? juce::Colour(0xff2c2d33) : juce::Colour(0xff2a2f4a));
             g.strokePath(ring, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            if (tr.volume > TuneTrack::kSilent)
+            if (knobDb > TuneTrack::kSilent)
             {
                 juce::Path value;
                 value.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, -kKnobArc, angle, true);
                 g.setColour(accent);
                 g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
-            // 0 dB, as the game played it.
-            const float zero = -kKnobArc + 2.0f * kKnobArc * knobPosition(0.0f);
+            // The level the game played.
+            const float zero = -kKnobArc + 2.0f * kKnobArc * knobPosition(model_.gameLevel(ti));
             const auto tickIn = centre.getPointOnCircumference(radius - 2.5f, zero);
             const auto tickOut = centre.getPointOnCircumference(radius + 2.5f, zero);
             g.setColour(theme::text.withAlpha(0.8f));
@@ -1441,13 +1454,13 @@ void TrackerView::mouseDown(const juce::MouseEvent& e)
     {
         if (t < 0)
             return;
-        // The knob turns as the pointer goes up or right; Option-click puts it back to 0 dB.
+        // The knob turns as the pointer goes up or right; Option-click puts it back to the level the game played.
         if (!compact() && knobBounds(t).expanded(3).contains(p.toInt()))
         {
             drag_ = Drag::Knob;
             dragTrack_ = t;
             dragStarted_ = false;
-            dragKnob_ = knobPosition(model_.tune().tracks[static_cast<size_t>(t)].volume);
+            dragKnob_ = knobPosition(knobLevel(t));
             if (e.mods.isAltDown())
                 setVolume(t, 0.0f);
             else
@@ -1508,7 +1521,7 @@ void TrackerView::mouseDrag(const juce::MouseEvent& e)
         // 200 pixels turn it end to end.
         const float moved = (p.x - dragFrom_.x) - (p.y - dragFrom_.y);
         const float position = juce::jlimit(0.0f, 1.0f, dragKnob_ + moved / 200.0f);
-        setVolume(dragTrack_, knobVolume(position));
+        setVolume(dragTrack_, volumeForLevel(dragTrack_, knobVolume(position)));
         return;
     }
     if (drag_ == Drag::Ruler)

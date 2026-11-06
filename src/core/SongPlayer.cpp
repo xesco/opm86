@@ -183,6 +183,69 @@ std::shared_ptr<SongSnapshots> makeStartSnapshot(const VgmSong& song)
     return out;
 }
 
+std::vector<float> ownerPeaks(const VgmSong& song, const ChannelOwners& owners, int count, const std::atomic<bool>* stop)
+{
+    std::vector<int32_t> loudest(static_cast<size_t>(count), 0);
+    std::array<size_t, 24> at {};
+    const auto note = [&](size_t channel, double now, int32_t peak) {
+        const auto& v = owners.changes[channel];
+        size_t& i = at[channel];
+        while (i < v.size() && v[i].time <= now)
+            ++i;
+        if (i > 0 && v[i - 1].owner >= 0)
+        {
+            int32_t& most = loudest[static_cast<size_t>(v[i - 1].owner)];
+            most = std::max(most, peak);
+        }
+    };
+    const auto stopped = [stop](uint64_t k) { return stop && (k & 0x3FFF) == 0 && stop->load(); };
+    const double end = songEnd(song);
+
+    NullInterface interface;
+    MaskedYm2151 fm(interface);
+    fm.reset();
+    size_t write = 0;
+    for (uint64_t k = 0;; ++k)
+    {
+        const double now = static_cast<double>(k) * kVgmRate / song.fmRate;
+        if (now > end)
+            break;
+        if (stopped(k))
+            return {};
+        write = writeFm(fm, song, write, now);
+        ymfm::ym2151::output_data data;
+        std::array<int32_t, 8> peaks {};
+        fm.generate(&data, 0xFF, peaks.data());
+        for (size_t c = 0; c < peaks.size(); ++c)
+            note(c, now, peaks[c]);
+    }
+
+    SegaPcm pcm;
+    pcm.reset();
+    pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
+    write = 0;
+    for (uint64_t k = 0;; ++k)
+    {
+        const double now = static_cast<double>(k) * kVgmRate / song.pcmRate;
+        if (now > end)
+            break;
+        if (stopped(k))
+            return {};
+        while (write < song.pcm.size() && song.pcm[write].time <= now)
+            writePcm(pcm, song.pcm[write++]);
+        int32_t l = 0, r = 0;
+        std::array<int32_t, 16> peaks {};
+        pcm.generate(l, r, 0xFFFF, peaks.data());
+        for (size_t c = 0; c < peaks.size(); ++c)
+            note(8 + c, now, peaks[c]);
+    }
+
+    std::vector<float> out(loudest.size());
+    for (size_t i = 0; i < out.size(); ++i)
+        out[i] = static_cast<float>(loudest[i]) * kChipScale;
+    return out;
+}
+
 SongPlayer::SongPlayer()
 {
     state_.reserve(1 << 16);

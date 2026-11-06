@@ -12,7 +12,11 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <set>
+#include <thread>
+#include <vector>
 
 namespace opm86
 {
@@ -36,6 +40,9 @@ public:
     // Per track, per note: the chip channel of the newest build, -1 for a conflict.
     const BuildReport& report() const { return report_; }
     int reportRevision() const { return reportRevision_; }
+    // A track's level as the game played it (see trackLevels); 0 until the
+    // song has been measured, a moment after it opens.
+    float gameLevel(int track) const { return static_cast<size_t>(track) < levels_.size() ? levels_[static_cast<size_t>(track)] : 0.0f; }
 
     // Per chip channel, 8 FM then 16 PCM: the loudest output since the last call.
     std::array<float, SongPlayer::kMeterChannels> takePeaks() { return player_.takePeaks(); }
@@ -98,6 +105,8 @@ private:
     void setTracks(const std::vector<TuneTrack>& tracks);
     void rebuild();
     void sendMix(); // sends the tracks' mute, solo and volume to the player
+    void measureLevels();     // starts measuring the open tune's track levels
+    void stopMeasuring();     // and drops any measure under way
     void endNotes(); // after playNotes: the mix back, and the playhead to the notes' start
     void timerCallback() override;
 
@@ -114,6 +123,11 @@ private:
     TuneRebuilder rebuilder_;
     BuildReport report_;
     int reportRevision_ = 0;
+    std::vector<float> levels_;             // gameLevel's
+    std::thread measuring_;
+    std::atomic<bool> stopMeasure_ { false };
+    std::mutex measuredLock_;
+    std::optional<std::vector<float>> measured_; // done, for the timer to take up
     std::shared_ptr<const VgmSong> built_;  // newest build sent to the player
     std::atomic<double> selectionStart_ { 0.0 }, selectionEnd_ { 0.0 }; // empty when the end is not past the start
     std::atomic<bool> loop_ { false };
