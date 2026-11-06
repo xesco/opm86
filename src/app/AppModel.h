@@ -40,8 +40,9 @@ public:
     // Per track, per note: the chip channel of the newest build, -1 for a conflict.
     const BuildReport& report() const { return report_; }
     int reportRevision() const { return reportRevision_; }
-    // A track's level as the game played it (see trackLevels); 0 until the
-    // song has been measured, a moment after it opens.
+    // A track's level as the game played it (see trackLevels), once the song
+    // has been measured, a moment after it opens.
+    bool levelsReady() const { return !levels_.empty(); }
     float gameLevel(int track) const { return static_cast<size_t>(track) < levels_.size() ? levels_[static_cast<size_t>(track)] : 0.0f; }
 
     // Per chip channel, 8 FM then 16 PCM: the loudest output since the last call.
