@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -519,6 +520,67 @@ void testPlayerMix()
     }
 }
 
+// Each knob's starting level: a track's peak over the song, under the loudest
+// track's, the same as the meters read when it plays alone.
+void testTrackLevels()
+{
+    std::string error;
+    auto tune = Tune::load(test::makeSong(), "Song", error);
+    const auto levels = trackLevels(*tune);
+    check(levels.size() == tune->tracks.size(), "every track has a level");
+    check(!levels.empty() && *std::max_element(levels.begin(), levels.end()) == 0.0f, "the loudest track's level is 0 dB");
+
+    BuildReport report;
+    const auto song = tune->build(&report, false);
+    std::vector<float> metered(tune->tracks.size());
+    for (size_t t = 0; t < tune->tracks.size(); ++t)
+    {
+        Tune alone = *tune;
+        alone.tracks[t].solo = true;
+        SongPlayer player;
+        player.prepare(48000.0);
+        player.setSong(song, makeStartSnapshot(*song));
+        player.setMix(mixOf(alone, report));
+        player.play(0.0);
+        renderSong(player, static_cast<size_t>(songEnd(*song) / kVgmRate * 48000.0));
+        const auto peaks = player.takePeaks();
+        // The meters read a PCM channel against its own full scale.
+        for (size_t c = 0; c < peaks.size(); ++c)
+            metered[t] = std::max(metered[t], peaks[c] * (c < 8 ? 1.0f : 16129.0f / 32768.0f));
+    }
+    const float loudest = *std::max_element(metered.begin(), metered.end());
+    bool same = true;
+    for (size_t t = 0; t < metered.size(); ++t)
+        same = same && std::abs(levels[t] - 20.0f * std::log10(metered[t] / loudest)) < 0.1f;
+    check(same, "a track's level is what its meter reads alone");
+
+    tune->tracks[0].volume = -12.0f;
+    tune->tracks[0].mute = true;
+    check(trackLevels(*tune) == levels, "a track's level is as the game played it, whatever the mix");
+
+    // A quiet track can be boosted past +6 dB, up to the top of its knob.
+    Tune boosted = *tune;
+    boosted.tracks[0].volume = 0.0f;
+    boosted.tracks[0].mute = false;
+    boosted.tracks[0].solo = true;
+    auto rendered = [&] {
+        SongPlayer player;
+        player.prepare(48000.0);
+        player.setSong(song, makeStartSnapshot(*song));
+        player.setMix(mixOf(boosted, report));
+        player.play(0.0);
+        renderSong(player, 144000);
+        return player.takePeaks()[static_cast<size_t>(report.channels[0][0])];
+    };
+    const float unboosted = rendered();
+    boosted.tracks[0].volume = 20.0f;
+    const float raised = rendered();
+    check(std::abs(20.0f * std::log10(raised / unboosted) - 20.0f) < 0.5f, "a track at +20 dB in the player's mix plays 20 dB louder");
+
+    const std::atomic<bool> stop { true };
+    check(trackLevels(*tune, &stop).empty(), "a stopped measure returns nothing");
+}
+
 int main(int argc, char** argv)
 {
     // core_test --write-song song.vgm writes the test song, for the build's
@@ -534,6 +596,7 @@ int main(int argc, char** argv)
     }
     testKeyRestart();
     testPlayerMix();
+    testTrackLevels();
     testSpeed();
     testTrackVolume();
     testEditPlayback();

@@ -48,7 +48,30 @@ AppModel::AppModel()
 
 AppModel::~AppModel()
 {
+    stopMeasuring();
     devices_.removeAudioCallback(this);
+}
+
+void AppModel::measureLevels()
+{
+    stopMeasuring();
+    stopMeasure_.store(false);
+    measuring_ = std::thread([this, tune = *tune_] {
+        auto levels = trackLevels(tune, &stopMeasure_);
+        if (stopMeasure_.load())
+            return;
+        const std::lock_guard<std::mutex> lock(measuredLock_);
+        measured_ = std::move(levels);
+    });
+}
+
+void AppModel::stopMeasuring()
+{
+    stopMeasure_.store(true);
+    if (measuring_.joinable())
+        measuring_.join();
+    measured_.reset();
+    levels_.clear();
 }
 
 bool AppModel::open(const juce::File& file, juce::String& error)
@@ -80,6 +103,7 @@ bool AppModel::open(const juce::File& file, juce::String& error)
     selectionEnd_.store(0.0);
     rebuild();
     sendMix();
+    measureLevels();
     sendChangeMessage();
     return true;
 }
@@ -89,6 +113,7 @@ void AppModel::close()
     if (!tune_)
         return;
     stop();
+    stopMeasuring();
     selectedNotes_.clear();
     tune_.reset();
     ++revision_;
@@ -317,6 +342,15 @@ void AppModel::timerCallback()
 {
     if (notesDone_.exchange(false))
         endNotes();
+    {
+        const std::lock_guard<std::mutex> lock(measuredLock_);
+        if (measured_)
+        {
+            levels_ = std::move(*measured_);
+            measured_.reset();
+            sendChangeMessage(); // the knobs show them
+        }
+    }
     auto version = rebuilder_.take();
     if (!version || !tune_) // a build that finishes after the song was closed is dropped
         return;

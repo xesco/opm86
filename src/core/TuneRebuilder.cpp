@@ -35,10 +35,10 @@ size_t mixSlot(const Tune& tune, const BuildReport& report, size_t t, size_t n)
     return static_cast<size_t>(ch + (track.kind == TuneTrack::Kind::Drum ? 8 : 0));
 }
 
-// A track's volume as a gain, as the build would set it, up to the boost's limit.
+// A track's volume as a gain, up to the boost's limit.
 float volumeGain(const TuneTrack& track)
 {
-    return track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxVolume) / 20.0f);
+    return track.volume <= TuneTrack::kSilent ? 0.0f : std::pow(10.0f, std::min(track.volume, TuneTrack::kMaxBoost) / 20.0f);
 }
 
 void sortMix(ChannelMix& mix)
@@ -108,6 +108,37 @@ NoteMix noteMixOf(const Tune& tune, const BuildReport& report, const std::set<st
     sortMix(mix);
     out.from = std::max(0.0, from);
     return out;
+}
+
+std::vector<float> trackLevels(const Tune& tune, const std::atomic<bool>* stop)
+{
+    BuildReport report;
+    const auto song = tune.build(&report, false);
+    // A channel belongs to its newest note's track, release included, as in
+    // the mix; a silent hit silences it there, so it belongs to no one.
+    ChannelOwners owners;
+    for (size_t t = 0; t < tune.tracks.size(); ++t)
+    {
+        const TuneTrack& track = tune.tracks[t];
+        for (size_t n = 0; n < track.notes.size(); ++n)
+        {
+            const size_t slot = mixSlot(tune, report, t, n);
+            if (slot < owners.changes.size())
+                owners.changes[slot].push_back({ static_cast<double>(track.notes[n].start), tune.silentHit(track, track.notes[n]) ? -1 : static_cast<int>(t) });
+        }
+    }
+    for (auto& v : owners.changes)
+        std::stable_sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.time < b.time; });
+
+    const auto peaks = ownerPeaks(*song, owners, static_cast<int>(tune.tracks.size()), stop);
+    if (peaks.size() != tune.tracks.size())
+        return {};
+    const float loudest = peaks.empty() ? 0.0f : *std::max_element(peaks.begin(), peaks.end());
+    std::vector<float> levels(peaks.size(), TuneTrack::kSilent);
+    for (size_t t = 0; t < peaks.size(); ++t)
+        if (peaks[t] > 0.0f)
+            levels[t] = std::max(TuneTrack::kSilent + 0.1f, 20.0f * std::log10(peaks[t] / loudest)); // sounding, so never read as silent
+    return levels;
 }
 
 void firstDifference(const VgmSong& a, const VgmSong& b, size_t& ym, size_t& pcm)

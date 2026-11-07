@@ -47,7 +47,13 @@ You can't edit the notes.
 | --- | --- |
 | Drag up or right | Raises the volume |
 | Drag down or left | Lowers the volume |
-| Double-click or Option-click | Resets the volume to 0dB, the level the game played |
+| Double-click or Option-click | Resets the volume to the level the game played |
+
+Each knob shows the track's loudest level in the song, in dB under the loudest track, which sits
+at 0dB. The app measures this when a song opens, so for a moment the knobs show no level and can't
+be turned. The tick on the ring marks that level, so the pointer shows how far you have moved the
+track from what the game played. The top of every ring is 6dB above the loudest track's level, so
+a quiet track has more to gain than a loud one.
 
 VGM files don't record a tempo, so the app works out bars and beats from when the notes start.
 Bar 1 starts at the first note. The ruler uses one tempo for the whole song, so if a song's
@@ -77,7 +83,7 @@ playhead.
 | PLAYHEAD | **Keep playhead** keeps the playhead visible. Otherwise it fades a second after you last move the mouse or press a key. **Follow playhead** scrolls the tracks with the song, and is on when the app starts. |
 | SPEED | Plays the song from 25% to 200% of its speed without changing its pitch. Double-click the slider to go back to 100%. |
 | LOOP | **Loop** repeats the selected notes or section, or the whole song if nothing is selected. START and END show and set the selection's times. |
-| MIX | **Reset mix** unmutes and unsolos every track and sets it to 0dB. **Invert** flips the solos if any track is soloed, and the mutes if not. **Only instruments** and **Only drums** solo that kind of track. Click again to turn the solo off. |
+| MIX | **Reset mix** unmutes and unsolos every track and puts it back at the level the game played. **Invert** flips the solos if any track is soloed, and the mutes if not. **Only instruments** and **Only drums** solo that kind of track. Click again to turn the solo off. |
 | VIEW | **Order by patch** sorts the FM tracks by patch, FM 1 first, and puts the patch's number before the voice in each name. **Show the chips** swaps the tracks for the [chips view](#chips-view). **Show pitch lines** turns [pitch lines](#pitch-lines) on or off, and the app remembers your choice. |
 | ZOOM | **Fit time** fits the song to the window. **Fit tracks** fits the tracks you can hear, from first to last, including any muted tracks between them. **Fit both** does both. **1:1** resets both zooms. |
 | HEIGHT and TIME | These sliders set the track height and the time zoom. |

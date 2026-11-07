@@ -806,7 +806,7 @@ ToolBar::ToolBar(AppModel& model, TrackerView& view) : model_(model), view_(view
     reset_.onClick = [this] {
         if (model_.hasTune())
             model_.edit("Reset mix", [](Tune& tune) {
-                // Every track as the game played it: heard, at 0 dB.
+                // Every track as the game played it: heard, at its own level.
                 for (auto& tr : tune.tracks)
                     tr.mute = tr.solo = false, tr.mutedVoices = 0, tr.volume = 0.0f;
             });

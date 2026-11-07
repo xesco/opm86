@@ -140,6 +140,10 @@ private:
     bool minimal() const { return laneHeight_ < kMinimalHeight; }
     int pillWidth() const { return minimal() ? 18 : 23; } // mute and solo
     void setVolume(int track, float volume);
+    // What a track's knob shows: its level in dB under the loudest track's, as
+    // the game played it plus the track's volume; and the volume for a level.
+    float knobLevel(int track) const;
+    float volumeForLevel(int track, float level) const;
 
     void paintRuler(juce::Graphics&);
     void paintLanes(juce::Graphics&);

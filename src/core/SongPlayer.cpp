@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 namespace opm86
 {
@@ -180,6 +181,115 @@ std::shared_ptr<SongSnapshots> makeStartSnapshot(const VgmSong& song)
     pcm.reset();
     pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
     out->pcm.push_back({ 0, 0, pcm });
+    return out;
+}
+
+namespace
+{
+
+// Takes up a channel's output over time, for ownerPeaks.
+class OwnerTally
+{
+public:
+    OwnerTally(const ChannelOwners& owners, std::vector<int32_t>& loudest) : owners_(owners), loudest_(loudest) {}
+
+    void add(size_t channel, double now, int32_t peak)
+    {
+        const auto& v = owners_.changes[channel];
+        size_t& i = at_[channel];
+        while (i < v.size() && v[i].time <= now)
+            ++i;
+        if (i > 0 && v[i - 1].owner >= 0)
+        {
+            int32_t& most = loudest_[static_cast<size_t>(v[i - 1].owner)];
+            most = std::max(most, peak);
+        }
+    }
+
+private:
+    const ChannelOwners& owners_;
+    std::vector<int32_t>& loudest_;
+    std::array<size_t, 24> at_ {};
+};
+
+bool stopped(const std::atomic<bool>* stop, uint64_t sample)
+{
+    return stop && (sample & 0x3FFF) == 0 && stop->load();
+}
+
+void tallyFmChannel(const VgmSong& song, int channel, OwnerTally& tally, const std::atomic<bool>* stop)
+{
+    NullInterface interface;
+    MaskedYm2151 fm(interface);
+    fm.reset();
+    size_t write = 0;
+    const double end = songEnd(song);
+    for (uint64_t k = 0;; ++k)
+    {
+        const double now = static_cast<double>(k) * kVgmRate / song.fmRate;
+        if (now > end || stopped(stop, k))
+            return;
+        write = writeFm(fm, song, write, now);
+        tally.add(static_cast<size_t>(channel), now, fm.generateChannel(static_cast<uint32_t>(channel)));
+    }
+}
+
+void tallyPcm(const VgmSong& song, OwnerTally& tally, const std::atomic<bool>* stop)
+{
+    SegaPcm pcm;
+    pcm.reset();
+    pcm.setRom(song.rom.data(), song.rom.size(), song.header.segaPcmInterface);
+    size_t write = 0;
+    const double end = songEnd(song);
+    for (uint64_t k = 0;; ++k)
+    {
+        const double now = static_cast<double>(k) * kVgmRate / song.pcmRate;
+        if (now > end || stopped(stop, k))
+            return;
+        while (write < song.pcm.size() && song.pcm[write].time <= now)
+            writePcm(pcm, song.pcm[write++]);
+        int32_t l = 0, r = 0;
+        std::array<int32_t, 16> peaks {};
+        pcm.generate(l, r, 0xFFFF, peaks.data());
+        for (size_t c = 0; c < peaks.size(); ++c)
+            tally.add(8 + c, now, peaks[c]);
+    }
+}
+
+} // namespace
+
+std::vector<float> ownerPeaks(const VgmSong& song, const ChannelOwners& owners, int count, const std::atomic<bool>* stop)
+{
+    // One job per FM channel, and one for the PCM chip. A core stays free for
+    // the audio and the display.
+    constexpr int kJobs = 9;
+    const int workers = std::clamp(static_cast<int>(std::thread::hardware_concurrency()) - 1, 1, kJobs);
+    std::vector<std::vector<int32_t>> tallies(static_cast<size_t>(kJobs), std::vector<int32_t>(static_cast<size_t>(count), 0));
+    std::atomic<int> next { 0 };
+    const auto work = [&] {
+        for (int job = next.fetch_add(1); job < kJobs; job = next.fetch_add(1))
+        {
+            OwnerTally tally(owners, tallies[static_cast<size_t>(job)]);
+            if (job < 8)
+                tallyFmChannel(song, job, tally, stop);
+            else
+                tallyPcm(song, tally, stop);
+        }
+    };
+    {
+        std::vector<std::thread> threads;
+        for (int w = 0; w < workers; ++w)
+            threads.emplace_back(work);
+        for (auto& t : threads)
+            t.join();
+    }
+    if (stop && stop->load())
+        return {};
+
+    std::vector<float> out(static_cast<size_t>(count), 0.0f);
+    for (const auto& tally : tallies)
+        for (size_t i = 0; i < out.size(); ++i)
+            out[i] = std::max(out[i], static_cast<float>(tally[i]) * kChipScale);
     return out;
 }
 
