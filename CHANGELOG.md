@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.8 (2026-11-07)
+
+- Tracks: knobs start at each track's level in the song (#24)
+
 ## v0.1.7 (2026-11-05)
 
 - Player: a key off and on in one sample restart the note (#22)
