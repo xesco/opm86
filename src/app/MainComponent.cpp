@@ -738,7 +738,7 @@ void TopBar::paint(juce::Graphics& g)
     g.drawText("MASTER", masterArea_.withTrimmedBottom(masterArea_.getHeight() / 2), juce::Justification::bottomRight);
     g.setColour(theme::text);
     const float master = master_.volume();
-    g.drawText(master <= TuneTrack::kSilent ? juce::String("-inf dB") : juce::String(master, 1) + " dB",
+    g.drawText(master <= TuneTrack::kSilent ? juce::String("-inf dB") : juce::String(TrackerView::tenths(master), 1) + " dB",
                masterArea_.withTrimmedTop(masterArea_.getHeight() / 2 + 2), juce::Justification::topRight);
 
     // Counters.
