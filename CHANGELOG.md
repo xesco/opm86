@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.9 (2026-11-12)
+
+- Labels show 0.0 dB, never -0.0 (#25)
+
 ## v0.1.8 (2026-11-07)
 
 - Tracks: knobs start at each track's level in the song (#24)
