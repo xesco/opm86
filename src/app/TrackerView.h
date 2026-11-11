@@ -89,6 +89,8 @@ public:
     // A volume knob's turn: dB from silence to +6 dB, to 0..1 round the knob, 0 dB at its middle; and back.
     static float knobPosition(float volume);
     static float knobVolume(float position);
+    // A level in dB to the tenth a label shows, never -0.0.
+    static float tenths(float dB);
 
 private:
     // A note by its track and its id.

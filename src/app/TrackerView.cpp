@@ -673,6 +673,12 @@ float TrackerView::knobPosition(float volume)
     return 0.5f + 0.5f * std::min(volume, TuneTrack::kMaxVolume) / TuneTrack::kMaxVolume;
 }
 
+float TrackerView::tenths(float dB)
+{
+    const float rounded = std::round(dB * 10.0f) / 10.0f;
+    return rounded == 0.0f ? 0.0f : rounded; // -0.0 compares equal to 0
+}
+
 float TrackerView::knobLevel(int track) const
 {
     const float volume = model_.tune().tracks[static_cast<size_t>(track)].volume, game = model_.gameLevel(track);
@@ -1271,7 +1277,7 @@ void TrackerView::paintHeaders(juce::Graphics& g)
         if (!compact() && measured)
         {
             const juce::String db = knobDb <= TuneTrack::kSilent ? juce::String("-inf dB")
-                                    : (knobDb > 0.05f ? "+" : "") + juce::String(knobDb, 1) + " dB";
+                                    : (tenths(knobDb) > 0.0f ? "+" : "") + juce::String(tenths(knobDb), 1) + " dB";
             g.setColour(dragging ? theme::cyan : silent ? theme::faint
                         : std::abs(tr.volume) < 0.05f ? theme::dim : theme::text);
             g.setFont(theme::mono(10.0f, true));
