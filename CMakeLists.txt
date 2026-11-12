@@ -84,7 +84,14 @@ target_sources(opm86_player PRIVATE
     src/app/MainComponent.cpp
     src/app/Theme.cpp
     src/app/TrackerView.cpp)
+# On macOS, JUCE draws each window to a Metal layer: only the parts that
+# changed, at once. The default hands every frame to AppKit, which draws the
+# whole box around them again and, under load, shows some a refresh late.
+if(APPLE)
+    target_sources(opm86_player PRIVATE src/app/MacWindow.mm)
+endif()
 target_compile_definitions(opm86_player PRIVATE
+    JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS=1
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_APPLICATION_NAME_STRING="OPM86 Player"

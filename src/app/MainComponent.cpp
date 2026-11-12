@@ -1993,8 +1993,15 @@ void MainComponent::fileDragExit(const juce::StringArray&)
     repaint();
 }
 
+#if JUCE_MAC
+void matchWindowColours(); // MacWindow.mm
+#endif
+
 void MainComponent::frame(double timestamp)
 {
+#if JUCE_MAC
+    matchWindowColours();
+#endif
     if (halfRate_ && (skipFrame_ = !skipFrame_))
         return;
     const double seconds = lastFrame_ > 0 ? std::clamp(timestamp - lastFrame_, 0.0, 0.1) : 1.0 / 60.0;
