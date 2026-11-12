@@ -84,7 +84,35 @@ target_sources(opm86_player PRIVATE
     src/app/MainComponent.cpp
     src/app/Theme.cpp
     src/app/TrackerView.cpp)
+# On macOS, JUCE draws each window to a Metal layer: only the parts that
+# changed, at once. The default hands every frame to AppKit, which draws the
+# whole box around them again and, under load, shows some a refresh late.
+if(APPLE)
+    target_sources(opm86_player PRIVATE src/app/MacWindow.mm)
+    # That layer's bitmap puts each glyph at a fraction of a pixel, which on a
+    # display at 1x blurs text, the pixel font most; AppKit puts glyphs on
+    # whole pixels there. JUCE gives no way to its context, so its file is
+    # changed here, once.
+    set(OPM86_METAL ${juce_SOURCE_DIR}/modules/juce_gui_basics/native/juce_CGMetalLayerRenderer_mac.h)
+    file(READ ${OPM86_METAL} OPM86_METAL_TEXT)
+    if(NOT OPM86_METAL_TEXT MATCHES "OPM86")
+        string(REPLACE
+            "CGContextScaleCTM (cgContext.get(), layer.contentsScale, -layer.contentsScale);"
+            "CGContextScaleCTM (cgContext.get(), layer.contentsScale, -layer.contentsScale);
+            if (layer.contentsScale < 1.5) // OPM86: glyphs on whole pixels at 1x
+            {
+                CGContextSetShouldSubpixelPositionFonts (cgContext.get(), false);
+                CGContextSetShouldSubpixelQuantizeFonts (cgContext.get(), false);
+            }"
+            OPM86_METAL_TEXT "${OPM86_METAL_TEXT}")
+        if(NOT OPM86_METAL_TEXT MATCHES "OPM86")
+            message(FATAL_ERROR "JUCE's Metal renderer has changed: the glyph change no longer applies")
+        endif()
+        file(WRITE ${OPM86_METAL} "${OPM86_METAL_TEXT}")
+    endif()
+endif()
 target_compile_definitions(opm86_player PRIVATE
+    JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS=1
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_APPLICATION_NAME_STRING="OPM86 Player"

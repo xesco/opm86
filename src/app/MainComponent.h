@@ -79,6 +79,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void songChanged(); // a song opened or closed: its controls, all but OPEN, work while one is open
+    void tick();        // a frame in which the song moves: draws the counters again
 
     std::function<void()> onOpen;
     std::function<void()> onClose;
@@ -96,6 +97,7 @@ private:
     juce::TextButton close_ { "CLOSE" }; // beside OPEN; greyed while no song is open
     VolumeKnob master_;
     juce::Rectangle<int> counters_, masterArea_;
+    juce::String countersShown_; // the counters' text when last drawn
 };
 
 // The tool bar under the top bar: the playhead, follow and loop toggles, the
@@ -209,8 +211,10 @@ public:
     ~OverviewStrip() override;
 
     void paint(juce::Graphics&) override;
+    void tick(); // a frame in which the song moves: draws the strip again if it would show something new
 
 private:
+    std::vector<double> shows_; // what the strip showed at the last tick
     void contentDown(const juce::MouseEvent&) override;
     void contentDrag(const juce::MouseEvent&) override;
     void contentUp(const juce::MouseEvent&) override;
@@ -242,8 +246,11 @@ public:
 
     static constexpr int kMinOctaves = 3, kMaxOctaves = 7;
     void setSongOpen(bool open); // the octave and name buttons work only while a song is open
+    void tick(); // a frame in which the song moves: draws the keys again if one has changed colour
 
 private:
+    void litKeys(std::array<juce::Colour, 128>& lit, std::array<bool, 128>& on) const; // the keys sounding at the playhead, and their colours
+    std::vector<juce::uint32> shows_; // each key's colour at the last tick
     void updateRange();
     void setOctaves(int octaves);
     AppModel& model_;

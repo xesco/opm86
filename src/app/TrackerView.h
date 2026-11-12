@@ -8,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <tuple>
 #include <utility>
 
 namespace opm86
@@ -156,8 +157,9 @@ private:
     // (lanesKey_), all of them are redrawn at once. When only how the notes
     // look changes (looksKey_), the tiles in view are redrawn over the next
     // frames: a frame starts no new one after kRedrawBudgetMs, so it redraws
-    // about one, and none stalls.
-    static constexpr int kTileWidth = 256;
+    // about one, and none stalls. Tiles are narrow so that drawing the one
+    // coming into view fits in a frame at 120 Hz on a display at 2x.
+    static constexpr int kTileWidth = 64;
     static constexpr double kRedrawBudgetMs = 1.0;
     struct Tile
     {
@@ -168,6 +170,12 @@ private:
     std::vector<double> lanesKey_, looksKey_;
     int looksVersion_ = 0;
     void paintHeaders(juce::Graphics&);
+    void paintHeaderLayer(juce::Graphics&);                // the headers at rest: all but the meters' lit cells
+    void paintMeter(juce::Graphics&, int track, bool lit); // a track's meter at rest, or only its lit cells
+    // The headers at rest, drawn when what they show changes (headersKey_);
+    // each frame copies them and draws the meters' lit cells over.
+    juce::Image headers_;
+    std::vector<double> headersKey_;
     void paintNote(juce::Graphics&, int track, int note, juce::Rectangle<float> r, bool resting = false); // resting: drawn as if not sounding
     bool isSounding(int track, const TuneNote& n) const; // under the playhead while playing, and played when notes play alone
     void clickNote(NoteRef note, bool add); // selects the note, or deselects it if it was; with add, adds or removes it
@@ -179,6 +187,18 @@ private:
     };
     const LabelShapes& labelShapes(const juce::String& label, float height) const;
     mutable std::map<std::pair<juce::String, int>, LabelShapes> labels_;
+    // A label drawn once, its text over its outline, per label, size, look
+    // (0 silent, 1 at rest, 2 sounding) and display scale, then copied onto
+    // each note: filling the outline for every note is most of a tile's cost.
+    struct LabelImage
+    {
+        juce::Image image;
+        juce::Point<float> origin; // its top left, from the centre of the text
+    };
+    const LabelImage& labelImage(const juce::String& label, float height, int look, float scale) const;
+    mutable std::map<std::tuple<juce::String, int, int, int>, LabelImage> labelImages_;
+    float snapX_ = 0; // labels go on whole device pixels counted from this x, the one the tiles are on
+    float pixelShift_ = 0; // this frame's move of the lanes onto whole device pixels, which the ruler takes too
     double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
     enum class Drag { None, Lanes, Pan, Select, SelectEdge, SelectMove, Ruler, Knob };
