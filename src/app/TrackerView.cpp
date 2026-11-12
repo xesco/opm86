@@ -139,6 +139,32 @@ const TrackerView::LabelShapes& TrackerView::labelShapes(const juce::String& lab
     return labels_.emplace(key, std::move(shapes)).first->second;
 }
 
+const TrackerView::LabelImage& TrackerView::labelImage(const juce::String& label, float height, int look, float scale) const
+{
+    const int size = static_cast<int>(std::lround(height * 2.0f)); // as labelShapes
+    const auto key = std::make_tuple(label, size, look, juce::roundToInt(scale * 100.0f));
+    if (auto it = labelImages_.find(key); it != labelImages_.end())
+        return it->second;
+    if (labelImages_.size() > 1500)
+        labelImages_.clear();
+    const auto& shapes = labelShapes(label, height);
+    const auto bounds = shapes.outline.getBounds().getUnion(shapes.text.getBounds()).expanded(1.0f);
+    LabelImage drawn;
+    drawn.origin = bounds.getPosition() - shapes.text.getBounds().getCentre();
+    drawn.image = juce::Image(juce::Image::ARGB, std::max(1, static_cast<int>(std::ceil(bounds.getWidth() * scale))),
+                              std::max(1, static_cast<int>(std::ceil(bounds.getHeight() * scale))), true);
+    juce::Graphics g(drawn.image);
+    g.addTransform(juce::AffineTransform::translation(-bounds.getX(), -bounds.getY()).scaled(scale));
+    if (look > 0)
+    {
+        g.setColour(theme::background.withAlpha(0.7f));
+        g.fillPath(shapes.outline);
+    }
+    g.setColour(juce::Colours::white.withAlpha(look == 0 ? 0.3f : look == 2 ? 1.0f : 0.7f));
+    g.fillPath(shapes.text);
+    return labelImages_.emplace(key, std::move(drawn)).first->second;
+}
+
 TrackerView::TrackerView(AppModel& model) : model_(model)
 {
     setOpaque(true); // it paints every pixel, so nothing behind it repaints
@@ -911,6 +937,8 @@ void TrackerView::paintLanes(juce::Graphics& g)
             if (!tile.image.isValid())
                 tile.image = juce::Image(juce::Image::RGB, juce::roundToInt(kTileWidth * scale), juce::roundToInt(height * scale), false);
             juce::Graphics layer(tile.image);
+            layer.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+            snapX_ = lanesX(); // the tile's left edge
             layer.addTransform(juce::AffineTransform::translation(-lanesX(), -static_cast<float>(kRulerHeight)).scaled(scale));
             const double view = viewStart_;
             viewStart_ = static_cast<double>(k) * span; // the tile starts at the lanes' left edge
@@ -928,6 +956,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
     if (model_.playing())
     {
         g.addTransform(juce::AffineTransform::translation(shift, 0.0f));
+        snapX_ = lanesX() - shift; // the tiles' device pixels
         const double now = playhead();
         const auto& tracks = model_.tune().tracks;
         for (size_t t = 0; t < tracks.size(); ++t)
@@ -1140,22 +1169,108 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
     const float height = std::min({ 26.0f, r.getHeight() * 0.62f, (r.getWidth() - 6.0f) / (0.64f * static_cast<float>(label.length())) });
     if (label.isNotEmpty() && height >= 9.0f)
     {
-        // The text and its outline are made once per label and size, then
-        // moved into place: building them is most of the cost of a frame.
-        const auto& shapes = labelShapes(label, height);
-        const auto at = juce::AffineTransform::translation(r.getCentreX() - shapes.text.getBounds().getCentreX(),
-                                                           r.getCentreY() - shapes.text.getBounds().getCentreY());
-        if (audible)
-        {
-            g.setColour(theme::background.withAlpha(0.7f));
-            g.fillPath(shapes.outline, at);
-        }
-        g.setColour(juce::Colours::white.withAlpha(audible ? (sounding ? 1.0f : 0.7f) : 0.3f));
-        g.fillPath(shapes.text, at);
+        // The text and its outline are drawn once per label, size and look,
+        // then copied into place, on whole device pixels so nothing is
+        // resampled: filling them for every note is most of the cost of a tile.
+        const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+        const auto& drawn = labelImage(label, height, !audible ? 0 : sounding ? 2 : 1, scale);
+        const float x = std::round((r.getCentreX() + drawn.origin.x - snapX_) * scale) / scale + snapX_;
+        const float y = std::round((r.getCentreY() + drawn.origin.y) * scale) / scale;
+        g.setOpacity(1.0f);
+        g.drawImageTransformed(drawn.image, juce::AffineTransform::scale(1.0f / scale).translated(x, y));
     }
 }
 
 void TrackerView::paintHeaders(juce::Graphics& g)
+{
+    // The headers at rest come from headers_, drawn again only when what
+    // they show changes: drawing every name, toggle, knob and meter cell
+    // each frame costs as much as the lanes. Over them go the meters' lit
+    // cells, which change from frame to frame.
+    const auto& tracks = model_.tune().tracks;
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    if (headerWidth() <= 0 || getHeight() <= 0)
+        return;
+    std::vector<double> key { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
+                              static_cast<double>(headerWidth()), static_cast<double>(getHeight()), scale,
+                              static_cast<double>(laneHeight_), byPatch_ ? 1.0 : 0.0, model_.levelsReady() ? 1.0 : 0.0,
+                              drag_ == Drag::Knob ? static_cast<double>(dragTrack_) : -1.0 };
+    for (int t = 0; t < static_cast<int>(tracks.size()); ++t)
+        for (const double v : { static_cast<double>(trackTop(t)), static_cast<double>(trackHeight(t)), static_cast<double>(knobLevel(t)),
+                                static_cast<double>(model_.gameLevel(t)) })
+            key.push_back(v); // collapse, order and vertical scroll; the knob and the game's level
+    if (key != headersKey_ || !headers_.isValid())
+    {
+        headers_ = juce::Image(juce::Image::RGB, juce::roundToInt(static_cast<float>(headerWidth()) * scale),
+                               juce::roundToInt(static_cast<float>(getHeight()) * scale), false);
+        juce::Graphics layer(headers_);
+        layer.addTransform(juce::AffineTransform::scale(scale));
+        paintHeaderLayer(layer);
+        headersKey_ = std::move(key);
+    }
+    g.saveState();
+    g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+    g.setOpacity(1.0f);
+    g.drawImageTransformed(headers_, juce::AffineTransform::scale(1.0f / scale));
+    g.reduceClipRegion(0, kRulerHeight, headerWidth(), getHeight() - kRulerHeight);
+    for (int t = 0; !compact() && t < static_cast<int>(tracks.size()); ++t)
+        if (trackTop(t) <= getHeight() && trackTop(t) + trackHeight(t) >= kRulerHeight)
+            paintMeter(g, t, true);
+    g.restoreState();
+}
+
+void TrackerView::paintMeter(juce::Graphics& g, int track, bool lit)
+{
+    // The meter: a dark groove of cells, always showing dimmed and lit up
+    // to the level, with a peak hold. As on a DAW's meter, cells are white
+    // up to -12 dB, yellow to -6, orange to -3 and red above.
+    const auto t = static_cast<size_t>(track);
+    const TuneTrack& tr = model_.tune().tracks[t];
+    const bool silent = !model_.tune().audible(tr) || knobLevel(track) <= TuneTrack::kSilent;
+    const auto groove = meterBounds(track).toFloat();
+    if (!lit)
+    {
+        // A silent track's whole meter goes neutral grey.
+        g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
+        g.fillRoundedRectangle(groove, 3.0f);
+        g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
+        g.drawRoundedRectangle(groove, 3.0f, 1.0f);
+    }
+    const auto cellsArea = groove.reduced(2.0f, 2.0f);
+    const float level = t < level_.size() ? level_[t] : 0.0f;
+    const float hold = t < hold_.size() ? hold_[t] : 0.0f;
+    const int cells = static_cast<int>(cellsArea.getWidth() / 3.0f);
+    const float cell = cellsArea.getWidth() / static_cast<float>(cells);
+    const int held = static_cast<int>(hold * static_cast<float>(cells));
+    auto zone = [](float db) { return (db - kMeterFloor) / -kMeterFloor; }; // where a level in dB sits along the meter
+    // Cells of one colour are filled together: setting a colour costs more than a cell.
+    juce::RectangleList<float> run;
+    juce::Colour colour;
+    auto flush = [&] {
+        if (!run.isEmpty())
+        {
+            g.setColour(colour);
+            g.fillRectList(run);
+            run.clear();
+        }
+    };
+    for (int k = 0; k < cells; ++k)
+    {
+        const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
+        const bool on = frac <= level || (k == held && hold > 0.02f);
+        if (lit && !on)
+            continue;
+        const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > zone(-3.0f) ? theme::danger : frac > zone(-6.0f) ? theme::orange
+                               : frac > zone(-12.0f) ? theme::yellow : juce::Colour(0xffeceaf4);
+        const juce::Colour shown = lit ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f);
+        if (shown != colour)
+            flush(), colour = shown;
+        run.addWithoutMerging({ cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight() });
+    }
+    flush();
+}
+
+void TrackerView::paintHeaderLayer(juce::Graphics& g)
 {
     const auto& tracks = model_.tune().tracks;
     g.setColour(theme::panel);
@@ -1285,34 +1400,8 @@ void TrackerView::paintHeaders(juce::Graphics& g)
             g.drawText(db, juce::Rectangle<int>(knob.getCentreX() - kKnobColumn / 2, knob.getBottom() - 1, kKnobColumn, 13), juce::Justification::centred);
         }
 
-        // The meter: a dark groove of cells, always showing dimmed and lit up
-        // to the level, with a peak hold. As on a DAW's meter, cells are white
-        // up to -12 dB, yellow to -6, orange to -3 and red above.
         if (!compact())
-        {
-            const auto groove = meterBounds(ti).toFloat();
-            // A silent track's whole meter goes neutral grey.
-            g.setColour(silent ? juce::Colour(0xff1d1e24) : juce::Colour(0xff1a1c24));
-            g.fillRoundedRectangle(groove, 3.0f);
-            g.setColour(silent ? juce::Colour(0xff3a3b44) : theme::gridBar);
-            g.drawRoundedRectangle(groove, 3.0f, 1.0f);
-            const auto cellsArea = groove.reduced(2.0f, 2.0f);
-            const float level = t < level_.size() ? level_[t] : 0.0f;
-            const float hold = t < hold_.size() ? hold_[t] : 0.0f;
-            const int cells = static_cast<int>(cellsArea.getWidth() / 3.0f);
-            const float cell = cellsArea.getWidth() / static_cast<float>(cells);
-            const int held = static_cast<int>(hold * static_cast<float>(cells));
-            auto zone = [](float db) { return (db - kMeterFloor) / -kMeterFloor; }; // where a level in dB sits along the meter
-            for (int k = 0; k < cells; ++k)
-            {
-                const float frac = (static_cast<float>(k) + 0.5f) / static_cast<float>(cells);
-                const juce::Colour c = silent ? juce::Colour(0xff7a7b86) : frac > zone(-3.0f) ? theme::danger : frac > zone(-6.0f) ? theme::orange
-                                       : frac > zone(-12.0f) ? theme::yellow : juce::Colour(0xffeceaf4);
-                const bool on = frac <= level || (k == held && hold > 0.02f);
-                g.setColour(on ? c : silent ? juce::Colour(0xff2c2d33) : c.withMultipliedSaturation(0.8f).withMultipliedBrightness(0.32f));
-                g.fillRect(cellsArea.getX() + static_cast<float>(k) * cell, cellsArea.getY(), cell - 1.0f, cellsArea.getHeight());
-            }
-        }
+            paintMeter(g, ti, false);
 
         // The volume knob: a ring from silence to +6 dB lit up to the level,
         // a tick at the level the game played, and a raised cap with a pointer.

@@ -79,6 +79,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void songChanged(); // a song opened or closed: its controls, all but OPEN, work while one is open
+    void tick();        // a frame in which the song moves: draws the counters again
 
     std::function<void()> onOpen;
     std::function<void()> onClose;

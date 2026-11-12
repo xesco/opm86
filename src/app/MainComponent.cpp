@@ -617,6 +617,17 @@ void TopBar::songChanged()
             setSongControl(*child, model_.hasTune());
 }
 
+void TopBar::tick()
+{
+    // From frame to frame only the three counters change, with the song's
+    // position and its speed: the buttons and the rest are drawn again when
+    // the play button no longer shows what the model does.
+    if (play_.getToggleState() != model_.playing())
+        repaint();
+    else
+        repaint(counters_.withWidth(std::min(counters_.getWidth(), 130 + 6 + 120 + 6 + 80)));
+}
+
 void TopBar::mouseMove(const juce::MouseEvent& e)
 {
     // The title opens the credits.
@@ -2034,7 +2045,7 @@ void MainComponent::frame(double timestamp)
     {
         view_.repaint();
         chipView_.repaint();
-        top_.repaint();
+        top_.tick();
         overview_.repaint();
         piano_.repaint();
     }
