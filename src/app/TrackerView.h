@@ -157,8 +157,9 @@ private:
     // (lanesKey_), all of them are redrawn at once. When only how the notes
     // look changes (looksKey_), the tiles in view are redrawn over the next
     // frames: a frame starts no new one after kRedrawBudgetMs, so it redraws
-    // about one, and none stalls.
-    static constexpr int kTileWidth = 256;
+    // about one, and none stalls. Tiles are narrow so that drawing the one
+    // coming into view fits in a frame at 120 Hz on a display at 2x.
+    static constexpr int kTileWidth = 64;
     static constexpr double kRedrawBudgetMs = 1.0;
     struct Tile
     {

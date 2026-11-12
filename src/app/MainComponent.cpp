@@ -620,12 +620,21 @@ void TopBar::songChanged()
 void TopBar::tick()
 {
     // From frame to frame only the three counters change, with the song's
-    // position and its speed: the buttons and the rest are drawn again when
+    // position and its speed, and not in every frame: they are drawn again
+    // when their text is new. The buttons and the rest are drawn again when
     // the play button no longer shows what the model does.
+    juce::String counters;
+    if (model_.hasTune())
+    {
+        const VgmSong& song = model_.tune().source();
+        const double p = model_.displayPosition();
+        counters = barBeat(song, p) + clock(p) + juce::String(song.tempo() * model_.speed(), 1);
+    }
     if (play_.getToggleState() != model_.playing())
         repaint();
-    else
+    else if (counters != countersShown_)
         repaint(counters_.withWidth(std::min(counters_.getWidth(), 130 + 6 + 120 + 6 + 80)));
+    countersShown_ = counters;
 }
 
 void TopBar::mouseMove(const juce::MouseEvent& e)
@@ -1275,8 +1284,28 @@ OverviewStrip::~OverviewStrip()
 
 void OverviewStrip::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
-    juce::ignoreUnused(source);
-    repaint();
+    // The view says so in every frame it scrolls, which moves its window
+    // here by a small part of a pixel.
+    if (source == &view_)
+        tick();
+    else
+        repaint();
+}
+
+void OverviewStrip::tick()
+{
+    // The window and the playhead cross the strip slowly: drawn again once
+    // either has moved a quarter of a pixel, or the notes or their order changed.
+    std::vector<double> shows;
+    if (model_.hasTune())
+    {
+        const double scale = 4.0 * lanes().getWidth() / songLength();
+        shows = { static_cast<double>(model_.revision()), static_cast<double>(theme::pitchColoursRevision()), view_.orderByPatch() ? 1.0 : 0.0,
+                  std::round(view_.viewStart() * scale), std::round(view_.visibleSamples() * scale), std::round(model_.displayPosition() * scale) };
+    }
+    if (shows != shows_)
+        repaint();
+    shows_ = std::move(shows);
 }
 
 double OverviewStrip::songLength() const
@@ -1475,20 +1504,10 @@ void PianoStrip::updateRange()
     high_ = low_ + octaves_ * 12 - 1;
 }
 
-void PianoStrip::paint(juce::Graphics& g)
+void PianoStrip::litKeys(std::array<juce::Colour, 128>& lit, std::array<bool, 128>& on) const
 {
-    paintBar(g, theme::magenta);
-    const float alpha = contentAlpha();
-    if (!model_.hasTune() || alpha <= 0.0f)
-        return;
-    updateRange();
-    if (alpha < 1.0f)
-        g.beginTransparencyLayer(alpha);
-
     // The colour of each key under the playhead, playing or stopped, from the
     // tracks that can be heard.
-    std::array<juce::Colour, 128> lit {};
-    std::array<bool, 128> on {};
     std::array<double, 128> struck {}; // when the latest note on each key began
     const double now = model_.displayPosition();
     // Notes played alone light their keys, and no others.
@@ -1531,6 +1550,39 @@ void PianoStrip::paint(juce::Graphics& g)
             const float flash = juce::jlimit(0.0f, 1.0f, 1.0f - static_cast<float>(age / 0.15));
             lit[k] = theme::pitchColour(static_cast<int>(k)).interpolatedWith(juce::Colours::white, flash * 0.75f);
         }
+}
+
+void PianoStrip::tick()
+{
+    // The keys change when a note begins or ends, and for 150 ms after one
+    // begins: drawn again when a key's colour is new.
+    std::vector<juce::uint32> shows;
+    if (model_.hasTune() && contentAlpha() > 0.0f)
+    {
+        std::array<juce::Colour, 128> lit {};
+        std::array<bool, 128> on {};
+        litKeys(lit, on);
+        for (size_t k = 0; k < 128; ++k)
+            shows.push_back(on[k] ? lit[k].getARGB() : 0);
+    }
+    if (shows != shows_)
+        repaint();
+    shows_ = std::move(shows);
+}
+
+void PianoStrip::paint(juce::Graphics& g)
+{
+    paintBar(g, theme::magenta);
+    const float alpha = contentAlpha();
+    if (!model_.hasTune() || alpha <= 0.0f)
+        return;
+    updateRange();
+    if (alpha < 1.0f)
+        g.beginTransparencyLayer(alpha);
+
+    std::array<juce::Colour, 128> lit {};
+    std::array<bool, 128> on {};
+    litKeys(lit, on);
 
     auto isBlack = [](int key) { const int pc = key % 12; return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; };
     int whites = 0;
@@ -2053,8 +2105,8 @@ void MainComponent::frame(double timestamp)
         view_.repaint();
         chipView_.repaint();
         top_.tick();
-        overview_.repaint();
-        piano_.repaint();
+        overview_.tick();
+        piano_.tick();
     }
 }
 
