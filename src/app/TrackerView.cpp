@@ -840,8 +840,8 @@ void TrackerView::paintRuler(juce::Graphics& g)
     // The selection: the ruler tinted over it, with a bar along its foot.
     if (model_.hasSelection())
     {
-        const float x0 = std::max(static_cast<float>(area.getX()), timeToX(model_.selectionStart()));
-        const float x1 = timeToX(model_.selectionEnd());
+        const float x0 = std::max(static_cast<float>(area.getX()), timeToX(model_.selectionStart()) + pixelShift_);
+        const float x1 = timeToX(model_.selectionEnd()) + pixelShift_;
         if (x1 > x0)
         {
             g.setColour(theme::cyan.withAlpha(0.35f));
@@ -860,10 +860,12 @@ void TrackerView::paintRuler(juce::Graphics& g)
         every *= 2;
     const long first = static_cast<long>(std::floor((viewStart_ - song.firstBeat) / beat)) - 1;
     const long last = static_cast<long>(std::ceil((xToTime(static_cast<float>(getWidth())) - song.firstBeat) / beat));
+    // The marks and numbers move with the lanes, in whole device pixels: a
+    // number drawn a fraction of a pixel further each frame changes shape as it goes.
     g.setFont(theme::pixel(10.0f));
     for (long k = first; k <= last; ++k)
     {
-        const float x = timeToX(song.firstBeat + static_cast<double>(k) * beat);
+        const float x = timeToX(song.firstBeat + static_cast<double>(k) * beat) + pixelShift_;
         if (x < lanesX())
             continue;
         const bool bar = ((k % 4) + 4) % 4 == 0;
@@ -919,6 +921,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
     // tiles are copied, not resampled, and the notes stay on them.
     const float exact = timeToX(static_cast<double>(first) * span);
     const float shift = std::round(exact * scale) / scale - exact;
+    pixelShift_ = shift;
     g.saveState();
     g.reduceClipRegion(juce::Rectangle<int>(headerWidth(), kRulerHeight, getWidth() - headerWidth(), getHeight() - kRulerHeight));
     g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);

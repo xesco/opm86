@@ -197,6 +197,7 @@ private:
     const LabelImage& labelImage(const juce::String& label, float height, int look, float scale) const;
     mutable std::map<std::tuple<juce::String, int, int, int>, LabelImage> labelImages_;
     float snapX_ = 0; // labels go on whole device pixels counted from this x, the one the tiles are on
+    float pixelShift_ = 0; // this frame's move of the lanes onto whole device pixels, which the ruler takes too
     double playhead() const { return model_.playing() ? head_ : model_.displayPosition(); } // this frame's, while playing
 
     enum class Drag { None, Lanes, Pan, Select, SelectEdge, SelectMove, Ruler, Knob };
