@@ -211,7 +211,7 @@ public:
     ~OverviewStrip() override;
 
     void paint(juce::Graphics&) override;
-    void tick(); // a frame in which the song moves: draws the strip again if it would show something new
+    void tick(bool whole = false); // a frame in which the song moves: draws again what would show something new, or the whole strip
 
 private:
     void contentDown(const juce::MouseEvent&) override;
@@ -222,6 +222,8 @@ private:
     void centrePlayhead();
     double songLength() const;
     juce::Rectangle<float> lanes() const;
+    juce::Rectangle<float> window() const;   // the frame round the part of the song in view
+    juce::Rectangle<float> playhead() const; // the playhead's line
 
     AppModel& model_;
     TrackerView& view_;
@@ -233,6 +235,7 @@ private:
     bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release
     std::vector<double> shows_; // what the strip showed at the last tick
+    juce::Rectangle<float> moving_; // and where its window and playhead were
 };
 
 // A keyboard of 3 to 7 octaves round the song's notes, lighting the keys of

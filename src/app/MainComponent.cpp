@@ -1288,26 +1288,48 @@ void OverviewStrip::changeListenerCallback(juce::ChangeBroadcaster* source)
 {
     // The view says so in every frame it scrolls, which moves its window
     // here by a small part of a pixel.
-    if (source == &view_)
-        tick();
-    else
-        repaint();
+    tick(source != &view_);
 }
 
-void OverviewStrip::tick()
+void OverviewStrip::tick(bool whole)
 {
     // The window and the playhead cross the strip slowly: drawn again once
-    // either has moved a quarter of a pixel, or the notes or their order changed.
+    // either has moved a quarter of a pixel, and then only where they were
+    // and where they are now. A strip as wide as the window costs as much to
+    // draw as the tracks do. The whole strip is drawn when the notes, their
+    // colours or their order changed.
+    constexpr size_t kNotes = 3; // the first of shows are the notes' part
     std::vector<double> shows;
+    juce::Rectangle<float> moving;
     if (model_.hasTune())
     {
         const double scale = 4.0 * lanes().getWidth() / songLength();
         shows = { static_cast<double>(model_.revision()), static_cast<double>(theme::pitchColoursRevision()), view_.orderByPatch() ? 1.0 : 0.0,
                   std::round(view_.viewStart() * scale), std::round(view_.visibleSamples() * scale), std::round(model_.displayPosition() * scale) };
+        moving = window().getUnion(playhead()).expanded(2.0f); // with the frame's line and soft edges
     }
-    if (shows != shows_)
+    if (whole || shows.size() != shows_.size() || !std::equal(shows.begin(), shows.begin() + static_cast<long>(std::min(kNotes, shows.size())), shows_.begin()))
         repaint();
+    else if (shows != shows_)
+        repaint(moving.getUnion(moving_).getSmallestIntegerContainer());
     shows_ = std::move(shows);
+    moving_ = moving;
+}
+
+juce::Rectangle<float> OverviewStrip::window() const
+{
+    const auto area = lanes();
+    const double length = songLength();
+    const float x0 = area.getX() + static_cast<float>(view_.viewStart() / length) * area.getWidth();
+    const float w = std::max(6.0f, static_cast<float>(view_.visibleSamples() / length) * area.getWidth());
+    return juce::Rectangle<float>(x0, area.getY() - 3, w, area.getHeight() + 6).getIntersection(area.expanded(2.0f, 3.0f));
+}
+
+juce::Rectangle<float> OverviewStrip::playhead() const
+{
+    const auto area = lanes();
+    const float px = area.getX() + static_cast<float>(model_.displayPosition() / songLength()) * area.getWidth();
+    return { px - 0.5f, area.getY() - 4, 1.5f, area.getHeight() + 8 };
 }
 
 double OverviewStrip::songLength() const
@@ -1363,18 +1385,14 @@ void OverviewStrip::paint(juce::Graphics& g)
     g.drawImageAt(density_, static_cast<int>(area.getX()), static_cast<int>(area.getY()));
 
     // The visible window.
-    const float x0 = area.getX() + static_cast<float>(view_.viewStart() / length) * area.getWidth();
-    const float w = std::max(6.0f, static_cast<float>(view_.visibleSamples() / length) * area.getWidth());
-    const auto window = juce::Rectangle<float>(x0, area.getY() - 3, w, area.getHeight() + 6).getIntersection(area.expanded(2.0f, 3.0f));
     g.setColour(theme::cyan.withAlpha(0.12f));
-    g.fillRoundedRectangle(window, 3.0f);
+    g.fillRoundedRectangle(window(), 3.0f);
     g.setColour(theme::cyan);
-    g.drawRoundedRectangle(window, 3.0f, 1.5f);
+    g.drawRoundedRectangle(window(), 3.0f, 1.5f);
 
     // Playhead.
-    const float px = area.getX() + static_cast<float>(model_.displayPosition() / length) * area.getWidth();
     g.setColour(theme::orange);
-    g.fillRect(px - 0.5f, area.getY() - 4, 1.5f, area.getHeight() + 8);
+    g.fillRect(playhead());
     if (alpha < 1.0f)
         g.endTransparencyLayer();
 }
