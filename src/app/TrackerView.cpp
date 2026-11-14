@@ -142,27 +142,40 @@ const TrackerView::LabelShapes& TrackerView::labelShapes(const juce::String& lab
 const TrackerView::LabelImage& TrackerView::labelImage(const juce::String& label, float height, int look, float scale) const
 {
     const int size = static_cast<int>(std::lround(height * 2.0f)); // as labelShapes
-    const auto key = std::make_tuple(label, size, look, juce::roundToInt(scale * 100.0f));
-    if (auto it = labelImages_.find(key); it != labelImages_.end())
+    auto key = [&](int k) { return std::make_tuple(label, size, k, juce::roundToInt(scale * 100.0f)); };
+    if (auto it = labelImages_.find(key(look)); it != labelImages_.end())
         return it->second;
     if (labelImages_.size() > 1500)
         labelImages_.clear();
     const auto& shapes = labelShapes(label, height);
     const auto bounds = shapes.outline.getBounds().getUnion(shapes.text.getBounds()).expanded(1.0f);
+    const auto transform = juce::AffineTransform::translation(-bounds.getX(), -bounds.getY()).scaled(scale);
     LabelImage drawn;
     drawn.origin = bounds.getPosition() - shapes.text.getBounds().getCentre();
     drawn.image = juce::Image(juce::Image::ARGB, std::max(1, static_cast<int>(std::ceil(bounds.getWidth() * scale))),
                               std::max(1, static_cast<int>(std::ceil(bounds.getHeight() * scale))), true);
-    juce::Graphics g(drawn.image);
-    g.addTransform(juce::AffineTransform::translation(-bounds.getX(), -bounds.getY()).scaled(scale));
     if (look > 0)
     {
+        juce::Graphics g(drawn.image);
+        g.addTransform(transform);
         g.setColour(theme::background.withAlpha(0.7f));
         g.fillPath(shapes.outline);
     }
-    g.setColour(juce::Colours::white.withAlpha(look == 0 ? 0.3f : look == 2 ? 1.0f : 0.7f));
-    g.fillPath(shapes.text);
-    return labelImages_.emplace(key, std::move(drawn)).first->second;
+    // The outline is most of the cost, and a note at rest and the same note
+    // sounding differ only in the text over it. Both are made now, from one
+    // outline, so the frame in which a note first sounds fills none.
+    constexpr float alphas[] { 0.3f, 0.7f, 1.0f }; // the text's, by look
+    const int first = look == 0 ? 0 : 1, last = look == 0 ? 0 : 2;
+    for (int k = first; k <= last; ++k)
+    {
+        LabelImage one { k < last ? drawn.image.createCopy() : drawn.image, drawn.origin };
+        juce::Graphics g(one.image);
+        g.addTransform(transform);
+        g.setColour(juce::Colours::white.withAlpha(alphas[k]));
+        g.fillPath(shapes.text);
+        labelImages_.emplace(key(k), std::move(one));
+    }
+    return labelImages_.find(key(look))->second;
 }
 
 TrackerView::TrackerView(AppModel& model) : model_(model)
@@ -890,7 +903,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
 {
     // The lanes at rest come from tiles_, drawn only when needed: drawing
     // every note each frame is most of a frame's cost. Over them go the notes
-    // sounding now, which change from frame to frame.
+    // sounding now, each copied from lit_.
     const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const float height = static_cast<float>(getHeight() - kRulerHeight);
     if (static_cast<float>(getWidth()) <= lanesX() || height <= 0.0f)
@@ -901,7 +914,7 @@ void TrackerView::paintLanes(juce::Graphics& g)
     for (int t = 0; t < static_cast<int>(model_.tune().tracks.size()); ++t)
         key.push_back(trackTop(t)), key.push_back(trackHeight(t)); // collapse, order, lane height and vertical scroll
     if (key != lanesKey_)
-        tiles_.clear(), lanesKey_ = std::move(key);
+        tiles_.clear(), lit_.clear(), lanesKey_ = std::move(key);
     // How the notes look: edits (mute, solo, volume), the build's channels,
     // the colours, the selected notes and the pitch lines. Redrawn over frames.
     std::vector<double> looks { static_cast<double>(model_.revision()), static_cast<double>(model_.reportRevision()),
@@ -955,7 +968,8 @@ void TrackerView::paintLanes(juce::Graphics& g)
     if (behind)
         repaint(); // the next frame goes on with the rest
 
-    // The notes sounding now, over the rest with their glow.
+    // The notes sounding now, over the rest with their glow; the ones that
+    // have stopped are dropped.
     if (model_.playing())
     {
         g.addTransform(juce::AffineTransform::translation(shift, 0.0f));
@@ -972,13 +986,40 @@ void TrackerView::paintLanes(juce::Graphics& g)
                                        [](const TuneNote& n, double time) { return static_cast<double>(n.start) < time; });
             for (; it != notes.end() && static_cast<double>(it->start) <= now; ++it)
                 if (isSounding(static_cast<int>(t), *it))
-                {
-                    const int i = static_cast<int>(it - notes.begin());
-                    paintNote(g, static_cast<int>(t), i, noteBounds(static_cast<int>(t), i));
-                }
+                    paintLit(g, static_cast<int>(t), static_cast<int>(it - notes.begin()), scale);
         }
     }
+    for (auto it = lit_.begin(); it != lit_.end();)
+        it = std::exchange(it->second.shown, false) ? std::next(it) : lit_.erase(it);
     g.restoreState();
+}
+
+void TrackerView::paintLit(juce::Graphics& g, int track, int note, float scale)
+{
+    const auto r = noteBounds(track, note);
+    const auto area = r.expanded(kGlow + 1.0f); // with the soft edge of the glow's last pixel
+    const float width = std::ceil(area.getWidth() * scale) + 1.0f, height = std::ceil(area.getHeight() * scale) + 1.0f; // and the part of a pixel it starts at
+    if (width * height > kLitPixels)
+        return paintNote(g, track, note, r);
+    auto& lit = lit_[{ track, model_.tune().tracks[static_cast<size_t>(track)].notes[static_cast<size_t>(note)].id }];
+    lit.shown = true;
+    if (!lit.image.isValid() || lit.looks != looksVersion_)
+    {
+        // The image starts on a device pixel, counted as the tiles' are, so
+        // the note is drawn in it where it falls among them.
+        const juce::Point<float> origin(std::floor((area.getX() - snapX_) * scale) / scale + snapX_, std::floor(area.getY() * scale) / scale);
+        lit.inset = r.getPosition() - origin;
+        lit.image = juce::Image(juce::Image::ARGB, static_cast<int>(width), static_cast<int>(height), true);
+        lit.looks = looksVersion_;
+        juce::Graphics layer(lit.image);
+        layer.addTransform(juce::AffineTransform::translation(-origin.x, -origin.y).scaled(scale));
+        paintNote(layer, track, note, r);
+    }
+    // The lanes move by whole device pixels, so the image lands on one each
+    // frame and is copied, not resampled.
+    const float x = std::round((r.getX() - lit.inset.x - snapX_) * scale) / scale + snapX_;
+    g.setOpacity(1.0f);
+    g.drawImageTransformed(lit.image, juce::AffineTransform::scale(1.0f / scale).translated(x, r.getY() - lit.inset.y));
 }
 
 void TrackerView::paintLaneLayer(juce::Graphics& g, float right)
@@ -1100,10 +1141,27 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
                                    : base.withMultipliedSaturation(0.7f).withMultipliedBrightness(0.5f);
     if (sounding && audible)
     {
-        for (const auto& [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
+        // The glow is three layers, each smaller and stronger than the one
+        // under it, with the body over them all. A translucent fill costs 40
+        // times an opaque one, pixel for pixel, so each layer is filled only
+        // where it is the top one, as strong as the layers there add up to:
+        // around the next layer, and the last around the body. Filled whole,
+        // the glow of a few long notes took most of a frame.
+        struct Layer { float grow, alpha; };
+        constexpr Layer layers[] { { kGlow, 0.06f }, { 4.0f, 0.12f }, { 2.0f, 0.25f } };
+        float through = 1.0f; // how much of what is behind shows through the layers so far
+        for (size_t k = 0; k < std::size(layers); ++k)
         {
-            g.setColour(base.withAlpha(alpha));
-            g.fillRoundedRectangle(r.expanded(grow), 3.0f + grow);
+            juce::Path ring;
+            ring.setUsingNonZeroWinding(false); // the second shape is a hole in the first
+            ring.addRoundedRectangle(r.expanded(layers[k].grow), 3.0f + layers[k].grow);
+            if (k + 1 < std::size(layers))
+                ring.addRoundedRectangle(r.expanded(layers[k + 1].grow), 3.0f + layers[k + 1].grow);
+            else if (fill.isOpaque() && r.getWidth() > 3.0f)
+                ring.addRoundedRectangle(r.withTrimmedRight(1.0f).reduced(1.0f), 2.0f); // just inside the body, drawn below
+            through *= 1.0f - layers[k].alpha;
+            g.setColour(base.withAlpha(1.0f - through));
+            g.fillPath(ring);
         }
     }
     // A small gap and a dark outline keep touching notes apart.

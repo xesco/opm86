@@ -16,6 +16,8 @@ constexpr int kOverviewHeight = 54; // the overview's least height
 constexpr int kPianoHeight = 66;    // the keys' least height
 constexpr int kStripMaxHeight = 132; // both strips' greatest height; they open at 70% of it
 constexpr int kStatusHeight = 30;
+// The top bar's counters: bar and beat, time and tempo, with a gap between.
+constexpr int kBarBeatWidth = 130, kClockWidth = 120, kTempoWidth = 80, kCounterGap = 6;
 
 // Flat, rounded controls in the theme's colours and fonts.
 class TrackerLook : public juce::LookAndFeel_V4
@@ -633,7 +635,7 @@ void TopBar::tick()
     if (play_.getToggleState() != model_.playing())
         repaint();
     else if (counters != countersShown_)
-        repaint(counters_.withWidth(std::min(counters_.getWidth(), 130 + 6 + 120 + 6 + 80)));
+        repaint(counters_.withWidth(std::min(counters_.getWidth(), kBarBeatWidth + kCounterGap + kClockWidth + kCounterGap + kTempoWidth)));
     countersShown_ = counters;
 }
 
@@ -767,11 +769,11 @@ void TopBar::paint(juce::Graphics& g)
     {
         const VgmSong& song = model_.tune().source();
         const double p = model_.displayPosition();
-        drawLed(g, c.removeFromLeft(130), "BAR.BEAT", barBeat(song, p), theme::orange);
-        c.removeFromLeft(6);
-        drawLed(g, c.removeFromLeft(120), "TIME", clock(p), theme::cyan);
-        c.removeFromLeft(6);
-        drawLed(g, c.removeFromLeft(80), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
+        drawLed(g, c.removeFromLeft(kBarBeatWidth), "BAR.BEAT", barBeat(song, p), theme::orange);
+        c.removeFromLeft(kCounterGap);
+        drawLed(g, c.removeFromLeft(kClockWidth), "TIME", clock(p), theme::cyan);
+        c.removeFromLeft(kCounterGap);
+        drawLed(g, c.removeFromLeft(kTempoWidth), "BPM", juce::String(song.tempo() * model_.speed(), 1), theme::magenta);
         c.removeFromLeft(10);
         g.setFont(theme::mono(17.0f, true));
         g.setColour(theme::text);
@@ -781,7 +783,7 @@ void TopBar::paint(juce::Graphics& g)
         g.drawText("length " + clock(song.length), c.withTrimmedTop(c.getHeight() / 2 + 2), juce::Justification::topLeft, true);
     }
     else
-        drawLed(g, c.removeFromLeft(130), "BAR.BEAT", "---.-.-", theme::faint);
+        drawLed(g, c.removeFromLeft(kBarBeatWidth), "BAR.BEAT", "---.-.-", theme::faint);
 }
 
 // ToolBar ---------------------------------------------------------------------
