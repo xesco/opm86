@@ -1100,10 +1100,27 @@ void TrackerView::paintNote(juce::Graphics& g, int track, int note, juce::Rectan
                                    : base.withMultipliedSaturation(0.7f).withMultipliedBrightness(0.5f);
     if (sounding && audible)
     {
-        for (const auto& [grow, alpha] : { std::pair { 7.0f, 0.06f }, std::pair { 4.0f, 0.12f }, std::pair { 2.0f, 0.25f } })
+        // The glow is three layers, each smaller and stronger than the one
+        // under it, with the body over them all. A translucent fill costs 40
+        // times an opaque one, pixel for pixel, so each layer is filled only
+        // where it is the top one, as strong as the layers there add up to:
+        // around the next layer, and the last around the body. Filled whole,
+        // the glow of a few long notes took most of a frame.
+        struct Layer { float grow, alpha; };
+        constexpr Layer layers[] { { 7.0f, 0.06f }, { 4.0f, 0.12f }, { 2.0f, 0.25f } };
+        float through = 1.0f; // how much of what is behind shows through the layers so far
+        for (size_t k = 0; k < std::size(layers); ++k)
         {
-            g.setColour(base.withAlpha(alpha));
-            g.fillRoundedRectangle(r.expanded(grow), 3.0f + grow);
+            juce::Path ring;
+            ring.setUsingNonZeroWinding(false); // the second shape is a hole in the first
+            ring.addRoundedRectangle(r.expanded(layers[k].grow), 3.0f + layers[k].grow);
+            if (k + 1 < std::size(layers))
+                ring.addRoundedRectangle(r.expanded(layers[k + 1].grow), 3.0f + layers[k + 1].grow);
+            else if (fill.isOpaque() && r.getWidth() > 3.0f)
+                ring.addRoundedRectangle(r.withTrimmedRight(1.0f).reduced(1.0f), 2.0f); // just inside the body, drawn below
+            through *= 1.0f - layers[k].alpha;
+            g.setColour(base.withAlpha(1.0f - through));
+            g.fillPath(ring);
         }
     }
     // A small gap and a dark outline keep touching notes apart.
