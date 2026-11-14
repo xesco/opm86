@@ -214,7 +214,6 @@ public:
     void tick(); // a frame in which the song moves: draws the strip again if it would show something new
 
 private:
-    std::vector<double> shows_; // what the strip showed at the last tick
     void contentDown(const juce::MouseEvent&) override;
     void contentDrag(const juce::MouseEvent&) override;
     void contentUp(const juce::MouseEvent&) override;
@@ -233,6 +232,7 @@ private:
     double grabOffset_ = 0;
     bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release
+    std::vector<double> shows_; // what the strip showed at the last tick
 };
 
 // A keyboard of 3 to 7 octaves round the song's notes, lighting the keys of
@@ -250,7 +250,6 @@ public:
 
 private:
     void litKeys(std::array<juce::Colour, 128>& lit, std::array<bool, 128>& on) const; // the keys sounding at the playhead, and their colours
-    std::vector<juce::uint32> shows_; // each key's colour at the last tick
     void updateRange();
     void setOctaves(int octaves);
     AppModel& model_;
@@ -259,6 +258,7 @@ private:
     IconButton fewer_ { IconButton::Icon::FewerKeys }, more_ { IconButton::Icon::MoreKeys };
     IconButton names_ { IconButton::Icon::NoteNames }; // on, the notes sounding are named under their keys
     int low_ = 36, high_ = 95; // MIDI keys shown, whole octaves C to B
+    std::vector<juce::uint32> shows_; // each key's colour at the last tick
 };
 
 class MainComponent : public juce::Component, public juce::FileDragAndDropTarget, private juce::ChangeListener

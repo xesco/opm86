@@ -112,7 +112,7 @@ if(APPLE)
     endif()
 endif()
 target_compile_definitions(opm86_player PRIVATE
-    JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS=1
+    JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS=1 # macOS: the Metal layer, as above
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_APPLICATION_NAME_STRING="OPM86 Player"
