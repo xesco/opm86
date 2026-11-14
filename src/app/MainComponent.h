@@ -253,6 +253,17 @@ public:
 
 private:
     void litKeys(std::array<juce::Colour, 128>& lit, std::array<bool, 128>& on) const; // the keys sounding at the playhead, and their colours
+    juce::Rectangle<float> keysArea() const;         // where the keys go
+    juce::Rectangle<float> keyBounds(int key) const; // a key shown: a white key's whole column, a black key's own shape
+    juce::Rectangle<int> keyReach(int key) const;    // what a key changes when it goes down or comes up: itself and its name
+    float nameSize() const;                          // of the names of the notes sounding
+    void paintKeys(juce::Graphics&, const std::array<juce::Colour, 128>& lit, const std::array<bool, 128>& on) const; // the keys in the part being drawn
+    // The strip with no key down, drawn when its size, its range or the
+    // display's scale changes. A frame copies it and draws again only the
+    // parts round the keys down: shaping sixty keys each time one changed
+    // colour cost as much as drawing the tracks.
+    juce::Image rest_;
+    std::vector<float> restKey_;
     void updateRange();
     void setOctaves(int octaves);
     AppModel& model_;

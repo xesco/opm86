@@ -1585,45 +1585,133 @@ void PianoStrip::tick()
         for (size_t k = 0; k < 128; ++k)
             shows.push_back(on[k] ? lit[k].getARGB() : 0);
     }
-    if (shows != shows_)
+    // Only where the keys that changed are: the rest of the strip is as it was.
+    if (shows.size() != shows_.size())
         repaint();
+    else if (shows != shows_)
+    {
+        juce::Rectangle<int> changed;
+        for (int k = low_; k <= high_; ++k)
+            if (shows[static_cast<size_t>(k)] != shows_[static_cast<size_t>(k)])
+                changed = changed.getUnion(keyReach(k));
+        repaint(changed);
+    }
     shows_ = std::move(shows);
+}
+
+namespace
+{
+bool isBlackKey(int key)
+{
+    const int pc = key % 12;
+    return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
+}
+} // namespace
+
+juce::Rectangle<float> PianoStrip::keysArea() const
+{
+    return content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
+}
+
+juce::Rectangle<float> PianoStrip::keyBounds(int key) const
+{
+    const auto area = keysArea();
+    int whites = 0, before = 0; // the white keys shown, and those left of this key
+    for (int k = low_; k <= high_; ++k)
+        if (!isBlackKey(k))
+            ++whites, before += k < key ? 1 : 0;
+    const float keyWidth = area.getWidth() / static_cast<float>(whites);
+    const float x = area.getX() + static_cast<float>(before) * keyWidth;
+    // A black key, against a white one: 0.57 as wide and 0.58 as tall, over the line between two.
+    if (isBlackKey(key))
+        return { x - keyWidth * 0.57f * 0.5f, area.getY(), keyWidth * 0.57f, area.getHeight() * 0.58f };
+    return { x, area.getY(), keyWidth, area.getHeight() };
+}
+
+float PianoStrip::nameSize() const
+{
+    // One size on white and black keys: as a black key allows.
+    return std::max(11.0f, 0.75f * juce::jlimit(13.0f, 32.0f, std::min(keyBounds(low_).getWidth() * 0.6f, keysArea().getHeight() * 0.42f)));
+}
+
+juce::Rectangle<int> PianoStrip::keyReach(int key) const
+{
+    // The key, with the outline it has when down, which goes a quarter past
+    // its shape, and its name where that is wider: three letters and their outline.
+    const auto bounds = keyBounds(key);
+    const float name = names_.getToggleState() ? nameSize() * 1.1f + 2.0f : 0.0f; // half its width
+    const float outline = isBlackKey(key) ? 1.0f : 0.0f; // a white key's shape is half a point inside its column
+    return bounds.expanded(std::max(outline, name - bounds.getWidth() * 0.5f), 1.0f).getSmallestIntegerContainer();
 }
 
 void PianoStrip::paint(juce::Graphics& g)
 {
-    paintBar(g, theme::magenta);
+    // The strip with no key down comes from rest_. Over it, the part round
+    // each key that is down is drawn again as the whole strip would be.
     const float alpha = contentAlpha();
-    if (!model_.hasTune() || alpha <= 0.0f)
-        return;
-    updateRange();
-    if (alpha < 1.0f)
-        g.beginTransparencyLayer(alpha);
-
+    const bool keys = model_.hasTune() && alpha > 0.0f;
+    if (keys)
+        updateRange();
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const std::vector<float> key { static_cast<float>(getWidth()), static_cast<float>(getHeight()), static_cast<float>(headerWidth()), scale,
+                                   keys ? alpha : 0.0f, static_cast<float>(low_), static_cast<float>(high_) };
     std::array<juce::Colour, 128> lit {};
     std::array<bool, 128> on {};
+    auto paintAll = [&](juce::Graphics& to) {
+        paintBar(to, theme::magenta);
+        if (!keys)
+            return;
+        if (alpha < 1.0f)
+            to.beginTransparencyLayer(alpha);
+        paintKeys(to, lit, on);
+        if (alpha < 1.0f)
+            to.endTransparencyLayer();
+    };
+    if (key != restKey_ || !rest_.isValid())
+    {
+        rest_ = juce::Image(juce::Image::RGB, std::max(1, juce::roundToInt(static_cast<float>(getWidth()) * scale)),
+                            std::max(1, juce::roundToInt(static_cast<float>(getHeight()) * scale)), false);
+        juce::Graphics layer(rest_);
+        layer.addTransform(juce::AffineTransform::scale(scale));
+        paintAll(layer);
+        restKey_ = key;
+    }
+    g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
+    g.setOpacity(1.0f);
+    g.drawImageTransformed(rest_, juce::AffineTransform::scale(1.0f / scale));
+    if (!keys)
+        return;
     litKeys(lit, on);
-
-    auto isBlack = [](int key) { const int pc = key % 12; return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; };
-    int whites = 0;
+    juce::RectangleList<int> parts; // joined where two overlap, so none is drawn twice
     for (int k = low_; k <= high_; ++k)
-        whites += isBlack(k) ? 0 : 1;
-    const auto area = content().withTrimmedLeft(headerWidth()).reduced(8, 6).withTrimmedTop(3).toFloat();
-    const float keyWidth = area.getWidth() / static_cast<float>(whites);
-    const float blackWidth = keyWidth * 0.57f, blackHeight = area.getHeight() * 0.58f; // a black key, against a white one
-    // Names grow with the keys: the octave on each C, and the notes sounding.
+        if (on[static_cast<size_t>(k)] && g.clipRegionIntersects(keyReach(k)))
+            parts.add(keyReach(k));
+    for (const auto& part : parts)
+    {
+        g.saveState();
+        g.reduceClipRegion(part);
+        paintAll(g);
+        g.restoreState();
+    }
+}
+
+void PianoStrip::paintKeys(juce::Graphics& g, const std::array<juce::Colour, 128>& lit, const std::array<bool, 128>& on) const
+{
+    const auto area = keysArea();
+    const float keyWidth = keyBounds(low_).getWidth();
+    // The octave on each C grows with the keys.
     const float octaveSize = juce::jlimit(7.0f, 24.0f, std::min(keyWidth * 0.5f, area.getHeight() * 0.32f));
-    // The notes' names, one size on white and black keys: as a black key allows.
-    const float nameSize = std::max(11.0f, 0.75f * juce::jlimit(13.0f, 32.0f, std::min(keyWidth * 0.6f, area.getHeight() * 0.42f)));
+    // A key outside the part being drawn is left out.
+    const auto clip = g.getClipBounds();
+    auto isDown = [&](int k) { return on[static_cast<size_t>(k)]; };
 
     // White keys, then black keys over them.
-    float x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        if (isBlack(k))
+        if (isBlackKey(k) || !keyBounds(k).getSmallestIntegerContainer().intersects(clip))
             continue;
-        const auto key = juce::Rectangle<float>(x, area.getY(), keyWidth, area.getHeight()).reduced(0.5f, 0.0f);
-        const bool down = on[static_cast<size_t>(k)];
+        const auto key = keyBounds(k).reduced(0.5f, 0.0f);
+        const bool down = isDown(k);
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xffcfcde3));
         g.fillRoundedRectangle(key, 2.5f);
         if (down)
@@ -1638,18 +1726,13 @@ void PianoStrip::paint(juce::Graphics& g)
             g.setFont(theme::mono(octaveSize, true));
             g.drawText(theme::noteName(k).removeCharacters("-"), key.withTrimmedTop(key.getHeight() - octaveSize - 5.0f), juce::Justification::centred, false);
         }
-        x += keyWidth;
     }
-    x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        if (!isBlack(k))
-        {
-            x += keyWidth;
+        if (!isBlackKey(k) || !keyReach(k).intersects(clip))
             continue;
-        }
-        const auto key = juce::Rectangle<float>(x - blackWidth * 0.5f, area.getY(), blackWidth, blackHeight);
-        const bool down = on[static_cast<size_t>(k)];
+        const auto key = keyBounds(k);
+        const bool down = isDown(k);
         g.setColour(down ? lit[static_cast<size_t>(k)] : juce::Colour(0xff1b1e30));
         g.fillRoundedRectangle(key, 2.0f);
         // Played, a black outline, as a played white key has a light one.
@@ -1659,30 +1742,23 @@ void PianoStrip::paint(juce::Graphics& g)
 
     // The notes sounding, named under their keys: white with a dark outline,
     // drawn last so no key covers them.
-    x = area.getX();
     for (int k = low_; k <= high_; ++k)
     {
-        const bool black = isBlack(k);
-        const float centre = black ? x : x + keyWidth * 0.5f;
-        if (!black)
-            x += keyWidth;
-        if (!on[static_cast<size_t>(k)] || !names_.getToggleState())
+        if (!names_.getToggleState() || !isDown(k) || !keyReach(k).intersects(clip))
             continue;
-        const float bottom = black ? area.getY() + blackHeight - 2.0f : area.getBottom() - 3.0f;
-        const float size = nameSize;
+        const auto key = keyBounds(k);
+        const float bottom = key.getBottom() - (isBlackKey(k) ? 2.0f : 3.0f);
         juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(theme::mono(size, true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
+        glyphs.addLineOfText(theme::mono(nameSize(), true), theme::noteName(k).removeCharacters("-"), 0.0f, 0.0f);
         const auto bounds = glyphs.getBoundingBox(0, -1, true);
-        glyphs.moveRangeOfGlyphs(0, -1, centre - bounds.getCentreX(), bottom - bounds.getBottom());
+        glyphs.moveRangeOfGlyphs(0, -1, key.getCentreX() - bounds.getCentreX(), bottom - bounds.getBottom());
         juce::Path text;
         glyphs.createPath(text);
         g.setColour(theme::background.withAlpha(0.85f));
-        g.strokePath(text, juce::PathStrokeType(std::max(3.0f, size * 0.2f), juce::PathStrokeType::curved));
+        g.strokePath(text, juce::PathStrokeType(std::max(3.0f, nameSize() * 0.2f), juce::PathStrokeType::curved));
         g.setColour(juce::Colours::white);
         g.fillPath(text);
     }
-    if (alpha < 1.0f)
-        g.endTransparencyLayer();
 }
 
 // MainComponent ---------------------------------------------------------------
