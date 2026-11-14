@@ -142,27 +142,40 @@ const TrackerView::LabelShapes& TrackerView::labelShapes(const juce::String& lab
 const TrackerView::LabelImage& TrackerView::labelImage(const juce::String& label, float height, int look, float scale) const
 {
     const int size = static_cast<int>(std::lround(height * 2.0f)); // as labelShapes
-    const auto key = std::make_tuple(label, size, look, juce::roundToInt(scale * 100.0f));
-    if (auto it = labelImages_.find(key); it != labelImages_.end())
+    auto key = [&](int k) { return std::make_tuple(label, size, k, juce::roundToInt(scale * 100.0f)); };
+    if (auto it = labelImages_.find(key(look)); it != labelImages_.end())
         return it->second;
     if (labelImages_.size() > 1500)
         labelImages_.clear();
     const auto& shapes = labelShapes(label, height);
     const auto bounds = shapes.outline.getBounds().getUnion(shapes.text.getBounds()).expanded(1.0f);
+    const auto transform = juce::AffineTransform::translation(-bounds.getX(), -bounds.getY()).scaled(scale);
     LabelImage drawn;
     drawn.origin = bounds.getPosition() - shapes.text.getBounds().getCentre();
     drawn.image = juce::Image(juce::Image::ARGB, std::max(1, static_cast<int>(std::ceil(bounds.getWidth() * scale))),
                               std::max(1, static_cast<int>(std::ceil(bounds.getHeight() * scale))), true);
-    juce::Graphics g(drawn.image);
-    g.addTransform(juce::AffineTransform::translation(-bounds.getX(), -bounds.getY()).scaled(scale));
     if (look > 0)
     {
+        juce::Graphics g(drawn.image);
+        g.addTransform(transform);
         g.setColour(theme::background.withAlpha(0.7f));
         g.fillPath(shapes.outline);
     }
-    g.setColour(juce::Colours::white.withAlpha(look == 0 ? 0.3f : look == 2 ? 1.0f : 0.7f));
-    g.fillPath(shapes.text);
-    return labelImages_.emplace(key, std::move(drawn)).first->second;
+    // The outline is most of the cost, and a note at rest and the same note
+    // sounding differ only in the text over it. Both are made now, from one
+    // outline, so the frame in which a note first sounds fills none.
+    constexpr float alphas[] { 0.3f, 0.7f, 1.0f }; // the text's, by look
+    const int first = look == 0 ? 0 : 1, last = look == 0 ? 0 : 2;
+    for (int k = first; k <= last; ++k)
+    {
+        LabelImage one { k < last ? drawn.image.createCopy() : drawn.image, drawn.origin };
+        juce::Graphics g(one.image);
+        g.addTransform(transform);
+        g.setColour(juce::Colours::white.withAlpha(alphas[k]));
+        g.fillPath(shapes.text);
+        labelImages_.emplace(key(k), std::move(one));
+    }
+    return labelImages_.find(key(look))->second;
 }
 
 TrackerView::TrackerView(AppModel& model) : model_(model)
