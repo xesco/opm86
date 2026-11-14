@@ -169,6 +169,22 @@ private:
     std::map<long, Tile> tiles_;
     std::vector<double> lanesKey_, looksKey_;
     int looksVersion_ = 0;
+    // A note sounding now, with its glow: it looks the same for as long as it
+    // sounds, so it is drawn once, when it starts, and copied into place each
+    // frame after, at a fraction of what filling its glow costs. Dropped when
+    // it stops, and with the tiles when where things are changes; drawn again
+    // when how the notes look changes.
+    struct LitNote
+    {
+        juce::Image image;
+        juce::Point<float> inset; // the note's top left, from the image's
+        int looks = 0;            // the looksVersion_ it was drawn at
+        bool shown = false;       // in the frame being drawn
+    };
+    std::map<NoteRef, LitNote> lit_;
+    static constexpr float kGlow = 7.0f;             // how far the glow reaches past the note
+    static constexpr float kLitPixels = 1024 * 1024; // a note larger than this, zoomed far in, is drawn each frame instead
+    void paintLit(juce::Graphics&, int track, int note, float scale); // a sounding note, from lit_
     void paintHeaders(juce::Graphics&);
     void paintHeaderLayer(juce::Graphics&);                // the headers at rest: all but the meters' lit cells
     void paintMeter(juce::Graphics&, int track, bool lit); // a track's meter at rest, or only its lit cells
