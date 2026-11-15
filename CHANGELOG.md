@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.10 (2026-11-15)
+
+- Strips drawn again only where they changed (#28)
+- Long notes no longer drop frames (#27)
+- Smooth scroll under load (#26)
+
 ## v0.1.9 (2026-11-12)
 
 - Labels show 0.0 dB, never -0.0 (#25)
