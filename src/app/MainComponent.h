@@ -211,7 +211,7 @@ public:
     ~OverviewStrip() override;
 
     void paint(juce::Graphics&) override;
-    void tick(); // a frame in which the song moves: draws the strip again if it would show something new
+    void tick(bool whole = false); // a frame in which the song moves: draws again what would show something new, or the whole strip
 
 private:
     void contentDown(const juce::MouseEvent&) override;
@@ -222,6 +222,8 @@ private:
     void centrePlayhead();
     double songLength() const;
     juce::Rectangle<float> lanes() const;
+    juce::Rectangle<float> window() const;   // the frame round the part of the song in view
+    juce::Rectangle<float> playhead() const; // the playhead's line
 
     AppModel& model_;
     TrackerView& view_;
@@ -233,6 +235,7 @@ private:
     bool held_ = false;   // the window carries the playhead: taken while following it
     bool resume_ = false; // playing when the window was taken: plays again on release
     std::vector<double> shows_; // what the strip showed at the last tick
+    juce::Rectangle<float> moving_; // and where its window and playhead were
 };
 
 // A keyboard of 3 to 7 octaves round the song's notes, lighting the keys of
@@ -250,6 +253,17 @@ public:
 
 private:
     void litKeys(std::array<juce::Colour, 128>& lit, std::array<bool, 128>& on) const; // the keys sounding at the playhead, and their colours
+    juce::Rectangle<float> keysArea() const;         // where the keys go
+    juce::Rectangle<float> keyBounds(int key) const; // a key shown: a white key's whole column, a black key's own shape
+    juce::Rectangle<int> keyReach(int key) const;    // what a key changes when it goes down or comes up: itself and its name
+    float nameSize() const;                          // of the names of the notes sounding
+    void paintKeys(juce::Graphics&, const std::array<juce::Colour, 128>& lit, const std::array<bool, 128>& on) const; // the keys in the part being drawn
+    // The strip with no key down, drawn when its size, its range or the
+    // display's scale changes. A frame copies it and draws again only the
+    // parts round the keys down: shaping sixty keys each time one changed
+    // colour cost as much as drawing the tracks.
+    juce::Image rest_;
+    std::vector<float> restKey_;
     void updateRange();
     void setOctaves(int octaves);
     AppModel& model_;
